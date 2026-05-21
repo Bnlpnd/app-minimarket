@@ -1,0 +1,62 @@
+"use client";
+
+import { useState } from "react";
+import { Header } from "@/components/Header";
+import { Sidebar } from "@/components/Sidebar";
+
+type LayoutProps = {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+};
+
+export function Layout({ title, description, children }: LayoutProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <div className="hidden md:fixed md:inset-y-0 md:left-0 md:block">
+        <Sidebar />
+      </div>
+
+      {isMenuOpen ? (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button
+            type="button"
+            aria-label="Cerrar menu"
+            className="absolute inset-0 bg-slate-950/40"
+            onClick={() => setIsMenuOpen(false)}
+          />
+          <div className="relative h-full w-72 max-w-[86vw] shadow-xl">
+            <Sidebar onNavigate={() => setIsMenuOpen(false)} />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="md:pl-72">
+        <Header title={title} onMenuClick={() => setIsMenuOpen(true)} />
+
+        <main className="min-h-screen">
+          <section className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            <div className="hidden md:block">
+              <p className="text-sm font-medium uppercase tracking-wide text-emerald-700">
+                Minimarket Santa Ana
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+                {title}
+              </h1>
+            </div>
+
+            {description ? (
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
+                {description}
+              </p>
+            ) : null}
+
+            <div className="mt-6">{children}</div>
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
