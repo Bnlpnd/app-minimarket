@@ -107,6 +107,25 @@ export interface UnidadBase {
   updated_at: string;
 }
 
+export interface Rol {
+  id: number;
+  nombre: string;
+  descripcion: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UsuarioPerfil {
+  id: string;
+  rol_id: number | null;
+  nombres: string | null;
+  apellidos: string | null;
+  telefono: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Cliente {
   id: string;
   nombres: string;

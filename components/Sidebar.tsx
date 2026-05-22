@@ -39,6 +39,10 @@ export const navigationItems = [
     items: [{ href: "/clientes", label: "Clientes" }],
   },
   {
+    label: "Personal",
+    items: [{ href: "/personal", label: "Usuarios y roles" }],
+  },
+  {
     label: "Pagos",
     items: [{ href: "/pagos", label: "Validar Yape" }],
   },

@@ -1,9 +1,8 @@
-import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-
 export type AppRole = "admin" | "trabajador" | "cliente" | string;
 
 export type CurrentUserProfile = {
   id: string;
+  email: string | null;
   nombres: string | null;
   apellidos: string | null;
   activo: boolean;
@@ -12,36 +11,48 @@ export type CurrentUserProfile = {
   } | null;
 };
 
-export async function getCurrentUserProfile() {
-  if (supabaseConfigError || !supabase) {
-    return {
-      profile: null,
-      error: supabaseConfigError ?? "No hay conexion a Supabase.",
+export function getStoredAppUser() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawSession = window.localStorage.getItem("app_minimarket_user");
+  if (!rawSession) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawSession) as {
+      id: string;
+      email: string;
+      rol: string;
+      nombres: string | null;
+      apellidos: string | null;
     };
+  } catch {
+    window.localStorage.removeItem("app_minimarket_user");
+    return null;
   }
+}
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  const userId = userData.user?.id;
+export async function getCurrentUserProfile() {
+  const session = getStoredAppUser();
 
-  if (userError && !userError.message.toLowerCase().includes("session")) {
-    return { profile: null, error: userError.message };
-  }
-
-  if (!userId) {
+  if (!session) {
     return { profile: null, error: null };
   }
 
-  const { data, error } = await supabase
-    .from("usuarios_perfil")
-    .select("id,nombres,apellidos,activo,roles(nombre)")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) {
-    return { profile: null, error: error.message };
-  }
-
-  return { profile: data as CurrentUserProfile | null, error: null };
+  return {
+    profile: {
+      id: session.id,
+      email: session.email,
+      nombres: session.nombres,
+      apellidos: session.apellidos,
+      activo: true,
+      roles: { nombre: session.rol },
+    } satisfies CurrentUserProfile,
+    error: null,
+  };
 }
 
 export function isAdmin(profile: CurrentUserProfile | null) {

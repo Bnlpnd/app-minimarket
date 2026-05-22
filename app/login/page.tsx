@@ -21,17 +21,33 @@ export default function LoginPage() {
 
     setIsLoading(true);
     setMessage(null);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
+    const { data, error } = await supabase.rpc("login_app", {
+      p_email: email.trim(),
+      p_password: password,
     });
     setIsLoading(false);
 
-    if (error) {
-      setMessage(`No se pudo iniciar sesion: ${error.message}`);
+    const user = data?.[0];
+
+    if (error || !user) {
+      setMessage(
+        error
+          ? `No se pudo iniciar sesion: ${error.message}`
+          : "Correo o clave incorrectos.",
+      );
       return;
     }
 
+    window.localStorage.setItem(
+      "app_minimarket_user",
+      JSON.stringify({
+        id: user.id,
+        email: user.email,
+        rol: user.rol,
+        nombres: user.nombres,
+        apellidos: user.apellidos,
+      }),
+    );
     router.push("/dashboard");
   }
 
@@ -43,8 +59,7 @@ export default function LoginPage() {
         </p>
         <h1 className="mt-3 text-2xl font-semibold">Ingreso al sistema</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Usa un usuario creado en Supabase Auth. Los permisos se leen desde
-          usuarios_perfil y roles.
+          Usa tu correo y clave asignados por el administrador.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
