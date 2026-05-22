@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { formatDateTime, formatTime } from "@/lib/dateUtils";
 import { generarLinkWhatsApp, generarMensajePedido } from "@/lib/whatsapp";
 import type {
   Cliente,
@@ -38,22 +39,6 @@ type Message = {
 
 function formatMoney(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "Sin fecha";
-  }
-
-  return new Date(value).toLocaleString("es-PE");
-}
-
-function formatTime(value: string | null) {
-  if (!value) {
-    return "Sin hora";
-  }
-
-  return value.slice(0, 5);
 }
 
 function formatEstado(value: string) {
@@ -197,9 +182,14 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
       return "#";
     }
 
-    const mensaje = generarMensajePedido(pedido, pedido.clientes, detalles);
+    const mensaje = generarMensajePedido(
+      pedido,
+      pedido.clientes,
+      detalles,
+      Boolean(pago?.captura_yape_url),
+    );
     return generarLinkWhatsApp(whatsappNegocio, mensaje);
-  }, [detalles, pedido]);
+  }, [detalles, pago?.captura_yape_url, pedido]);
 
   async function updatePedidoEstado(
     estado: PedidoEstado,
@@ -377,6 +367,7 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
               <Info label="Fecha recojo" value={formatDateTime(pedido.fecha_recojo)} />
               <Info label="Hora recojo" value={formatTime(pedido.hora_recojo)} />
               <Info label="Total" value={formatMoney(pedido.total)} strong />
+              <Info label="Entrega" value={pedido.tipo_entrega.replaceAll("_", " ")} />
             </div>
           </Panel>
 
@@ -446,7 +437,15 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
           <Panel title="Cliente">
             <Info label="Nombre" value={cliente?.nombres ?? "Sin cliente"} />
             <Info label="WhatsApp" value={cliente?.telefono ?? "Sin WhatsApp"} />
-            <Info label="Direccion" value={cliente?.direccion ?? "Sin direccion"} />
+            <Info
+              label="Direccion"
+              value={
+                pedido.direccion_entrega ??
+                cliente?.direccion_entrega ??
+                cliente?.direccion ??
+                "Sin direccion"
+              }
+            />
             <Info label="Referencia" value={cliente?.referencia ?? "Sin referencia"} />
           </Panel>
 

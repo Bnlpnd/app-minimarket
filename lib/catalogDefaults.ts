@@ -1,0 +1,32 @@
+export const PRESENTACIONES_INICIALES = [
+  "paquete",
+  "caja",
+  "plancha",
+  "saco",
+  "balde",
+  "java",
+  "unidad",
+  "medio saco",
+  "bolsa",
+  "botella",
+  "bidon",
+  "doypack",
+  "frasco",
+  "lata",
+  "sobre",
+  "sachet",
+  "pote",
+];
+
+export const UNIDADES_BASE_INICIALES = [
+  "litro",
+  "kilo",
+  "gramo",
+  "mililitro",
+  "unidad",
+  "sachet",
+  "casillero",
+  "paquete",
+  "bolsa",
+  "caja",
+];

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-import type { Categoria, Marca, Producto, Subcategoria } from "@/types/database";
+import type { Almacen, Categoria, Marca, Producto, Subcategoria } from "@/types/database";
 
 const REQUIRED_HEADERS = [
   "codigo_interno",
@@ -32,9 +32,13 @@ type ImportRow = {
   presentacion: string | null;
   unidad_base: string | null;
   stock_actual: number;
-  stock_minimo: number | null;
-  precio_compra_referencial: number;
+  stock_actual_explicit: boolean;
+  stock_minimo: number;
+  stock_minimo_explicit: boolean;
+  precio_compra_referencial: number | null;
+  precio_compra_explicit: boolean;
   precio_venta: number;
+  precio_venta_explicit: boolean;
   imagen_url: string | null;
   activo: boolean;
   errors: string[];
@@ -147,7 +151,7 @@ function parseNumber(value: string, fallback: number | null) {
 }
 
 function parsePrice(value: string) {
-  return parseNumber(value, 0);
+  return parseNumber(value, null);
 }
 
 function parseActivo(value: string) {
@@ -207,16 +211,17 @@ function buildImportRows(rows: CsvRow[]) {
     const subcategoria =
       normalizeSpaces(row.subcategoria ?? "") || "Sin subcategoria";
     const marca = normalizeSpaces(row.marca ?? "") || "Sin marca";
-    const stockActualParsed = parseNumber(row.stock_actual ?? "", 0);
+    const stockActualRaw = normalizeSpaces(row.stock_actual ?? "");
+    const stockMinimoRaw = normalizeSpaces(row.stock_minimo ?? "");
+    const precioCompraRaw = normalizeSpaces(row.precio_compra_referencial ?? "");
+    const precioVentaRaw = normalizeSpaces(row.precio_venta ?? "");
+    const stockActualParsed = parseNumber(stockActualRaw, 0);
     const stockActual = stockActualParsed === null ? 0 : stockActualParsed;
-    const stockMinimo = parseNumber(row.stock_minimo ?? "", null);
-    const precioCompraParsed = parsePrice(
-      row.precio_compra_referencial ?? "",
-    );
-    const precioVentaParsed = parsePrice(row.precio_venta ?? "");
-    const precioCompra =
-      precioCompraParsed === null ? 0 : precioCompraParsed;
-    const precioVenta = precioVentaParsed === null ? 0 : precioVentaParsed;
+    const stockMinimoParsed = parseNumber(stockMinimoRaw, 10);
+    const stockMinimo = stockMinimoParsed === null ? 10 : stockMinimoParsed;
+    const precioCompra = parsePrice(precioCompraRaw);
+    const precioVentaParsed = parseNumber(precioVentaRaw, 1);
+    const precioVenta = precioVentaParsed === null ? 1 : precioVentaParsed;
 
     if (!codigoInterno) {
       errors.push("codigo_interno obligatorio");
@@ -242,7 +247,7 @@ function buildImportRows(rows: CsvRow[]) {
       errors.push("stock_minimo no es numerico");
     }
 
-    if (Number.isNaN(precioCompra)) {
+    if (precioCompra !== null && Number.isNaN(precioCompra)) {
       errors.push("precio_compra_referencial no es numerico");
     }
 
@@ -272,11 +277,16 @@ function buildImportRows(rows: CsvRow[]) {
       presentacion: emptyToNull(row.presentacion ?? ""),
       unidad_base: emptyToNull(row.unidad_base ?? ""),
       stock_actual: Number.isNaN(stockActual) ? 0 : stockActual,
-      stock_minimo: Number.isNaN(stockMinimo) ? null : stockMinimo,
-      precio_compra_referencial: Number.isNaN(precioCompra)
-        ? 0
-        : precioCompra,
-      precio_venta: Number.isNaN(precioVenta) ? 0 : precioVenta,
+      stock_actual_explicit: stockActualRaw !== "",
+      stock_minimo: Number.isNaN(stockMinimo) ? 10 : stockMinimo,
+      stock_minimo_explicit: stockMinimoRaw !== "",
+      precio_compra_referencial:
+        precioCompra !== null && Number.isNaN(precioCompra)
+          ? null
+          : precioCompra,
+      precio_compra_explicit: precioCompraRaw !== "",
+      precio_venta: Number.isNaN(precioVenta) ? 1 : precioVenta,
+      precio_venta_explicit: precioVentaRaw !== "",
       imagen_url: emptyToNull(row.imagen_url ?? ""),
       activo: parseActivo(row.activo ?? ""),
       errors,
@@ -309,33 +319,72 @@ function buildReportText(report: ImportReportItem[], summary: ImportSummary) {
   return lines.join("\n");
 }
 
-async function fetchExistingProductCodes() {
+type ExistingProductLite = Pick<
+  Producto,
+  | "id"
+  | "codigo_interno"
+  | "precio_venta"
+  | "precio_compra_referencial"
+  | "stock_minimo"
+>;
+
+async function fetchExistingProducts() {
   const pageSize = 1000;
-  const codes = new Set<string>();
+  const products = new Map<string, ExistingProductLite>();
   let from = 0;
 
   while (true) {
     const { data, error } = await supabase!
       .from("productos")
-      .select("codigo_interno")
+      .select("id,codigo_interno,precio_venta,precio_compra_referencial,stock_minimo")
       .range(from, from + pageSize - 1);
 
     if (error) {
-      return { codes, error };
+      return { products, error };
     }
 
-    const products = (data ?? []) as Pick<Producto, "codigo_interno">[];
+    const rows = (data ?? []) as ExistingProductLite[];
 
-    products.forEach((product) => {
-      codes.add(normalizeKey(product.codigo_interno));
+    rows.forEach((product) => {
+      products.set(normalizeKey(product.codigo_interno), product);
     });
 
-    if (products.length < pageSize) {
-      return { codes, error: null };
+    if (rows.length < pageSize) {
+      return { products, error: null };
     }
 
     from += pageSize;
   }
+}
+
+async function getTiendaAlmacen() {
+  const { data, error } = await supabase!
+    .from("almacenes")
+    .select("*")
+    .ilike("nombre", "tienda")
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return { almacen: null as Almacen | null, error };
+  }
+
+  return { almacen: data as Almacen | null, error: null };
+}
+
+async function upsertStockTienda(
+  productoId: string,
+  almacenId: string,
+  stockActual: number,
+) {
+  return supabase!.from("producto_almacen").upsert(
+    {
+      producto_id: productoId,
+      almacen_id: almacenId,
+      stock_actual: stockActual,
+    },
+    { onConflict: "producto_id,almacen_id" },
+  );
 }
 
 async function ensureCategoria(
@@ -531,7 +580,7 @@ export function ProductoImportCsv({
       marcas: [...initialMarcas],
     };
 
-    const existingProducts = await fetchExistingProductCodes();
+    const existingProducts = await fetchExistingProducts();
 
     if (existingProducts.error) {
       setMessage(
@@ -541,7 +590,18 @@ export function ProductoImportCsv({
       return;
     }
 
-    const existingCodes = existingProducts.codes;
+    const tiendaResult = await getTiendaAlmacen();
+    if (tiendaResult.error || !tiendaResult.almacen) {
+      setMessage(
+        `No se encontro el almacen Tienda: ${
+          tiendaResult.error?.message ?? "crea el almacen Tienda antes de importar"
+        }`,
+      );
+      setIsProcessing(false);
+      return;
+    }
+
+    const existingProductsMap = existingProducts.products;
 
     for (const [index, row] of rows.entries()) {
       setProcessedRows(index + 1);
@@ -553,17 +613,6 @@ export function ProductoImportCsv({
           codigo_interno: row.codigo_interno,
           estado: "error",
           observacion: row.errors.join("; "),
-        });
-        continue;
-      }
-
-      if (existingCodes.has(normalizeKey(row.codigo_interno))) {
-        currentSummary.omitidos += 1;
-        currentReport.push({
-          fila: row.rowNumber,
-          codigo_interno: row.codigo_interno,
-          estado: "omitido",
-          observacion: "Producto ya existe por codigo_interno; no se duplico.",
         });
         continue;
       }
@@ -597,7 +646,80 @@ export function ProductoImportCsv({
         continue;
       }
 
-      const { error } = await supabase.from("productos").insert({
+      const existingProduct = existingProductsMap.get(
+        normalizeKey(row.codigo_interno),
+      );
+
+      if (existingProduct) {
+        const updatePayload: Partial<Producto> = {
+          categoria_id: categoria.id,
+          subcategoria_id: subcategoria.id,
+          nombre_producto: row.nombre_producto,
+          marca_id: marca.id,
+          presentacion: row.presentacion,
+          unidad_base: row.unidad_base,
+          imagen_url: row.imagen_url,
+          activo: row.activo,
+          stock_minimo: row.stock_minimo_explicit
+            ? row.stock_minimo
+            : (existingProduct.stock_minimo ?? 10),
+          precio_venta: row.precio_venta_explicit
+            ? row.precio_venta
+            : (existingProduct.precio_venta ?? 1),
+          precio_compra_referencial: row.precio_compra_explicit
+            ? row.precio_compra_referencial
+            : existingProduct.precio_compra_referencial,
+        };
+
+        const { error } = await supabase
+          .from("productos")
+          .update(updatePayload)
+          .eq("id", existingProduct.id);
+
+        if (error) {
+          currentSummary.errores += 1;
+          currentReport.push({
+            fila: row.rowNumber,
+            codigo_interno: row.codigo_interno,
+            estado: "error",
+            observacion: `No se pudo actualizar producto: ${error.message}`,
+          });
+          continue;
+        }
+
+        if (row.stock_actual_explicit) {
+          const stockResult = await upsertStockTienda(
+            existingProduct.id,
+            tiendaResult.almacen.id,
+            row.stock_actual,
+          );
+
+          if (stockResult.error) {
+            currentSummary.errores += 1;
+            currentReport.push({
+              fila: row.rowNumber,
+              codigo_interno: row.codigo_interno,
+              estado: "error",
+              observacion: `Producto actualizado, pero fallo stock Tienda: ${stockResult.error.message}`,
+            });
+            continue;
+          }
+        }
+
+        currentSummary.actualizados += 1;
+        currentReport.push({
+          fila: row.rowNumber,
+          codigo_interno: row.codigo_interno,
+          estado: "actualizado",
+          observacion:
+            row.stock_actual_explicit
+              ? "Producto actualizado; stock Tienda actualizado desde CSV."
+              : "Producto actualizado; stock existente conservado porque CSV no trajo stock.",
+        });
+        continue;
+      }
+
+      const { data: insertedProduct, error } = await supabase.from("productos").insert({
         codigo_interno: row.codigo_interno,
         categoria_id: categoria.id,
         subcategoria_id: subcategoria.id,
@@ -611,11 +733,15 @@ export function ProductoImportCsv({
         precio_venta: row.precio_venta,
         imagen_url: row.imagen_url,
         activo: row.activo,
-      });
+      }).select("id,codigo_interno,precio_venta,precio_compra_referencial,stock_minimo").single();
 
       if (error) {
         if (error.code === "23505") {
-          existingCodes.add(normalizeKey(row.codigo_interno));
+          const refreshed = await fetchExistingProducts();
+          const duplicated = refreshed.products.get(normalizeKey(row.codigo_interno));
+          if (duplicated) {
+            existingProductsMap.set(normalizeKey(row.codigo_interno), duplicated);
+          }
           currentSummary.omitidos += 1;
           currentReport.push({
             fila: row.rowNumber,
@@ -637,7 +763,25 @@ export function ProductoImportCsv({
         continue;
       }
 
-      existingCodes.add(normalizeKey(row.codigo_interno));
+      const newProduct = insertedProduct as ExistingProductLite;
+      const stockResult = await upsertStockTienda(
+        newProduct.id,
+        tiendaResult.almacen.id,
+        row.stock_actual,
+      );
+
+      if (stockResult.error) {
+        currentSummary.errores += 1;
+        currentReport.push({
+          fila: row.rowNumber,
+          codigo_interno: row.codigo_interno,
+          estado: "error",
+          observacion: `Producto creado, pero fallo stock Tienda: ${stockResult.error.message}`,
+        });
+        continue;
+      }
+
+      existingProductsMap.set(normalizeKey(row.codigo_interno), newProduct);
       currentSummary.creados += 1;
       currentReport.push({
         fila: row.rowNumber,
@@ -801,8 +945,9 @@ export function ProductoImportCsv({
                 Resumen final
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Productos actualizados se mantiene en 0 porque esta importacion
-                no modifica productos existentes; los omite para no duplicar.
+                Los productos existentes se actualizan por codigo interno. El
+                stock de Tienda solo se sobrescribe cuando el CSV trae
+                stock_actual explicito.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

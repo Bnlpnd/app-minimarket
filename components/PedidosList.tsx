@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { formatDate, formatTime } from "@/lib/dateUtils";
 import type { Cliente, Pago, Pedido, PedidoEstado } from "@/types/database";
 
 type PedidoListItem = Pedido & {
@@ -42,22 +43,6 @@ function normalizeSearch(value: string) {
 
 function formatMoney(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "Sin fecha";
-  }
-
-  return new Date(value).toLocaleDateString("es-PE");
-}
-
-function formatTime(value: string | null) {
-  if (!value) {
-    return "Sin hora";
-  }
-
-  return value.slice(0, 5);
 }
 
 function formatEstado(value: PedidoEstado) {

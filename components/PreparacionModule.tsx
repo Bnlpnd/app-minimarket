@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-import type { Cliente, DetallePedido, Pedido, Producto } from "@/types/database";
+import { formatDate, formatTime } from "@/lib/dateUtils";
+import type { Almacen, Cliente, DetallePedido, Pedido, Producto } from "@/types/database";
 
 type UsuarioPerfil = {
   id: string;
@@ -21,6 +22,7 @@ type DetallePreparacion = DetallePedido & {
     Producto,
     "codigo_interno" | "nombre_producto" | "presentacion" | "stock_actual"
   > | null;
+  almacenes: Pick<Almacen, "nombre"> | null;
 };
 
 type Message = {
@@ -30,14 +32,6 @@ type Message = {
 
 function formatMoney(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
-}
-
-function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleDateString("es-PE") : "Sin fecha";
-}
-
-function formatTime(value: string | null) {
-  return value ? value.slice(0, 5) : "Sin hora";
 }
 
 function formatEstado(value: string) {
@@ -102,6 +96,7 @@ export function PreparacionModule() {
           `,
         )
         .in("estado", [
+          "pendiente",
           "pago_validado",
           "en_preparacion",
           "listo_para_recoger",
@@ -121,7 +116,15 @@ export function PreparacionModule() {
       });
       setPedidos([]);
     } else {
-      setPedidos((pedidosResult.data ?? []) as PedidoPreparacion[]);
+      setPedidos(
+        ((pedidosResult.data ?? []) as PedidoPreparacion[]).filter((pedido) => {
+          if (pedido.estado === "pendiente") {
+            return pedido.metodo_pago === "efectivo";
+          }
+
+          return true;
+        }),
+      );
     }
 
     if (usuariosResult.error) {
@@ -149,7 +152,8 @@ export function PreparacionModule() {
       .select(
         `
           *,
-          productos(codigo_interno,nombre_producto,presentacion,stock_actual)
+          productos(codigo_interno,nombre_producto,presentacion,stock_actual),
+          almacenes(nombre)
         `,
       )
       .eq("pedido_id", pedido.id)
@@ -234,11 +238,15 @@ export function PreparacionModule() {
     setIsUpdating(true);
     setMessage(null);
 
+    const currentUserId = await getCurrentUserProfileId();
+    const marcadorId = preparado ? currentUserId ?? (preparadorId || null) : null;
     const { error } = await supabase
       .from("detalle_pedido")
       .update({
         preparado,
         cantidad_preparada: preparado ? detalle.cantidad : null,
+        marcado_por_id: marcadorId,
+        fecha_marcado: preparado ? new Date().toISOString() : null,
       })
       .eq("id", detalle.id);
 
@@ -358,7 +366,7 @@ export function PreparacionModule() {
               Cola de preparacion
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Pago validado, en preparacion y listos para recoger.
+              Pagos validados y pendientes en efectivo listos para preparar.
             </p>
           </div>
           <div className="max-h-[680px] space-y-2 overflow-auto p-4">
@@ -380,7 +388,7 @@ export function PreparacionModule() {
                     #{pedido.id.slice(0, 8)} - {pedido.clientes?.nombres ?? "Sin cliente"}
                   </span>
                   <span className="mt-1 block text-xs text-slate-500">
-                    {formatDate(pedido.fecha_recojo)} {formatTime(pedido.hora_recojo)}
+                      {formatDate(pedido.fecha_recojo)} {formatTime(pedido.hora_recojo)}
                   </span>
                   <span className="mt-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-medium capitalize text-slate-700">
                     {formatEstado(pedido.estado)}
@@ -410,6 +418,12 @@ export function PreparacionModule() {
                     </p>
                     <p className="mt-1 text-sm text-slate-600">
                       Total: {formatMoney(selectedPedido.total)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600 capitalize">
+                      Entrega: {selectedPedido.tipo_entrega.replaceAll("_", " ")}
+                      {selectedPedido.tipo_entrega === "enviar"
+                        ? ` - ${selectedPedido.direccion_entrega ?? "Sin direccion"}`
+                        : ""}
                     </p>
                   </div>
                   <Link
@@ -505,8 +519,8 @@ export function PreparacionModule() {
                         <th className="px-4 py-3 font-medium">Listo</th>
                         <th className="px-4 py-3 font-medium">Producto</th>
                         <th className="px-4 py-3 font-medium">Cantidad</th>
-                        <th className="px-4 py-3 font-medium">Stock actual</th>
-                        <th className="px-4 py-3 font-medium">Subtotal</th>
+                    <th className="px-4 py-3 font-medium">Almacen</th>
+                    <th className="px-4 py-3 font-medium">Subtotal</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -542,7 +556,7 @@ export function PreparacionModule() {
                               {Number(detalle.cantidad)}
                             </td>
                             <td className="px-4 py-3 text-slate-600">
-                              {Number(detalle.productos?.stock_actual ?? 0)}
+                              {detalle.almacenes?.nombre ?? "Tienda"}
                             </td>
                             <td className="px-4 py-3 font-medium text-slate-950">
                               {formatMoney(detalle.subtotal)}

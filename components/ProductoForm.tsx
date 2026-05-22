@@ -1,8 +1,17 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-import type { Categoria, Marca, Producto, Subcategoria } from "@/types/database";
+import type {
+  Categoria,
+  Marca,
+  Presentacion,
+  Producto,
+  Subcategoria,
+  UnidadBase,
+} from "@/types/database";
 
 export type ProductoFormValues = {
   codigo_interno: string;
@@ -12,7 +21,6 @@ export type ProductoFormValues = {
   marca_id: string;
   presentacion: string;
   unidad_base: string;
-  stock_actual: string;
   stock_minimo: string;
   precio_compra_referencial: string;
   precio_venta: string;
@@ -24,15 +32,24 @@ type ProductoFormProps = {
   categorias: Categoria[];
   subcategorias: Subcategoria[];
   marcas: Marca[];
-  productoEditando: Producto | null;
+  presentaciones: Presentacion[];
+  unidadesBase: UnidadBase[];
+  productoEditando?: Producto | null;
   isSaving: boolean;
   onSubmit: (values: ProductoFormValues) => Promise<boolean>;
-  onCancelEdit: () => void;
-  onQuickCreateMarca: (nombre: string) => Promise<Marca | null>;
+  onCancelEdit?: () => void;
+  onQuickCreateCategoria?: (nombre: string) => Promise<Categoria | null>;
+  onQuickCreateSubcategoria?: (
+    categoriaId: string,
+    nombre: string,
+  ) => Promise<Subcategoria | null>;
+  onQuickCreateMarca?: (nombre: string) => Promise<Marca | null>;
 };
 
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
 const maxImageSize = 1024 * 1024;
+const inputClassName =
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
 const emptyValues: ProductoFormValues = {
   codigo_interno: "",
@@ -41,20 +58,19 @@ const emptyValues: ProductoFormValues = {
   nombre_producto: "",
   marca_id: "",
   presentacion: "",
-  unidad_base: "",
-  stock_actual: "",
-  stock_minimo: "",
+  unidad_base: "unidad",
+  stock_minimo: "10",
   precio_compra_referencial: "",
-  precio_venta: "",
+  precio_venta: "1.00",
   imagen_url: "",
   activo: true,
 };
 
-function toInputValue(value: string | number | null) {
-  return value === null ? "" : String(value);
+function toInputValue(value: string | number | null, fallback = "") {
+  return value === null ? fallback : String(value);
 }
 
-function getInitialValues(producto: Producto | null): ProductoFormValues {
+function getInitialValues(producto: Producto | null | undefined): ProductoFormValues {
   if (!producto) {
     return emptyValues;
   }
@@ -66,13 +82,10 @@ function getInitialValues(producto: Producto | null): ProductoFormValues {
     nombre_producto: producto.nombre_producto,
     marca_id: producto.marca_id,
     presentacion: producto.presentacion ?? "",
-    unidad_base: producto.unidad_base ?? "",
-    stock_actual: toInputValue(producto.stock_actual),
-    stock_minimo: toInputValue(producto.stock_minimo),
-    precio_compra_referencial: toInputValue(
-      producto.precio_compra_referencial,
-    ),
-    precio_venta: toInputValue(producto.precio_venta),
+    unidad_base: producto.unidad_base ?? "unidad",
+    stock_minimo: toInputValue(producto.stock_minimo, "10"),
+    precio_compra_referencial: toInputValue(producto.precio_compra_referencial),
+    precio_venta: toInputValue(producto.precio_venta, "1.00"),
     imagen_url: producto.imagen_url ?? "",
     activo: producto.activo,
   };
@@ -82,21 +95,33 @@ export function ProductoForm({
   categorias,
   subcategorias,
   marcas,
+  presentaciones,
+  unidadesBase,
   productoEditando,
   isSaving,
   onSubmit,
   onCancelEdit,
+  onQuickCreateCategoria,
+  onQuickCreateSubcategoria,
   onQuickCreateMarca,
 }: ProductoFormProps) {
   const [values, setValues] = useState<ProductoFormValues>(() =>
     getInitialValues(productoEditando),
   );
-  const [quickMarcaNombre, setQuickMarcaNombre] = useState("");
-  const [isCreatingMarca, setIsCreatingMarca] = useState(false);
+  const [quickCatalogOpen, setQuickCatalogOpen] = useState(false);
+  const [quickCategoria, setQuickCategoria] = useState("");
+  const [quickSubcategoria, setQuickSubcategoria] = useState("");
+  const [quickMarca, setQuickMarca] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
   const [imageError, setImageError] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  useEffect(() => {
+    setValues(getInitialValues(productoEditando));
+    clearSelectedImage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productoEditando?.id]);
 
   useEffect(() => {
     return () => {
@@ -125,41 +150,6 @@ export function ProductoForm({
       [key]: value,
       ...(key === "categoria_id" ? { subcategoria_id: "" } : {}),
     }));
-  }
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    setImageError("");
-    let imagenUrl = values.imagen_url;
-
-    if (imageFile) {
-      const uploadedUrl = await uploadSelectedImage();
-
-      if (!uploadedUrl) {
-        return;
-      }
-
-      imagenUrl = uploadedUrl;
-    }
-
-    const saved = await onSubmit({ ...values, imagen_url: imagenUrl });
-
-    if (saved && !productoEditando) {
-      setValues(emptyValues);
-      clearSelectedImage();
-    }
-  }
-
-  async function handleQuickCreateMarca() {
-    setIsCreatingMarca(true);
-    const marca = await onQuickCreateMarca(quickMarcaNombre);
-    setIsCreatingMarca(false);
-
-    if (marca) {
-      updateValue("marca_id", marca.id);
-      setQuickMarcaNombre("");
-    }
   }
 
   function clearSelectedImage() {
@@ -238,10 +228,64 @@ export function ProductoForm({
     }
 
     const { data } = supabase.storage.from("productos").getPublicUrl(imagePath);
-
-    // Si el bucket fuera privado, aqui se reemplazaria por createSignedUrl
-    // desde una ruta de servidor para no exponer permisos sensibles.
     return data.publicUrl;
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setImageError("");
+
+    const uploadedUrl = await uploadSelectedImage();
+
+    if (uploadedUrl === null) {
+      return;
+    }
+
+    const saved = await onSubmit({ ...values, imagen_url: uploadedUrl });
+
+    if (saved && !productoEditando) {
+      setValues(emptyValues);
+      clearSelectedImage();
+    }
+  }
+
+  async function handleQuickCategoria() {
+    if (!onQuickCreateCategoria) {
+      return;
+    }
+
+    const categoria = await onQuickCreateCategoria(quickCategoria);
+    if (categoria) {
+      updateValue("categoria_id", categoria.id);
+      setQuickCategoria("");
+    }
+  }
+
+  async function handleQuickSubcategoria() {
+    if (!onQuickCreateSubcategoria) {
+      return;
+    }
+
+    const subcategoria = await onQuickCreateSubcategoria(
+      values.categoria_id,
+      quickSubcategoria,
+    );
+    if (subcategoria) {
+      updateValue("subcategoria_id", subcategoria.id);
+      setQuickSubcategoria("");
+    }
+  }
+
+  async function handleQuickMarca() {
+    if (!onQuickCreateMarca) {
+      return;
+    }
+
+    const marca = await onQuickCreateMarca(quickMarca);
+    if (marca) {
+      updateValue("marca_id", marca.id);
+      setQuickMarca("");
+    }
   }
 
   const hasCatalogOptions =
@@ -250,27 +294,36 @@ export function ProductoForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
     >
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-base font-semibold text-slate-950">
             {productoEditando ? "Editar producto" : "Nuevo producto"}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Completa solo los datos disponibles. Los campos opcionales pueden
-            quedar vacios.
+            El stock operativo se controla por almacen. Aqui registra los datos
+            generales del producto.
           </p>
         </div>
-        {productoEditando ? (
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={onCancelEdit}
+            onClick={() => setQuickCatalogOpen((current) => !current)}
             className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
-            Cancelar edicion
+            Catalogos rapidos
           </button>
-        ) : null}
+          {productoEditando && onCancelEdit ? (
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {!hasCatalogOptions ? (
@@ -278,6 +331,30 @@ export function ProductoForm({
           Para crear productos necesitas al menos una categoria, una
           subcategoria y una marca activas.
         </p>
+      ) : null}
+
+      {quickCatalogOpen ? (
+        <section className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+          <QuickCreate
+            label="Nueva categoria"
+            value={quickCategoria}
+            onChange={setQuickCategoria}
+            onCreate={handleQuickCategoria}
+          />
+          <QuickCreate
+            label="Nueva subcategoria"
+            value={quickSubcategoria}
+            onChange={setQuickSubcategoria}
+            onCreate={handleQuickSubcategoria}
+            helper="Usa la categoria seleccionada."
+          />
+          <QuickCreate
+            label="Nueva marca"
+            value={quickMarca}
+            onChange={setQuickMarca}
+            onCreate={handleQuickMarca}
+          />
+        </section>
       ) : null}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -288,7 +365,7 @@ export function ProductoForm({
             onChange={(event) =>
               updateValue("codigo_interno", event.target.value)
             }
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           />
         </Field>
 
@@ -299,7 +376,7 @@ export function ProductoForm({
             onChange={(event) =>
               updateValue("nombre_producto", event.target.value)
             }
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           />
         </Field>
 
@@ -307,7 +384,7 @@ export function ProductoForm({
           <select
             value={values.categoria_id}
             onChange={(event) => updateValue("categoria_id", event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           >
             <option value="">Seleccionar</option>
             {categorias.map((categoria) => (
@@ -324,7 +401,7 @@ export function ProductoForm({
             onChange={(event) =>
               updateValue("subcategoria_id", event.target.value)
             }
-            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           >
             <option value="">Seleccionar</option>
             {subcategoriasDisponibles.map((subcategoria) => (
@@ -339,7 +416,7 @@ export function ProductoForm({
           <select
             value={values.marca_id}
             onChange={(event) => updateValue("marca_id", event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           >
             <option value="">Seleccionar</option>
             {marcas.map((marca) => (
@@ -348,54 +425,36 @@ export function ProductoForm({
               </option>
             ))}
           </select>
-          <div className="mt-2 flex gap-2">
-            <input
-              type="text"
-              value={quickMarcaNombre}
-              onChange={(event) => setQuickMarcaNombre(event.target.value)}
-              placeholder="Crear marca rapida"
-              className="h-10 min-w-0 flex-1 rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-            />
-            <button
-              type="button"
-              onClick={handleQuickCreateMarca}
-              disabled={isCreatingMarca}
-              className="h-10 shrink-0 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
-            >
-              {isCreatingMarca ? "Creando" : "Crear"}
-            </button>
-          </div>
         </Field>
 
         <Field label="Presentacion">
           <input
-            type="text"
+            list="presentaciones-list"
             value={values.presentacion}
             onChange={(event) => updateValue("presentacion", event.target.value)}
             placeholder="Ej. Bolsa 1 kg"
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           />
+          <datalist id="presentaciones-list">
+            {presentaciones.map((presentacion) => (
+              <option key={presentacion.id} value={presentacion.nombre} />
+            ))}
+          </datalist>
         </Field>
 
         <Field label="Unidad base">
-          <input
-            type="text"
+          <select
             value={values.unidad_base}
             onChange={(event) => updateValue("unidad_base", event.target.value)}
-            placeholder="Ej. unidad, kg, litro"
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-          />
-        </Field>
-
-        <Field label="Stock actual">
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={values.stock_actual}
-            onChange={(event) => updateValue("stock_actual", event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-          />
+            className={inputClassName}
+          >
+            <option value="">Sin unidad</option>
+            {unidadesBase.map((unidad) => (
+              <option key={unidad.id} value={unidad.nombre}>
+                {unidad.nombre}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field label="Stock minimo">
@@ -405,7 +464,7 @@ export function ProductoForm({
             min="0"
             value={values.stock_minimo}
             onChange={(event) => updateValue("stock_minimo", event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           />
         </Field>
 
@@ -418,7 +477,7 @@ export function ProductoForm({
             onChange={(event) =>
               updateValue("precio_compra_referencial", event.target.value)
             }
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           />
         </Field>
 
@@ -429,7 +488,7 @@ export function ProductoForm({
             min="0"
             value={values.precio_venta}
             onChange={(event) => updateValue("precio_venta", event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           />
         </Field>
 
@@ -439,7 +498,7 @@ export function ProductoForm({
             value={values.imagen_url}
             onChange={(event) => updateValue("imagen_url", event.target.value)}
             placeholder="https://..."
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className={inputClassName}
           />
         </Field>
 
@@ -501,7 +560,7 @@ export function ProductoForm({
         <button
           type="submit"
           disabled={isSaving || isUploadingImage || !hasCatalogOptions}
-          className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {isSaving || isUploadingImage
             ? "Guardando..."
@@ -511,6 +570,41 @@ export function ProductoForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function QuickCreate({
+  label,
+  value,
+  helper,
+  onChange,
+  onCreate,
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+  onChange: (value: string) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <div>
+      <span className="text-xs font-medium text-slate-600">{label}</span>
+      <div className="mt-1 flex gap-2">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={inputClassName}
+        />
+        <button
+          type="button"
+          onClick={onCreate}
+          className="h-11 shrink-0 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-white"
+        >
+          Crear
+        </button>
+      </div>
+      {helper ? <p className="mt-1 text-xs text-slate-500">{helper}</p> : null}
+    </div>
   );
 }
 

@@ -1,118 +1,40 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
-import { ProductoCatalogManager } from "@/components/ProductoCatalogManager";
-import { ProductoForm } from "@/components/ProductoForm";
-import type { ProductoFormValues } from "@/components/ProductoForm";
-import { ProductoSearch } from "@/components/ProductoSearch";
 import { ProductoTable } from "@/components/ProductoTable";
 import type { ProductoConRelaciones } from "@/components/ProductoTable";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-import type { Categoria, Marca, Producto, Subcategoria } from "@/types/database";
+import type { Categoria, Marca, Subcategoria } from "@/types/database";
 
 type Message = {
   type: "success" | "error";
   text: string;
 };
 
-type ProductoPayload = {
-  codigo_interno: string;
-  categoria_id: string;
-  subcategoria_id: string;
-  nombre_producto: string;
-  marca_id: string;
-  presentacion: string | null;
-  unidad_base: string | null;
-  stock_actual: number | null;
-  stock_minimo: number | null;
-  precio_compra_referencial: number | null;
-  precio_venta: number | null;
-  imagen_url: string | null;
-  activo: boolean;
-};
+type QuickValues = Record<string, { precio_venta: string; stock_minimo: string }>;
 
-function emptyToNull(value: string) {
-  const trimmed = value.trim();
-  return trimmed === "" ? null : trimmed;
-}
+const PAGE_SIZE = 50;
+const inputClassName =
+  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
-function normalizeSpaces(value: string) {
+function normalizeSearch(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function normalizeKey(value: string) {
-  return normalizeSearch(normalizeSpaces(value));
-}
-
-function parseOptionalNumber(value: string) {
-  if (value.trim() === "") {
-    return null;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseStockActual(value: string) {
-  if (value.trim() === "") {
-    return 0;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function buildProductoPayload(values: ProductoFormValues): {
-  payload: ProductoPayload | null;
-  error: string | null;
-} {
-  const codigoInterno = values.codigo_interno.trim();
-  const nombreProducto = values.nombre_producto.trim();
-
-  if (!codigoInterno) {
-    return { payload: null, error: "El codigo interno es obligatorio." };
-  }
-
-  if (!nombreProducto) {
-    return { payload: null, error: "El nombre del producto es obligatorio." };
-  }
-
-  if (!values.categoria_id || !values.subcategoria_id || !values.marca_id) {
-    return {
-      payload: null,
-      error: "Selecciona categoria, subcategoria y marca.",
-    };
-  }
-
-  return {
-    error: null,
-    payload: {
-      codigo_interno: codigoInterno,
-      categoria_id: values.categoria_id,
-      subcategoria_id: values.subcategoria_id,
-      nombre_producto: nombreProducto,
-      marca_id: values.marca_id,
-      presentacion: emptyToNull(values.presentacion),
-      unidad_base: emptyToNull(values.unidad_base),
-      stock_actual: parseStockActual(values.stock_actual),
-      stock_minimo: parseOptionalNumber(values.stock_minimo),
-      precio_compra_referencial: parseOptionalNumber(
-        values.precio_compra_referencial,
-      ),
-      precio_venta: parseOptionalNumber(values.precio_venta),
-      imagen_url: emptyToNull(values.imagen_url),
-      activo: values.activo,
-    },
-  };
-}
-
-function normalizeSearch(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+function buildQuickValues(productos: ProductoConRelaciones[]) {
+  return Object.fromEntries(
+    productos.map((producto) => [
+      producto.id,
+      {
+        precio_venta: String(Number(producto.precio_venta ?? 1).toFixed(2)),
+        stock_minimo: String(Number(producto.stock_minimo ?? 10)),
+      },
+    ]),
+  );
 }
 
 export default function ProductosPage() {
@@ -121,364 +43,120 @@ export default function ProductosPage() {
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
   const [marcas, setMarcas] = useState<Marca[]>([]);
   const [search, setSearch] = useState("");
-  const [productoEditando, setProductoEditando] = useState<Producto | null>(
-    null,
+  const [categoriaId, setCategoriaId] = useState("");
+  const [subcategoriaId, setSubcategoriaId] = useState("");
+  const [marcaId, setMarcaId] = useState("");
+  const [estado, setEstado] = useState<"activos" | "inactivos" | "todos">(
+    "activos",
   );
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSavingCatalogo, setIsSavingCatalogo] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [quickValues, setQuickValues] = useState<QuickValues>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
   const [message, setMessage] = useState<Message | null>(null);
+
+  const hasCriteria =
+    normalizeSearch(search) || categoriaId || subcategoriaId || marcaId || estado !== "activos";
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const subcategoriasFiltradas = useMemo(() => {
+    return categoriaId
+      ? subcategorias.filter((item) => item.categoria_id === categoriaId)
+      : subcategorias;
+  }, [categoriaId, subcategorias]);
 
   async function loadCatalogos() {
     if (supabaseConfigError || !supabase) {
       setMessage({ type: "error", text: supabaseConfigError ?? "" });
+      setCatalogLoading(false);
       return;
     }
 
+    setCatalogLoading(true);
     const [categoriasResult, subcategoriasResult, marcasResult] =
       await Promise.all([
-        supabase
-          .from("categorias")
-          .select("*")
-          .eq("activo", true)
-          .order("nombre", { ascending: true }),
-        supabase
-          .from("subcategorias")
-          .select("*")
-          .eq("activo", true)
-          .order("nombre", { ascending: true }),
-        supabase
-          .from("marcas")
-          .select("*")
-          .eq("activo", true)
-          .order("nombre", { ascending: true }),
+        supabase.from("categorias").select("*").order("nombre"),
+        supabase.from("subcategorias").select("*").order("nombre"),
+        supabase.from("marcas").select("*").order("nombre"),
       ]);
 
-    if (categoriasResult.error) {
+    if (categoriasResult.error || subcategoriasResult.error || marcasResult.error) {
       setMessage({
         type: "error",
-        text: `No se pudieron cargar categorias: ${categoriasResult.error.message}`,
+        text: "No se pudieron cargar los filtros de catalogo.",
       });
-      return;
+    } else {
+      setCategorias((categoriasResult.data ?? []) as Categoria[]);
+      setSubcategorias((subcategoriasResult.data ?? []) as Subcategoria[]);
+      setMarcas((marcasResult.data ?? []) as Marca[]);
     }
 
-    if (subcategoriasResult.error) {
-      setMessage({
-        type: "error",
-        text: `No se pudieron cargar subcategorias: ${subcategoriasResult.error.message}`,
-      });
-      return;
-    }
-
-    if (marcasResult.error) {
-      setMessage({
-        type: "error",
-        text: `No se pudieron cargar marcas: ${marcasResult.error.message}`,
-      });
-      return;
-    }
-
-    setCategorias((categoriasResult.data ?? []) as Categoria[]);
-    setSubcategorias((subcategoriasResult.data ?? []) as Subcategoria[]);
-    setMarcas((marcasResult.data ?? []) as Marca[]);
+    setCatalogLoading(false);
   }
 
-  async function handleCreateCategoria(nombre: string) {
-    if (!supabase) {
-      setMessage({
-        type: "error",
-        text: supabaseConfigError ?? "No hay conexion configurada a Supabase.",
-      });
-      return;
-    }
-
-    const normalizedName = normalizeSpaces(nombre);
-
-    if (!normalizedName) {
-      setMessage({ type: "error", text: "Ingresa el nombre de la categoria." });
-      return;
-    }
-
-    const exists = categorias.some(
-      (categoria) => normalizeKey(categoria.nombre) === normalizeKey(normalizedName),
-    );
-
-    if (exists) {
-      setMessage({ type: "error", text: "Ya existe una categoria con ese nombre." });
-      return;
-    }
-
-    setIsSavingCatalogo(true);
-    const { error } = await supabase
-      .from("categorias")
-      .insert({ nombre: normalizedName });
-    setIsSavingCatalogo(false);
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo crear la categoria: ${error.message}`,
-      });
-      return;
-    }
-
-    setMessage({ type: "success", text: "Categoria creada correctamente." });
-    await loadCatalogos();
-  }
-
-  async function handleCreateSubcategoria(categoriaId: string, nombre: string) {
-    if (!supabase) {
-      setMessage({
-        type: "error",
-        text: supabaseConfigError ?? "No hay conexion configurada a Supabase.",
-      });
-      return;
-    }
-
-    const normalizedName = normalizeSpaces(nombre);
-
-    if (!categoriaId) {
-      setMessage({ type: "error", text: "Selecciona una categoria." });
-      return;
-    }
-
-    if (!normalizedName) {
-      setMessage({
-        type: "error",
-        text: "Ingresa el nombre de la subcategoria.",
-      });
-      return;
-    }
-
-    const exists = subcategorias.some(
-      (subcategoria) =>
-        subcategoria.categoria_id === categoriaId &&
-        normalizeKey(subcategoria.nombre) === normalizeKey(normalizedName),
-    );
-
-    if (exists) {
-      setMessage({
-        type: "error",
-        text: "Ya existe una subcategoria con ese nombre en la categoria seleccionada.",
-      });
-      return;
-    }
-
-    setIsSavingCatalogo(true);
-    const { error } = await supabase.from("subcategorias").insert({
-      categoria_id: categoriaId,
-      nombre: normalizedName,
-    });
-    setIsSavingCatalogo(false);
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo crear la subcategoria: ${error.message}`,
-      });
-      return;
-    }
-
-    setMessage({ type: "success", text: "Subcategoria creada correctamente." });
-    await loadCatalogos();
-  }
-
-  async function handleUpdateCategoria(categoriaId: string, nombre: string) {
-    if (!supabase) {
-      setMessage({
-        type: "error",
-        text: supabaseConfigError ?? "No hay conexion configurada a Supabase.",
-      });
-      return;
-    }
-
-    const normalizedName = normalizeSpaces(nombre);
-
-    if (!categoriaId) {
-      setMessage({ type: "error", text: "Selecciona una categoria." });
-      return;
-    }
-
-    if (!normalizedName) {
-      setMessage({ type: "error", text: "Ingresa el nuevo nombre." });
-      return;
-    }
-
-    const exists = categorias.some(
-      (categoria) =>
-        categoria.id !== categoriaId &&
-        normalizeKey(categoria.nombre) === normalizeKey(normalizedName),
-    );
-
-    if (exists) {
-      setMessage({
-        type: "error",
-        text: "Ya existe otra categoria con ese nombre.",
-      });
-      return;
-    }
-
-    setIsSavingCatalogo(true);
-    const { error } = await supabase
-      .from("categorias")
-      .update({ nombre: normalizedName })
-      .eq("id", categoriaId);
-    setIsSavingCatalogo(false);
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo actualizar la categoria: ${error.message}`,
-      });
-      return;
-    }
-
-    setMessage({
-      type: "success",
-      text: "Categoria actualizada. Los productos relacionados ya muestran el nuevo nombre.",
-    });
-    await loadCatalogos();
-    await loadProductos();
-  }
-
-  async function handleUpdateSubcategoria(
-    subcategoriaId: string,
-    nombre: string,
-  ) {
-    if (!supabase) {
-      setMessage({
-        type: "error",
-        text: supabaseConfigError ?? "No hay conexion configurada a Supabase.",
-      });
-      return;
-    }
-
-    const normalizedName = normalizeSpaces(nombre);
-    const currentSubcategoria = subcategorias.find(
-      (subcategoria) => subcategoria.id === subcategoriaId,
-    );
-
-    if (!currentSubcategoria) {
-      setMessage({ type: "error", text: "Selecciona una subcategoria." });
-      return;
-    }
-
-    if (!normalizedName) {
-      setMessage({ type: "error", text: "Ingresa el nuevo nombre." });
-      return;
-    }
-
-    const exists = subcategorias.some(
-      (subcategoria) =>
-        subcategoria.id !== subcategoriaId &&
-        subcategoria.categoria_id === currentSubcategoria.categoria_id &&
-        normalizeKey(subcategoria.nombre) === normalizeKey(normalizedName),
-    );
-
-    if (exists) {
-      setMessage({
-        type: "error",
-        text: "Ya existe otra subcategoria con ese nombre en la misma categoria.",
-      });
-      return;
-    }
-
-    setIsSavingCatalogo(true);
-    const { error } = await supabase
-      .from("subcategorias")
-      .update({ nombre: normalizedName })
-      .eq("id", subcategoriaId);
-    setIsSavingCatalogo(false);
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo actualizar la subcategoria: ${error.message}`,
-      });
-      return;
-    }
-
-    setMessage({
-      type: "success",
-      text: "Subcategoria actualizada. Los productos relacionados ya muestran el nuevo nombre.",
-    });
-    await loadCatalogos();
-    await loadProductos();
-  }
-
-  async function createMarca(nombre: string): Promise<Marca | null> {
-    if (!supabase) {
-      setMessage({
-        type: "error",
-        text: supabaseConfigError ?? "No hay conexion configurada a Supabase.",
-      });
-      return null;
-    }
-
-    const normalizedName = normalizeSpaces(nombre);
-
-    if (!normalizedName) {
-      setMessage({ type: "error", text: "Ingresa el nombre de la marca." });
-      return null;
-    }
-
-    const existingMarca = marcas.find(
-      (marca) => normalizeKey(marca.nombre) === normalizeKey(normalizedName),
-    );
-
-    if (existingMarca) {
-      setMessage({
-        type: "success",
-        text: "La marca ya existia y fue seleccionada.",
-      });
-      return existingMarca;
-    }
-
-    setIsSavingCatalogo(true);
-    const { data, error } = await supabase
-      .from("marcas")
-      .insert({ nombre: normalizedName })
-      .select("*")
-      .single();
-    setIsSavingCatalogo(false);
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo crear la marca: ${error.message}`,
-      });
-      return null;
-    }
-
-    const marca = data as Marca;
-    setMessage({ type: "success", text: "Marca creada correctamente." });
-    await loadCatalogos();
-    return marca;
-  }
-
-  async function handleCreateMarca(nombre: string) {
-    await createMarca(nombre);
-  }
-
-  async function loadProductos() {
+  async function loadProductos(nextPage = page) {
     if (supabaseConfigError || !supabase) {
       setMessage({ type: "error", text: supabaseConfigError ?? "" });
       setIsLoading(false);
       return;
     }
 
+    if (!hasCriteria) {
+      setProductos([]);
+      setTotalCount(0);
+      setQuickValues({});
+      return;
+    }
+
     setIsLoading(true);
-    const { data, error } = await supabase
+    setMessage(null);
+
+    let query = supabase
       .from("productos")
       .select(
         `
           *,
           categorias(nombre),
           subcategorias(nombre),
-          marcas(nombre)
+          marcas(nombre),
+          producto_almacen(*, almacenes(id,nombre))
         `,
-      )
-      .order("nombre_producto", { ascending: true });
+        { count: "exact" },
+      );
+
+    const term = normalizeSearch(search);
+    if (term) {
+      const matchingMarcaIds = marcas
+        .filter((marca) => marca.nombre.toLowerCase().includes(term.toLowerCase()))
+        .map((marca) => marca.id);
+      const searchParts = [
+        `codigo_interno.ilike.%${term}%`,
+        `nombre_producto.ilike.%${term}%`,
+      ];
+      if (matchingMarcaIds.length > 0) {
+        searchParts.push(`marca_id.in.(${matchingMarcaIds.join(",")})`);
+      }
+      query = query.or(searchParts.join(","));
+    }
+
+    if (categoriaId) {
+      query = query.eq("categoria_id", categoriaId);
+    }
+    if (subcategoriaId) {
+      query = query.eq("subcategoria_id", subcategoriaId);
+    }
+    if (marcaId) {
+      query = query.eq("marca_id", marcaId);
+    }
+    if (estado !== "todos") {
+      query = query.eq("activo", estado === "activos");
+    }
+
+    const from = (nextPage - 1) * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data, error, count } = await query
+      .order("nombre_producto", { ascending: true })
+      .range(from, to);
 
     if (error) {
       setMessage({
@@ -486,100 +164,89 @@ export default function ProductosPage() {
         text: `No se pudieron cargar productos: ${error.message}`,
       });
       setProductos([]);
+      setTotalCount(0);
+      setQuickValues({});
       setIsLoading(false);
       return;
     }
 
-    setProductos((data ?? []) as ProductoConRelaciones[]);
+    const rows = (data ?? []) as ProductoConRelaciones[];
+    setProductos(rows);
+    setTotalCount(count ?? 0);
+    setQuickValues(buildQuickValues(rows));
     setIsLoading(false);
   }
 
   useEffect(() => {
-    async function loadData() {
-      await loadCatalogos();
-      await loadProductos();
-    }
-
-    void loadData();
+    void loadCatalogos();
   }, []);
 
-  const filteredProductos = useMemo(() => {
-    const term = normalizeSearch(search.trim());
+  useEffect(() => {
+    setPage(1);
+  }, [search, categoriaId, subcategoriaId, marcaId, estado]);
 
-    if (!term) {
-      return productos;
+  useEffect(() => {
+    if (!catalogLoading) {
+      void loadProductos(page);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, search, categoriaId, subcategoriaId, marcaId, estado, catalogLoading]);
 
-    return productos.filter((producto) => {
-      const searchable = normalizeSearch(
-        [
-          producto.codigo_interno,
-          producto.nombre_producto,
-          producto.marcas?.nombre,
-          producto.categorias?.nombre,
-          producto.subcategorias?.nombre,
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
-
-      return searchable.includes(term);
-    });
-  }, [productos, search]);
-
-  async function handleSubmit(values: ProductoFormValues) {
-    if (!supabase) {
-      setMessage({
-        type: "error",
-        text: supabaseConfigError ?? "No hay conexion configurada a Supabase.",
-      });
-      return false;
-    }
-
-    const { payload, error } = buildProductoPayload(values);
-
-    if (error || !payload) {
-      setMessage({ type: "error", text: error ?? "Datos invalidos." });
-      return false;
-    }
-
-    setIsSaving(true);
-    setMessage(null);
-
-    const result = productoEditando
-      ? await supabase
-          .from("productos")
-          .update(payload)
-          .eq("id", productoEditando.id)
-      : await supabase.from("productos").insert(payload);
-
-    setIsSaving(false);
-
-    if (result.error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo guardar el producto: ${result.error.message}`,
-      });
-      return false;
-    }
-
-    setMessage({
-      type: "success",
-      text: productoEditando
-        ? "Producto actualizado correctamente."
-        : "Producto creado correctamente.",
-    });
-    setProductoEditando(null);
-    await loadProductos();
-    return true;
+  function handleQuickValueChange(
+    productoId: string,
+    key: "precio_venta" | "stock_minimo",
+    value: string,
+  ) {
+    setQuickValues((current) => ({
+      ...current,
+      [productoId]: {
+        ...current[productoId],
+        [key]: value,
+      },
+    }));
   }
 
-  async function handleToggleActivo(producto: Producto) {
+  async function handleQuickSave(producto: ProductoConRelaciones) {
     if (!supabase) {
+      return;
+    }
+
+    const values = quickValues[producto.id];
+    const precioVenta = Number(values?.precio_venta);
+    const stockMinimo = Number(values?.stock_minimo);
+
+    if (!Number.isFinite(precioVenta) || precioVenta < 0) {
+      setMessage({ type: "error", text: "Precio venta invalido." });
+      return;
+    }
+
+    if (!Number.isFinite(stockMinimo) || stockMinimo < 0) {
+      setMessage({ type: "error", text: "Stock minimo invalido." });
+      return;
+    }
+
+    const { error } = await supabase
+      .from("productos")
+      .update({
+        precio_venta: precioVenta,
+        stock_minimo: stockMinimo,
+      })
+      .eq("id", producto.id);
+
+    if (error) {
       setMessage({
         type: "error",
-        text: supabaseConfigError ?? "No hay conexion configurada a Supabase.",
+        text: `No se pudo guardar: ${error.message}`,
       });
+      return;
+    }
+
+    setMessage({ type: "success", text: "Producto actualizado." });
+    await loadProductos(page);
+  }
+
+  async function handleToggleActivo(producto: ProductoConRelaciones) {
+    if (!supabase) {
       return;
     }
 
@@ -591,38 +258,42 @@ export default function ProductosPage() {
     if (error) {
       setMessage({
         type: "error",
-        text: `No se pudo cambiar el estado del producto: ${error.message}`,
+        text: `No se pudo cambiar estado: ${error.message}`,
       });
       return;
     }
 
     setMessage({
       type: "success",
-      text: producto.activo
-        ? "Producto desactivado correctamente."
-        : "Producto activado correctamente.",
+      text: producto.activo ? "Producto desactivado." : "Producto activado.",
     });
-    await loadProductos();
-  }
-
-  function handleEdit(producto: Producto) {
-    setProductoEditando(producto);
-    setMessage(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    await loadProductos(page);
   }
 
   return (
     <Layout
       title="Productos"
-      description="Gestiona el catalogo del minimarket: productos, stock, precios, imagen principal y estado activo."
+      description="Busca, filtra y edita datos rapidos del catalogo."
     >
       <div className="space-y-5">
-        <div className="flex justify-end">
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Link
+            href="/productos/nuevo"
+            className="inline-flex h-11 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800"
+          >
+            Nuevo producto
+          </Link>
           <Link
             href="/productos/importar"
-            className="inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-700"
+            className="inline-flex h-11 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Importar CSV
+          </Link>
+          <Link
+            href="/productos/mantenimiento"
+            className="inline-flex h-11 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Mantenimiento
           </Link>
         </div>
 
@@ -638,38 +309,110 @@ export default function ProductosPage() {
           </div>
         ) : null}
 
-        <ProductoForm
-          key={productoEditando?.id ?? "nuevo"}
-          categorias={categorias}
-          subcategorias={subcategorias}
-          marcas={marcas}
-          productoEditando={productoEditando}
-          isSaving={isSaving}
-          onSubmit={handleSubmit}
-          onCancelEdit={() => setProductoEditando(null)}
-          onQuickCreateMarca={createMarca}
-        />
+        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Codigo, producto o marca"
+              className={`${inputClassName} xl:col-span-2`}
+            />
+            <select
+              value={categoriaId}
+              onChange={(event) => {
+                setCategoriaId(event.target.value);
+                setSubcategoriaId("");
+              }}
+              className={inputClassName}
+            >
+              <option value="">Categoria</option>
+              {categorias.map((categoria) => (
+                <option key={categoria.id} value={categoria.id}>
+                  {categoria.nombre}
+                </option>
+              ))}
+            </select>
+            <select
+              value={subcategoriaId}
+              onChange={(event) => setSubcategoriaId(event.target.value)}
+              className={inputClassName}
+            >
+              <option value="">Subcategoria</option>
+              {subcategoriasFiltradas.map((subcategoria) => (
+                <option key={subcategoria.id} value={subcategoria.id}>
+                  {subcategoria.nombre}
+                </option>
+              ))}
+            </select>
+            <select
+              value={marcaId}
+              onChange={(event) => setMarcaId(event.target.value)}
+              className={inputClassName}
+            >
+              <option value="">Marca</option>
+              {marcas.map((marca) => (
+                <option key={marca.id} value={marca.id}>
+                  {marca.nombre}
+                </option>
+              ))}
+            </select>
+            <select
+              value={estado}
+              onChange={(event) =>
+                setEstado(event.target.value as "activos" | "inactivos" | "todos")
+              }
+              className={inputClassName}
+            >
+              <option value="activos">Activos</option>
+              <option value="inactivos">Inactivos</option>
+              <option value="todos">Todos</option>
+            </select>
+          </div>
+        </section>
 
-        <ProductoCatalogManager
-          categorias={categorias}
-          subcategorias={subcategorias}
-          marcas={marcas}
-          isSaving={isSavingCatalogo}
-          onCreateCategoria={handleCreateCategoria}
-          onCreateSubcategoria={handleCreateSubcategoria}
-          onCreateMarca={handleCreateMarca}
-          onUpdateCategoria={handleUpdateCategoria}
-          onUpdateSubcategoria={handleUpdateSubcategoria}
-        />
+        {!hasCriteria ? (
+          <section className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+            Busca un producto o selecciona una categoría para empezar.
+          </section>
+        ) : (
+          <>
+            <ProductoTable
+              productos={productos}
+              isLoading={isLoading}
+              quickValues={quickValues}
+              onQuickValueChange={handleQuickValueChange}
+              onQuickSave={(producto) => void handleQuickSave(producto)}
+              onToggleActivo={(producto) => void handleToggleActivo(producto)}
+            />
 
-        <ProductoSearch value={search} onChange={setSearch} />
-
-        <ProductoTable
-          productos={filteredProductos}
-          isLoading={isLoading}
-          onEdit={handleEdit}
-          onToggleActivo={handleToggleActivo}
-        />
+            <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+              <p>
+                Pagina {page} de {totalPages}. {totalCount} productos encontrados.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  className="h-10 rounded-md border border-slate-300 px-3 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() =>
+                    setPage((current) => Math.min(totalPages, current + 1))
+                  }
+                  className="h-10 rounded-md border border-slate-300 px-3 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </Layout>
   );

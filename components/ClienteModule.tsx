@@ -1,13 +1,20 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { formatDate } from "@/lib/dateUtils";
 import type { Cliente, Pedido, PedidoEstadoPago } from "@/types/database";
 
 type ClienteFormValues = {
   nombre: string;
   whatsapp: string;
+  direccion_entrega: string;
+  referencia: string;
   observacion: string;
+  activo: boolean;
 };
 
 type PedidoFormValues = {
@@ -25,7 +32,10 @@ type Message = {
 const emptyClienteForm: ClienteFormValues = {
   nombre: "",
   whatsapp: "",
+  direccion_entrega: "",
+  referencia: "",
   observacion: "",
+  activo: true,
 };
 
 const emptyPedidoForm: PedidoFormValues = {
@@ -34,6 +44,9 @@ const emptyPedidoForm: PedidoFormValues = {
   total: "",
   monto_a_cuenta: "",
 };
+
+const inputClassName =
+  "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
 function normalizeSpaces(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -61,7 +74,7 @@ function parseMoney(value: string) {
 }
 
 function formatMoney(value: number) {
-  return `S/ ${value.toFixed(2)}`;
+  return `S/ ${Number(value ?? 0).toFixed(2)}`;
 }
 
 function getEstadoPago(total: number, montoACuenta: number): PedidoEstadoPago {
@@ -78,6 +91,7 @@ export function ClienteModule() {
   const [pedidoForm, setPedidoForm] =
     useState<PedidoFormValues>(emptyPedidoForm);
   const [search, setSearch] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingCliente, setIsSavingCliente] = useState(false);
@@ -134,33 +148,33 @@ export function ClienteModule() {
   }
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void loadClientes();
-    }, 0);
-
-    return () => window.clearTimeout(timeoutId);
+    void loadClientes();
   }, []);
 
   const filteredClientes = useMemo(() => {
     const term = normalizeSearch(search);
 
-    if (!term) {
-      return clientes;
-    }
+    return clientes.filter((cliente) => {
+      const matchesEstado = showInactive ? true : cliente.activo;
+      const matchesTerm = term
+        ? normalizeSearch(`${cliente.nombres} ${cliente.telefono ?? ""}`).includes(
+            term,
+          )
+        : true;
 
-    return clientes.filter((cliente) =>
-      normalizeSearch(`${cliente.nombres} ${cliente.telefono ?? ""}`).includes(
-        term,
-      ),
-    );
-  }, [clientes, search]);
+      return matchesEstado && matchesTerm;
+    });
+  }, [clientes, search, showInactive]);
 
   function startEditCliente(cliente: Cliente) {
     setEditingCliente(cliente);
     setClienteForm({
       nombre: cliente.nombres,
       whatsapp: cliente.telefono ?? "",
+      direccion_entrega: cliente.direccion_entrega ?? cliente.direccion ?? "",
+      referencia: cliente.referencia ?? "",
       observacion: cliente.observacion ?? "",
+      activo: cliente.activo,
     });
   }
 
@@ -182,6 +196,8 @@ export function ClienteModule() {
 
     const nombre = normalizeSpaces(clienteForm.nombre);
     const whatsapp = normalizeWhatsapp(clienteForm.whatsapp);
+    const direccion = normalizeSpaces(clienteForm.direccion_entrega);
+    const referencia = normalizeSpaces(clienteForm.referencia);
     const observacion = normalizeSpaces(clienteForm.observacion);
 
     if (!nombre) {
@@ -212,7 +228,11 @@ export function ClienteModule() {
     const payload = {
       nombres: nombre,
       telefono: whatsapp,
+      direccion: direccion || null,
+      direccion_entrega: direccion || null,
+      referencia: referencia || null,
       observacion: observacion || null,
+      activo: clienteForm.activo,
     };
     const result = editingCliente
       ? await supabase.from("clientes").update(payload).eq("id", editingCliente.id)
@@ -237,6 +257,28 @@ export function ClienteModule() {
         : "Cliente creado correctamente.",
     });
     resetClienteForm();
+    await loadClientes();
+  }
+
+  async function toggleActivo(cliente: Cliente) {
+    if (!supabase) {
+      return;
+    }
+
+    const { error } = await supabase
+      .from("clientes")
+      .update({ activo: !cliente.activo })
+      .eq("id", cliente.id);
+
+    if (error) {
+      setMessage({
+        type: "error",
+        text: `No se pudo cambiar estado: ${error.message}`,
+      });
+      return;
+    }
+
+    setMessage({ type: "success", text: "Estado de cliente actualizado." });
     await loadClientes();
   }
 
@@ -282,18 +324,23 @@ export function ClienteModule() {
     }
 
     const estadoPago = getEstadoPago(total, montoACuenta);
+    const fecha = new Date(`${pedidoForm.fecha_pedido}T00:00:00`).toISOString();
+
     setIsSavingPedido(true);
     const { error } = await supabase.from("pedidos").insert({
       cliente_id: selectedCliente.id,
-      fecha_pedido: new Date(`${pedidoForm.fecha_pedido}T00:00:00`).toISOString(),
-      fecha_recojo: new Date(`${pedidoForm.fecha_pedido}T00:00:00`).toISOString(),
+      fecha_pedido: fecha,
+      fecha_recojo: fecha,
+      tipo_entrega: "recoger_despues",
       detalle_manual: detalle,
       subtotal: total,
       total,
       monto_a_cuenta: montoACuenta,
       estado_pago: estadoPago,
       estado: "pendiente",
-      observaciones: estadoPago === "pagado" ? "Pedido pagado" : "Pedido con saldo pendiente",
+      metodo_pago: estadoPago === "pagado" ? "efectivo" : "otro",
+      observaciones:
+        estadoPago === "pagado" ? "Pedido pagado" : "Pedido con saldo pendiente",
     });
     setIsSavingPedido(false);
 
@@ -324,15 +371,12 @@ export function ClienteModule() {
         </div>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="text-base font-semibold text-slate-950">
           {editingCliente ? "Editar cliente" : "Nuevo cliente rapido"}
         </h2>
-        <form
-          onSubmit={handleSubmitCliente}
-          className="mt-4 grid gap-4 lg:grid-cols-[1fr_180px]"
-        >
-          <div className="grid gap-4 md:grid-cols-3">
+        <form onSubmit={handleSubmitCliente} className="mt-4 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <Field label="Nombre" required>
               <input
                 value={clienteForm.nombre}
@@ -342,7 +386,7 @@ export function ClienteModule() {
                     nombre: event.target.value,
                   }))
                 }
-                className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                className={inputClassName}
               />
             </Field>
             <Field label="WhatsApp" required>
@@ -354,7 +398,31 @@ export function ClienteModule() {
                     whatsapp: event.target.value,
                   }))
                 }
-                className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                className={inputClassName}
+              />
+            </Field>
+            <Field label="Direccion de entrega">
+              <input
+                value={clienteForm.direccion_entrega}
+                onChange={(event) =>
+                  setClienteForm((current) => ({
+                    ...current,
+                    direccion_entrega: event.target.value,
+                  }))
+                }
+                className={inputClassName}
+              />
+            </Field>
+            <Field label="Referencia">
+              <input
+                value={clienteForm.referencia}
+                onChange={(event) =>
+                  setClienteForm((current) => ({
+                    ...current,
+                    referencia: event.target.value,
+                  }))
+                }
+                className={inputClassName}
               />
             </Field>
             <Field label="Observacion">
@@ -366,61 +434,78 @@ export function ClienteModule() {
                     observacion: event.target.value,
                   }))
                 }
-                className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                className={inputClassName}
               />
             </Field>
+            <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700 md:self-end">
+              <input
+                type="checkbox"
+                checked={clienteForm.activo}
+                onChange={(event) =>
+                  setClienteForm((current) => ({
+                    ...current,
+                    activo: event.target.checked,
+                  }))
+                }
+                className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+              />
+              Cliente activo
+            </label>
           </div>
 
-          <div className="flex gap-2 lg:items-end">
-            <button
-              type="submit"
-              disabled={isSavingCliente}
-              className="h-10 flex-1 rounded-md bg-emerald-700 px-4 text-sm font-medium text-white hover:bg-emerald-800 disabled:bg-slate-300"
-            >
-              {isSavingCliente ? "Guardando..." : "Guardar"}
-            </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             {editingCliente ? (
               <button
                 type="button"
                 onClick={resetClienteForm}
-                className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="h-11 rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cancelar
               </button>
             ) : null}
+            <button
+              type="submit"
+              disabled={isSavingCliente}
+              className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+            >
+              {isSavingCliente ? "Guardando..." : "Guardar cliente"}
+            </button>
           </div>
         </form>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-slate-950">
-                  Clientes
-                </h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Busca por nombre o WhatsApp.
-                </p>
-              </div>
+          <div className="border-b border-slate-200 p-4 sm:p-5">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px]">
               <input
                 type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar cliente"
-                className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 md:w-72"
+                placeholder="Buscar por nombre o WhatsApp"
+                className={inputClassName}
               />
+              <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={showInactive}
+                  onChange={(event) => setShowInactive(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+                />
+                Ver inactivos
+              </label>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">Nombre</th>
                   <th className="px-4 py-3 font-medium">WhatsApp</th>
-                  <th className="px-4 py-3 font-medium">Observacion</th>
+                  <th className="px-4 py-3 font-medium">Direccion</th>
+                  <th className="px-4 py-3 font-medium">Referencia</th>
+                  <th className="px-4 py-3 font-medium">Estado</th>
                   <th className="px-4 py-3 font-medium">Creado</th>
                   <th className="px-4 py-3 font-medium">Acciones</th>
                 </tr>
@@ -428,13 +513,13 @@ export function ClienteModule() {
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                       Cargando clientes...
                     </td>
                   </tr>
                 ) : filteredClientes.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                       No hay clientes para mostrar.
                     </td>
                   </tr>
@@ -444,32 +529,28 @@ export function ClienteModule() {
                       <td className="px-4 py-3 font-medium text-slate-950">
                         {cliente.nombres}
                       </td>
+                      <td className="px-4 py-3 text-slate-600">{cliente.telefono}</td>
                       <td className="px-4 py-3 text-slate-600">
-                        {cliente.telefono}
+                        {cliente.direccion_entrega ?? cliente.direccion ?? "-"}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {cliente.observacion || "Sin observacion"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {new Date(cliente.created_at).toLocaleDateString("es-PE")}
+                        {cliente.referencia ?? "-"}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => startEditCliente(cliente)}
-                            className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleSelectCliente(cliente)}
-                            className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            Ver pedidos
-                          </button>
-                        </div>
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                          {cliente.activo ? "Activo" : "Inactivo"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatDate(cliente.created_at)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Actions
+                          cliente={cliente}
+                          onEdit={startEditCliente}
+                          onPedidos={(item) => void handleSelectCliente(item)}
+                          onToggle={(item) => void toggleActivo(item)}
+                        />
                       </td>
                     </tr>
                   ))
@@ -477,16 +558,47 @@ export function ClienteModule() {
               </tbody>
             </table>
           </div>
+
+          <div className="space-y-3 p-4 lg:hidden">
+            {filteredClientes.map((cliente) => (
+              <article key={cliente.id} className="rounded-lg border border-slate-200 p-4 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-950">{cliente.nombres}</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {cliente.telefono ?? "Sin WhatsApp"}
+                    </p>
+                  </div>
+                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                    {cliente.activo ? "Activo" : "Inactivo"}
+                  </span>
+                </div>
+                <dl className="mt-3 grid gap-2">
+                  <Info label="Direccion" value={cliente.direccion_entrega ?? cliente.direccion ?? "-"} />
+                  <Info label="Referencia" value={cliente.referencia ?? "-"} />
+                  <Info label="Observacion" value={cliente.observacion ?? "-"} />
+                </dl>
+                <div className="mt-3">
+                  <Actions
+                    cliente={cliente}
+                    onEdit={startEditCliente}
+                    onPedidos={(item) => void handleSelectCliente(item)}
+                    onToggle={(item) => void toggleActivo(item)}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
 
-        <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="text-base font-semibold text-slate-950">
             Pedidos del cliente
           </h2>
           {selectedCliente ? (
             <>
               <p className="mt-1 text-sm text-slate-600">
-                {selectedCliente.nombres} - {selectedCliente.telefono}
+                {selectedCliente.nombres} · {selectedCliente.telefono}
               </p>
 
               <form onSubmit={handleSubmitPedido} className="mt-4 space-y-3">
@@ -500,7 +612,7 @@ export function ClienteModule() {
                         fecha_pedido: event.target.value,
                       }))
                     }
-                    className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                    className={inputClassName}
                   />
                 </Field>
                 <Field label="Detalle del pedido" required>
@@ -529,7 +641,7 @@ export function ClienteModule() {
                           total: event.target.value,
                         }))
                       }
-                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                      className={inputClassName}
                     />
                   </Field>
                   <Field label="A cuenta">
@@ -544,16 +656,16 @@ export function ClienteModule() {
                           monto_a_cuenta: event.target.value,
                         }))
                       }
-                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                      className={inputClassName}
                     />
                   </Field>
                 </div>
                 <button
                   type="submit"
                   disabled={isSavingPedido}
-                  className="h-10 w-full rounded-md bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-300"
+                  className="h-11 w-full rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
                 >
-                  {isSavingPedido ? "Guardando..." : "Registrar pedido"}
+                  {isSavingPedido ? "Guardando..." : "Registrar pedido manual"}
                 </button>
               </form>
 
@@ -572,9 +684,7 @@ export function ClienteModule() {
                       >
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-medium text-slate-950">
-                            {new Date(pedido.fecha_pedido).toLocaleDateString(
-                              "es-PE",
-                            )}
+                            {formatDate(pedido.fecha_pedido)}
                           </p>
                           <span
                             className={`rounded-md px-2 py-1 text-xs font-medium ${
@@ -590,25 +700,16 @@ export function ClienteModule() {
                           {pedido.detalle_manual}
                         </p>
                         <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                          <p>
-                            Total
-                            <strong className="block text-sm text-slate-950">
-                              {formatMoney(Number(pedido.total))}
-                            </strong>
-                          </p>
-                          <p>
-                            A cuenta
-                            <strong className="block text-sm text-slate-950">
-                              {formatMoney(Number(pedido.monto_a_cuenta))}
-                            </strong>
-                          </p>
-                          <p>
-                            Falta
-                            <strong className="block text-sm text-slate-950">
-                              {formatMoney(saldo)}
-                            </strong>
-                          </p>
+                          <Info label="Total" value={formatMoney(Number(pedido.total))} />
+                          <Info label="A cuenta" value={formatMoney(Number(pedido.monto_a_cuenta))} />
+                          <Info label="Falta" value={formatMoney(saldo)} />
                         </div>
+                        <Link
+                          href={`/pedidos/${pedido.id}`}
+                          className="mt-3 inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700"
+                        >
+                          Ver detalle
+                        </Link>
                       </article>
                     );
                   })
@@ -630,6 +731,44 @@ export function ClienteModule() {
   );
 }
 
+function Actions({
+  cliente,
+  onEdit,
+  onPedidos,
+  onToggle,
+}: {
+  cliente: Cliente;
+  onEdit: (cliente: Cliente) => void;
+  onPedidos: (cliente: Cliente) => void;
+  onToggle: (cliente: Cliente) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() => onEdit(cliente)}
+        className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+      >
+        Editar
+      </button>
+      <button
+        type="button"
+        onClick={() => onPedidos(cliente)}
+        className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+      >
+        Ver pedidos
+      </button>
+      <button
+        type="button"
+        onClick={() => onToggle(cliente)}
+        className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+      >
+        {cliente.activo ? "Desactivar" : "Activar"}
+      </button>
+    </div>
+  );
+}
+
 function Field({
   label,
   required,
@@ -647,5 +786,14 @@ function Field({
       </span>
       <span className="mt-1 block">{children}</span>
     </label>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-slate-50 p-2">
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="mt-1 break-words font-medium text-slate-950">{value}</dd>
+    </div>
   );
 }

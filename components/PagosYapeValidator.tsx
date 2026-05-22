@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { formatDate } from "@/lib/dateUtils";
 import type { Cliente, Pago, Pedido } from "@/types/database";
 
 type PedidoPago = Pedido & {
@@ -21,14 +22,6 @@ function getPago(pedido: PedidoPago) {
 
 function formatMoney(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "Sin fecha";
-  }
-
-  return new Date(value).toLocaleDateString("es-PE");
 }
 
 function normalizeSpaces(value: string) {

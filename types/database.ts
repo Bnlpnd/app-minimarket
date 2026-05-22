@@ -11,7 +11,16 @@ export type PagoMetodo = "yape" | "efectivo" | "otro" | "transferencia";
 
 export type PagoEstado = "pendiente" | "enviado" | "validado" | "rechazado";
 
-export type StockMovimientoTipo = "entrada" | "salida" | "ajuste" | "venta";
+export type StockMovimientoTipo =
+  | "ingreso"
+  | "salida_venta"
+  | "salida_pedido"
+  | "ajuste"
+  | "transferencia"
+  | "merma"
+  | "devolucion";
+
+export type TipoEntrega = "llevar_ahora" | "recoger_despues" | "enviar";
 
 export interface Categoria {
   id: string;
@@ -61,12 +70,50 @@ export interface Producto {
   updated_at: string;
 }
 
+export interface Almacen {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductoAlmacen {
+  id: string;
+  producto_id: string;
+  almacen_id: string;
+  stock_actual: number;
+  stock_minimo_local: number | null;
+  costo_promedio: number | null;
+  ubicacion_interna: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Presentacion {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UnidadBase {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Cliente {
   id: string;
   nombres: string;
   apellidos: string | null;
   telefono: string | null;
   direccion: string | null;
+  direccion_entrega: string | null;
   referencia: string | null;
   documento: string | null;
   observacion: string | null;
@@ -88,6 +135,9 @@ export interface Pedido {
   descuento: number;
   total: number;
   metodo_pago: PagoMetodo | null;
+  tipo_entrega: TipoEntrega;
+  direccion_entrega: string | null;
+  referencia_entrega: string | null;
   nota_cliente: string | null;
   fecha_pedido: string;
   detalle_manual: string | null;
@@ -108,7 +158,10 @@ export interface DetallePedido {
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+  almacen_id: string | null;
   preparado: boolean;
+  marcado_por_id: string | null;
+  fecha_marcado: string | null;
   cantidad_preparada: number | null;
   observacion_preparacion: string | null;
   created_at: string;
@@ -133,11 +186,18 @@ export interface StockMovimiento {
   id: string;
   producto_id: string;
   pedido_id: string | null;
-  tipo: StockMovimientoTipo;
+  almacen_origen_id: string | null;
+  almacen_destino_id: string | null;
+  tipo: string;
+  tipo_movimiento: StockMovimientoTipo;
   cantidad: number;
+  costo_unitario: number | null;
   stock_anterior: number | null;
   stock_nuevo: number | null;
+  referencia: string | null;
   motivo: string | null;
+  observacion: string | null;
+  usuario_id: string | null;
   registrado_por_id: string | null;
   created_at: string;
 }
