@@ -1,9 +1,10 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
+import { getCurrentUserProfile, isAdmin } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
   Categoria,
@@ -62,10 +63,36 @@ export default function ProductosMantenimientoPage() {
   const [presentaciones, setPresentaciones] = useState<Presentacion[]>([]);
   const [unidades, setUnidades] = useState<UnidadBase[]>([]);
   const [nombre, setNombre] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
   const [editing, setEditing] = useState<CatalogItem | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
+  const [hasAdminAccess, setHasAdminAccess] = useState(false);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+
+  async function checkAccess() {
+    const { profile, error } = await getCurrentUserProfile();
+
+    if (error) {
+      setAccessMessage(error);
+      setHasAdminAccess(false);
+    } else if (!profile) {
+      setAccessMessage("Debes iniciar sesion con un usuario admin para acceder a mantenimiento.");
+      setHasAdminAccess(false);
+    } else if (!isAdmin(profile)) {
+      setAccessMessage("Tu usuario no tiene permiso admin para administrar catalogos.");
+      setHasAdminAccess(false);
+    } else {
+      setAccessMessage(null);
+      setHasAdminAccess(true);
+      await loadAll();
+    }
+
+    setIsCheckingAccess(false);
+  }
 
   async function loadAll() {
     if (supabaseConfigError || !supabase) {
@@ -106,7 +133,7 @@ export default function ProductosMantenimientoPage() {
   }
 
   useEffect(() => {
-    void loadAll();
+    void checkAccess();
   }, []);
 
   const items = useMemo<CatalogItem[]>(() => {
@@ -125,6 +152,16 @@ export default function ProductosMantenimientoPage() {
     return unidades;
   }, [activeTab, categorias, marcas, presentaciones, subcategorias, unidades]);
 
+  const filteredItems = useMemo(() => {
+    const term = normalizeKey(appliedSearch);
+
+    if (!term) {
+      return items;
+    }
+
+    return items.filter((item) => normalizeKey(item.nombre).includes(term));
+  }, [appliedSearch, items]);
+
   function startEdit(item: CatalogItem) {
     setEditing(item);
     setNombre(item.nombre);
@@ -135,6 +172,13 @@ export default function ProductosMantenimientoPage() {
     setEditing(null);
     setNombre("");
     setCategoriaId("");
+  }
+
+  function resetTab(tab: CatalogType) {
+    setActiveTab(tab);
+    setSearchInput("");
+    setAppliedSearch("");
+    resetForm();
   }
 
   async function itemUsageCount(type: CatalogType, item: CatalogItem) {
@@ -276,6 +320,29 @@ export default function ProductosMantenimientoPage() {
       description="Administra catalogos sin saturar la pantalla de productos."
     >
       <div className="space-y-5">
+        {isCheckingAccess ? (
+          <section className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-500 shadow-sm">
+            Verificando permisos...
+          </section>
+        ) : null}
+
+        {!isCheckingAccess && !hasAdminAccess ? (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+            <h2 className="text-base font-semibold text-amber-950">
+              Acceso restringido
+            </h2>
+            <p className="mt-2">{accessMessage}</p>
+            <a
+              href="/login"
+              className="mt-4 inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
+            >
+              Ir al login
+            </a>
+          </section>
+        ) : null}
+
+        {!hasAdminAccess ? null : (
+          <>
         {message ? (
           <div
             className={`rounded-lg border p-4 text-sm ${
@@ -294,10 +361,7 @@ export default function ProductosMantenimientoPage() {
               <button
                 key={tab.value}
                 type="button"
-                onClick={() => {
-                  setActiveTab(tab.value);
-                  resetForm();
-                }}
+                onClick={() => resetTab(tab.value)}
                 className={`h-10 rounded-md px-3 text-sm font-medium ${
                   activeTab === tab.value
                     ? "bg-slate-900 text-white"
@@ -375,9 +439,45 @@ export default function ProductosMantenimientoPage() {
               <p className="mt-1 text-sm text-slate-500">
                 Si esta en uso, eliminar lo desactiva.
               </p>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="search"
+                  value={searchInput}
+                  onChange={(event) => setSearchInput(event.target.value)}
+                  placeholder={`Buscar en ${
+                    tabs.find((tab) => tab.value === activeTab)?.label.toLowerCase() ??
+                    "catalogo"
+                  }`}
+                  className={`${inputClassName} sm:max-w-sm`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setAppliedSearch(searchInput)}
+                  className="h-11 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
+                >
+                  Buscar
+                </button>
+                {appliedSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchInput("");
+                      setAppliedSearch("");
+                    }}
+                    className="h-11 rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700"
+                  >
+                    Limpiar
+                  </button>
+                ) : null}
+              </div>
             </div>
             <div className="divide-y divide-slate-100">
-              {items.map((item) => (
+              {filteredItems.length === 0 ? (
+                <p className="p-4 text-sm text-slate-500">
+                  No hay registros con esa busqueda.
+                </p>
+              ) : null}
+              {filteredItems.map((item) => (
                 <article
                   key={item.id}
                   className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
@@ -431,6 +531,8 @@ export default function ProductosMantenimientoPage() {
             </div>
           </div>
         </section>
+          </>
+        )}
       </div>
     </Layout>
   );

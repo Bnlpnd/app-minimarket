@@ -15,7 +15,15 @@ type Message = {
   text: string;
 };
 
-type QuickValues = Record<string, { precio_venta: string; stock_minimo: string }>;
+type QuickValues = Record<
+  string,
+  {
+    precio_venta: string;
+    stock_minimo: string;
+    stock_tienda: string;
+    stock_casa: string;
+  }
+>;
 
 const PAGE_SIZE = 50;
 const inputClassName =
@@ -32,9 +40,25 @@ function buildQuickValues(productos: ProductoConRelaciones[]) {
       {
         precio_venta: String(Number(producto.precio_venta ?? 1).toFixed(2)),
         stock_minimo: String(Number(producto.stock_minimo ?? 10)),
+        stock_tienda: String(getStockByName(producto, "Tienda")),
+        stock_casa: String(getStockByName(producto, "Casa")),
       },
     ]),
   );
+}
+
+function getStockByName(producto: ProductoConRelaciones, name: string) {
+  const row = producto.producto_almacen?.find(
+    (stock) => stock.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
+  );
+  return Number(row?.stock_actual ?? 0);
+}
+
+function getAlmacenIdByName(producto: ProductoConRelaciones, name: string) {
+  const row = producto.producto_almacen?.find(
+    (stock) => stock.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
+  );
+  return row?.almacen_id ?? row?.almacenes?.id ?? null;
 }
 
 export default function ProductosPage() {
@@ -194,7 +218,7 @@ export default function ProductosPage() {
 
   function handleQuickValueChange(
     productoId: string,
-    key: "precio_venta" | "stock_minimo",
+    key: "precio_venta" | "stock_minimo" | "stock_tienda" | "stock_casa",
     value: string,
   ) {
     setQuickValues((current) => ({
@@ -214,6 +238,8 @@ export default function ProductosPage() {
     const values = quickValues[producto.id];
     const precioVenta = Number(values?.precio_venta);
     const stockMinimo = Number(values?.stock_minimo);
+    const stockTienda = Number(values?.stock_tienda);
+    const stockCasa = Number(values?.stock_casa);
 
     if (!Number.isFinite(precioVenta) || precioVenta < 0) {
       setMessage({ type: "error", text: "Precio venta invalido." });
@@ -222,6 +248,16 @@ export default function ProductosPage() {
 
     if (!Number.isFinite(stockMinimo) || stockMinimo < 0) {
       setMessage({ type: "error", text: "Stock minimo invalido." });
+      return;
+    }
+
+    if (!Number.isFinite(stockTienda) || stockTienda < 0) {
+      setMessage({ type: "error", text: "Stock Tienda invalido." });
+      return;
+    }
+
+    if (!Number.isFinite(stockCasa) || stockCasa < 0) {
+      setMessage({ type: "error", text: "Stock Casa invalido." });
       return;
     }
 
@@ -239,6 +275,38 @@ export default function ProductosPage() {
         text: `No se pudo guardar: ${error.message}`,
       });
       return;
+    }
+
+    const tiendaId = getAlmacenIdByName(producto, "Tienda");
+    const casaId = getAlmacenIdByName(producto, "Casa");
+
+    for (const [almacenId, stockContado, label] of [
+      [tiendaId, stockTienda, "Tienda"],
+      [casaId, stockCasa, "Casa"],
+    ] as Array<[string | null, number, string]>) {
+      if (!almacenId) {
+        setMessage({
+          type: "error",
+          text: `No se encontro el almacen ${label} para ajustar stock.`,
+        });
+        return;
+      }
+
+      const stockResult = await supabase.rpc("ajustar_stock", {
+        p_producto_id: producto.id,
+        p_almacen_id: almacenId,
+        p_stock_contado: stockContado,
+        p_observacion: `Ajuste rapido desde productos (${label})`,
+        p_usuario_id: null,
+      });
+
+      if (stockResult.error) {
+        setMessage({
+          type: "error",
+          text: `No se pudo actualizar stock ${label}: ${stockResult.error.message}`,
+        });
+        return;
+      }
     }
 
     setMessage({ type: "success", text: "Producto actualizado." });
