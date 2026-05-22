@@ -126,6 +126,21 @@ export interface UsuarioPerfil {
   updated_at: string;
 }
 
+export interface AppUsuario {
+  id: string;
+  email: string;
+  rol: "admin" | "trabajador" | "cliente";
+  nombres: string;
+  apellidos: string | null;
+  telefono: string | null;
+  pago_hora: number;
+  horas_semana: number;
+  gastos_semana: number;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Cliente {
   id: string;
   nombres: string;
@@ -148,6 +163,9 @@ export interface Pedido {
   registrado_por_id: string | null;
   preparado_por_id: string | null;
   entregado_por_id: string | null;
+  app_registrado_por_id: string | null;
+  app_preparado_por_id: string | null;
+  app_entregado_por_id: string | null;
   fecha_recojo: string | null;
   hora_recojo: string | null;
   subtotal: number;
@@ -180,6 +198,7 @@ export interface DetallePedido {
   almacen_id: string | null;
   preparado: boolean;
   marcado_por_id: string | null;
+  app_marcado_por_id: string | null;
   fecha_marcado: string | null;
   cantidad_preparada: number | null;
   observacion_preparacion: string | null;

@@ -8,7 +8,7 @@ import { Layout } from "@/components/Layout";
 import { ProductoTable } from "@/components/ProductoTable";
 import type { ProductoConRelaciones } from "@/components/ProductoTable";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-import type { Categoria, Marca, Subcategoria } from "@/types/database";
+import type { Almacen, Categoria, Marca, Subcategoria } from "@/types/database";
 
 type Message = {
   type: "success" | "error";
@@ -54,11 +54,21 @@ function getStockByName(producto: ProductoConRelaciones, name: string) {
   return Number(row?.stock_actual ?? 0);
 }
 
-function getAlmacenIdByName(producto: ProductoConRelaciones, name: string) {
+function getAlmacenIdByName(
+  producto: ProductoConRelaciones,
+  name: string,
+  almacenes: Almacen[],
+) {
   const row = producto.producto_almacen?.find(
     (stock) => stock.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
   );
-  return row?.almacen_id ?? row?.almacenes?.id ?? null;
+  return (
+    row?.almacen_id ??
+    row?.almacenes?.id ??
+    almacenes.find((almacen) => almacen.nombre.toLowerCase() === name.toLowerCase())
+      ?.id ??
+    null
+  );
 }
 
 export default function ProductosPage() {
@@ -66,6 +76,7 @@ export default function ProductosPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
   const [marcas, setMarcas] = useState<Marca[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [search, setSearch] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
   const [subcategoriaId, setSubcategoriaId] = useState("");
@@ -97,14 +108,20 @@ export default function ProductosPage() {
     }
 
     setCatalogLoading(true);
-    const [categoriasResult, subcategoriasResult, marcasResult] =
+    const [categoriasResult, subcategoriasResult, marcasResult, almacenesResult] =
       await Promise.all([
         supabase.from("categorias").select("*").order("nombre"),
         supabase.from("subcategorias").select("*").order("nombre"),
         supabase.from("marcas").select("*").order("nombre"),
+        supabase.from("almacenes").select("*").eq("activo", true).order("nombre"),
       ]);
 
-    if (categoriasResult.error || subcategoriasResult.error || marcasResult.error) {
+    if (
+      categoriasResult.error ||
+      subcategoriasResult.error ||
+      marcasResult.error ||
+      almacenesResult.error
+    ) {
       setMessage({
         type: "error",
         text: "No se pudieron cargar los filtros de catalogo.",
@@ -113,6 +130,7 @@ export default function ProductosPage() {
       setCategorias((categoriasResult.data ?? []) as Categoria[]);
       setSubcategorias((subcategoriasResult.data ?? []) as Subcategoria[]);
       setMarcas((marcasResult.data ?? []) as Marca[]);
+      setAlmacenes((almacenesResult.data ?? []) as Almacen[]);
     }
 
     setCatalogLoading(false);
@@ -261,24 +279,8 @@ export default function ProductosPage() {
       return;
     }
 
-    const { error } = await supabase
-      .from("productos")
-      .update({
-        precio_venta: precioVenta,
-        stock_minimo: stockMinimo,
-      })
-      .eq("id", producto.id);
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo guardar: ${error.message}`,
-      });
-      return;
-    }
-
-    const tiendaId = getAlmacenIdByName(producto, "Tienda");
-    const casaId = getAlmacenIdByName(producto, "Casa");
+    const tiendaId = getAlmacenIdByName(producto, "Tienda", almacenes);
+    const casaId = getAlmacenIdByName(producto, "Casa", almacenes);
 
     for (const [almacenId, stockContado, label] of [
       [tiendaId, stockTienda, "Tienda"],
@@ -307,6 +309,22 @@ export default function ProductosPage() {
         });
         return;
       }
+    }
+
+    const { error } = await supabase
+      .from("productos")
+      .update({
+        precio_venta: precioVenta,
+        stock_minimo: stockMinimo,
+      })
+      .eq("id", producto.id);
+
+    if (error) {
+      setMessage({
+        type: "error",
+        text: `El stock se actualizo, pero no se pudo guardar precio/minimo: ${error.message}`,
+      });
+      return;
     }
 
     setMessage({ type: "success", text: "Producto actualizado." });

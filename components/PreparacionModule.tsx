@@ -1,17 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getStoredAppUser } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { formatDate, formatTime } from "@/lib/dateUtils";
 import type { Almacen, Cliente, DetallePedido, Pedido, Producto } from "@/types/database";
-
-type UsuarioPerfil = {
-  id: string;
-  nombres: string | null;
-  apellidos: string | null;
-  activo: boolean;
-};
 
 type PedidoPreparacion = Pedido & {
   clientes: Pick<Cliente, "nombres" | "telefono"> | null;
@@ -38,45 +33,19 @@ function formatEstado(value: string) {
   return value.replaceAll("_", " ");
 }
 
-function getUserName(user: UsuarioPerfil) {
-  const fullName = `${user.nombres ?? ""} ${user.apellidos ?? ""}`.trim();
-  return fullName || user.id;
-}
-
 export function PreparacionModule() {
+  const searchParams = useSearchParams();
   const [pedidos, setPedidos] = useState<PedidoPreparacion[]>([]);
   const [selectedPedido, setSelectedPedido] = useState<PedidoPreparacion | null>(
     null,
   );
   const [detalles, setDetalles] = useState<DetallePreparacion[]>([]);
-  const [usuarios, setUsuarios] = useState<UsuarioPerfil[]>([]);
-  const [preparadorId, setPreparadorId] = useState("");
-  const [entregadorId, setEntregadorId] = useState("");
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDetalle, setIsLoadingDetalle] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  async function getCurrentUserProfileId() {
-    if (!supabase) {
-      return null;
-    }
-
-    const { data: userData } = await supabase.auth.getUser();
-    const userId = userData.user?.id;
-
-    if (!userId) {
-      return null;
-    }
-
-    const { data } = await supabase
-      .from("usuarios_perfil")
-      .select("id")
-      .eq("id", userId)
-      .maybeSingle();
-
-    return data?.id ?? null;
-  }
+  const targetPedidoId = searchParams.get("pedido");
 
   const loadPedidos = useCallback(async () => {
     if (supabaseConfigError || !supabase) {
@@ -86,28 +55,21 @@ export function PreparacionModule() {
     }
 
     setIsLoading(true);
-    const [pedidosResult, usuariosResult] = await Promise.all([
-      supabase
-        .from("pedidos")
-        .select(
-          `
-            *,
-            clientes(nombres, telefono)
-          `,
-        )
-        .in("estado", [
-          "pendiente",
-          "pago_validado",
-          "en_preparacion",
-          "listo_para_recoger",
-        ])
-        .order("fecha_recojo", { ascending: true }),
-      supabase
-        .from("usuarios_perfil")
-        .select("id,nombres,apellidos,activo")
-        .eq("activo", true)
-        .order("nombres", { ascending: true }),
-    ]);
+    const pedidosResult = await supabase
+      .from("pedidos")
+      .select(
+        `
+          *,
+          clientes(nombres, telefono)
+        `,
+      )
+      .in("estado", [
+        "pendiente",
+        "pago_validado",
+        "en_preparacion",
+        "listo_para_recoger",
+      ])
+      .order("fecha_recojo", { ascending: true });
 
     if (pedidosResult.error) {
       setMessage({
@@ -116,25 +78,25 @@ export function PreparacionModule() {
       });
       setPedidos([]);
     } else {
-      setPedidos(
-        ((pedidosResult.data ?? []) as PedidoPreparacion[]).filter((pedido) => {
-          if (pedido.estado === "pendiente") {
-            return pedido.metodo_pago === "efectivo";
-          }
+      const nextPedidos = ((pedidosResult.data ?? []) as PedidoPreparacion[]).filter((pedido) => {
+        if (pedido.estado === "pendiente") {
+          return pedido.metodo_pago === "efectivo";
+        }
 
-          return true;
-        }),
-      );
-    }
+        return true;
+      });
+      setPedidos(nextPedidos);
 
-    if (usuariosResult.error) {
-      setUsuarios([]);
-    } else {
-      setUsuarios((usuariosResult.data ?? []) as UsuarioPerfil[]);
+      const targetPedido = targetPedidoId
+        ? nextPedidos.find((pedido) => pedido.id === targetPedidoId)
+        : null;
+      if (targetPedido) {
+        void loadDetalle(targetPedido);
+      }
     }
 
     setIsLoading(false);
-  }, []);
+  }, [targetPedidoId]);
 
   async function loadDetalle(pedido: PedidoPreparacion) {
     if (!supabase) {
@@ -142,8 +104,6 @@ export function PreparacionModule() {
     }
 
     setSelectedPedido(pedido);
-    setPreparadorId(pedido.preparado_por_id ?? "");
-    setEntregadorId(pedido.entregado_por_id ?? "");
     setIsLoadingDetalle(true);
     setMessage(null);
 
@@ -189,13 +149,12 @@ export function PreparacionModule() {
       return;
     }
 
-    const currentUserId = await getCurrentUserProfileId();
-    const responsableId = preparadorId || currentUserId;
+    const currentUserId = getStoredAppUser()?.id ?? null;
 
-    if (usuarios.length > 0 && !responsableId) {
+    if (!currentUserId) {
       setMessage({
         type: "error",
-        text: "Selecciona un responsable de preparacion.",
+        text: "Debes iniciar sesion para tomar el pedido en preparacion.",
       });
       return;
     }
@@ -207,7 +166,7 @@ export function PreparacionModule() {
       .from("pedidos")
       .update({
         estado: "en_preparacion",
-        preparado_por_id: responsableId,
+        app_preparado_por_id: currentUserId,
         preparado_at: new Date().toISOString(),
       })
       .eq("id", selectedPedido.id);
@@ -238,14 +197,14 @@ export function PreparacionModule() {
     setIsUpdating(true);
     setMessage(null);
 
-    const currentUserId = await getCurrentUserProfileId();
-    const marcadorId = preparado ? currentUserId ?? (preparadorId || null) : null;
+    const currentUserId = getStoredAppUser()?.id ?? null;
+    const marcadorId = preparado ? currentUserId : null;
     const { error } = await supabase
       .from("detalle_pedido")
       .update({
         preparado,
         cantidad_preparada: preparado ? detalle.cantidad : null,
-        marcado_por_id: marcadorId,
+        app_marcado_por_id: marcadorId,
         fecha_marcado: preparado ? new Date().toISOString() : null,
       })
       .eq("id", detalle.id);
@@ -306,13 +265,12 @@ export function PreparacionModule() {
       return;
     }
 
-    const currentUserId = await getCurrentUserProfileId();
-    const responsableId = entregadorId || currentUserId;
+    const currentUserId = getStoredAppUser()?.id ?? null;
 
-    if (usuarios.length > 0 && !responsableId) {
+    if (!currentUserId) {
       setMessage({
         type: "error",
-        text: "Selecciona quien entrega el pedido.",
+        text: "Debes iniciar sesion para marcar entrega.",
       });
       return;
     }
@@ -324,7 +282,7 @@ export function PreparacionModule() {
       .from("pedidos")
       .update({
         estado: "entregado",
-        entregado_por_id: responsableId,
+        app_entregado_por_id: currentUserId,
         entregado_at: new Date().toISOString(),
       })
       .eq("id", selectedPedido.id);
@@ -432,43 +390,6 @@ export function PreparacionModule() {
                   >
                     Ver detalle
                   </Link>
-                </div>
-
-                <div className="mt-5 grid gap-3 md:grid-cols-2">
-                  <label className="block">
-                    <span className="text-sm font-medium text-slate-700">
-                      Responsable de preparacion
-                    </span>
-                    <select
-                      value={preparadorId}
-                      onChange={(event) => setPreparadorId(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-                    >
-                      <option value="">Usuario actual o sin asignar</option>
-                      {usuarios.map((usuario) => (
-                        <option key={usuario.id} value={usuario.id}>
-                          {getUserName(usuario)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-medium text-slate-700">
-                      Responsable de entrega
-                    </span>
-                    <select
-                      value={entregadorId}
-                      onChange={(event) => setEntregadorId(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-                    >
-                      <option value="">Usuario actual o sin asignar</option>
-                      {usuarios.map((usuario) => (
-                        <option key={usuario.id} value={usuario.id}>
-                          {getUserName(usuario)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
                 </div>
 
                 <div className="mt-5 flex flex-col gap-2 sm:flex-row">

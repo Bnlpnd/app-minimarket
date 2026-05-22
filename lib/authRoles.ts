@@ -58,3 +58,7 @@ export async function getCurrentUserProfile() {
 export function isAdmin(profile: CurrentUserProfile | null) {
   return profile?.activo === true && profile.roles?.nombre === "admin";
 }
+
+export function isTrabajador(profile: CurrentUserProfile | null) {
+  return profile?.activo === true && profile.roles?.nombre === "trabajador";
+}

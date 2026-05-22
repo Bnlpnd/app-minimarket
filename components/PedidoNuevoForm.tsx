@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import { getStoredAppUser } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { generarLinkWhatsApp, generarMensajePedido } from "@/lib/whatsapp";
 import type {
@@ -495,27 +496,6 @@ export function PedidoNuevoForm() {
     return cliente;
   }
 
-  async function getRegistradoPorId() {
-    if (!supabase) {
-      return null;
-    }
-
-    const { data: userData } = await supabase.auth.getUser();
-    const userId = userData.user?.id;
-
-    if (!userId) {
-      return null;
-    }
-
-    const { data } = await supabase
-      .from("usuarios_perfil")
-      .select("id")
-      .eq("id", userId)
-      .maybeSingle();
-
-    return data?.id ?? null;
-  }
-
   function buildCapturePath(file: File) {
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
     const clientePart =
@@ -627,7 +607,7 @@ export function PedidoNuevoForm() {
     const pedidoEstado: PedidoEstado =
       metodoPago === "yape" && capturaYapeUrl ? "pago_enviado" : "pendiente";
     const pagoEstado = metodoPago === "yape" && capturaYapeUrl ? "enviado" : "pendiente";
-    const registradoPorId = await getRegistradoPorId();
+    const appUsuario = getStoredAppUser();
     const fechaRecojoValue =
       tipoEntrega === "recoger_despues" && fechaRecojo
         ? new Date(`${fechaRecojo}T${horaRecojo || "00:00"}:00`).toISOString()
@@ -646,7 +626,7 @@ export function PedidoNuevoForm() {
       .from("pedidos")
       .insert({
         cliente_id: cliente.id,
-        registrado_por_id: registradoPorId,
+        app_registrado_por_id: appUsuario?.id ?? null,
         fecha_recojo: fechaRecojoValue,
         hora_recojo: tipoEntrega === "recoger_despues" ? horaRecojo || null : null,
         estado: pedidoEstado,
