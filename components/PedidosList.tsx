@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { getStoredAppUser } from "@/lib/authRoles";
 import { formatDate, formatTime } from "@/lib/dateUtils";
 import type { Cliente, Pago, Pedido, PedidoEstado } from "@/types/database";
 
@@ -64,6 +65,9 @@ export function PedidosList() {
   );
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rechazoId, setRechazoId] = useState<string | null>(null);
+  const [rechazoObservacion, setRechazoObservacion] = useState("");
 
   async function loadPedidos() {
     if (supabaseConfigError || !supabase) {
@@ -96,6 +100,84 @@ export function PedidosList() {
 
     setPedidos((data ?? []) as PedidoListItem[]);
     setIsLoading(false);
+  }
+
+  async function validarPago(pedidoId: string) {
+    if (!supabase) return;
+    setActionLoading(pedidoId);
+    setMessage(null);
+    const appUser = getStoredAppUser();
+
+    const { error: pagoError } = await supabase
+      .from("pagos")
+      .update({
+        estado: "validado",
+        validado_por_id: appUser?.id ?? null,
+        validado_at: new Date().toISOString(),
+        observacion_rechazo: null,
+      })
+      .eq("pedido_id", pedidoId);
+
+    if (pagoError) {
+      setMessage({ type: "error", text: `No se pudo validar pago: ${pagoError.message}` });
+      setActionLoading(null);
+      return;
+    }
+
+    const { error: pedidoError } = await supabase
+      .from("pedidos")
+      .update({ estado: "pago_validado", estado_pago: "pagado" })
+      .eq("id", pedidoId);
+
+    if (pedidoError) {
+      setMessage({ type: "error", text: `Pago validado pero fallo actualizar pedido: ${pedidoError.message}` });
+    } else {
+      setMessage({ type: "success", text: "Pago validado correctamente." });
+    }
+
+    setActionLoading(null);
+    await loadPedidos();
+  }
+
+  async function rechazarPago(pedidoId: string) {
+    if (!supabase) return;
+    if (!rechazoObservacion.trim()) {
+      setMessage({ type: "error", text: "Indica el motivo del rechazo." });
+      return;
+    }
+
+    setActionLoading(pedidoId);
+    setMessage(null);
+
+    const { error: pagoError } = await supabase
+      .from("pagos")
+      .update({
+        estado: "rechazado",
+        observacion_rechazo: rechazoObservacion.trim(),
+      })
+      .eq("pedido_id", pedidoId);
+
+    if (pagoError) {
+      setMessage({ type: "error", text: `No se pudo rechazar pago: ${pagoError.message}` });
+      setActionLoading(null);
+      return;
+    }
+
+    const { error: pedidoError } = await supabase
+      .from("pedidos")
+      .update({ estado: "pendiente", estado_pago: "debe" })
+      .eq("id", pedidoId);
+
+    if (pedidoError) {
+      setMessage({ type: "error", text: `Pago rechazado pero fallo actualizar pedido: ${pedidoError.message}` });
+    } else {
+      setMessage({ type: "success", text: "Pago rechazado." });
+    }
+
+    setRechazoId(null);
+    setRechazoObservacion("");
+    setActionLoading(null);
+    await loadPedidos();
   }
 
   useEffect(() => {
@@ -249,12 +331,60 @@ export function PedidosList() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/pedidos/${pedido.id}`}
-                          className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          Ver detalle
-                        </Link>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/pedidos/${pedido.id}`}
+                            className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            Ver detalle
+                          </Link>
+                          {pedido.estado === "pago_enviado" ? (
+                            rechazoId === pedido.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={rechazoObservacion}
+                                  onChange={(event) => setRechazoObservacion(event.target.value)}
+                                  placeholder="Motivo del rechazo"
+                                  className="h-9 w-40 rounded-md border border-slate-300 px-2 text-xs outline-none focus:border-emerald-600"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={actionLoading === pedido.id}
+                                  onClick={() => void rechazarPago(pedido.id)}
+                                  className="h-9 rounded-md bg-red-600 px-3 text-xs font-medium text-white hover:bg-red-700 disabled:bg-slate-300"
+                                >
+                                  {actionLoading === pedido.id ? "..." : "Confirmar"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setRechazoId(null); setRechazoObservacion(""); }}
+                                  className="h-9 rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-600"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={actionLoading === pedido.id}
+                                  onClick={() => void validarPago(pedido.id)}
+                                  className="h-9 rounded-md bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-800 disabled:bg-slate-300"
+                                >
+                                  {actionLoading === pedido.id ? "..." : "Pago OK"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRechazoId(pedido.id)}
+                                  className="h-9 rounded-md border border-red-300 px-3 text-xs font-medium text-red-700 hover:bg-red-50"
+                                >
+                                  Rechazar
+                                </button>
+                              </>
+                            )
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );

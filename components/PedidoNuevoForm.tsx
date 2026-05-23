@@ -93,6 +93,10 @@ function getTodayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function getCurrentTime() {
+  return new Date().toTimeString().slice(0, 5);
+}
+
 function stockIn(producto: ProductoSearchRow, almacenId: string) {
   return Number(
     producto.producto_almacen.find((stock) => stock.almacen_id === almacenId)
@@ -700,6 +704,10 @@ export function PedidoNuevoForm() {
       return "Para recoger despues debes indicar fecha y hora.";
     }
 
+    if (tipoEntrega === "enviar" && (!fechaRecojo || !horaRecojo)) {
+      return "Para envio debes indicar fecha y hora de entrega.";
+    }
+
     if (tipoEntrega === "enviar" && !normalizeSpaces(direccionEntrega)) {
       return "Para envio debes indicar direccion de entrega.";
     }
@@ -747,9 +755,11 @@ export function PedidoNuevoForm() {
     const pagoEstado = metodoPago === "yape" && capturaYapeUrl ? "enviado" : "pendiente";
     const appUsuario = getStoredAppUser();
     const fechaRecojoValue =
-      tipoEntrega === "recoger_despues" && fechaRecojo
-        ? new Date(`${fechaRecojo}T${horaRecojo || "00:00"}:00`).toISOString()
-        : null;
+      tipoEntrega === "llevar_ahora"
+        ? new Date().toISOString()
+        : (tipoEntrega === "recoger_despues" || tipoEntrega === "enviar") && fechaRecojo
+          ? new Date(`${fechaRecojo}T${horaRecojo || "00:00"}:00`).toISOString()
+          : null;
     const direccionFinal =
       tipoEntrega === "enviar"
         ? normalizeSpaces(direccionEntrega)
@@ -766,7 +776,11 @@ export function PedidoNuevoForm() {
         cliente_id: cliente.id,
         app_registrado_por_id: appUsuario?.id ?? null,
         fecha_recojo: fechaRecojoValue,
-        hora_recojo: tipoEntrega === "recoger_despues" ? horaRecojo || null : null,
+        hora_recojo: tipoEntrega === "llevar_ahora"
+          ? getCurrentTime()
+          : tipoEntrega === "recoger_despues" || tipoEntrega === "enviar"
+            ? horaRecojo || null
+            : null,
         estado: pedidoEstado,
         subtotal: total,
         total,
@@ -835,7 +849,11 @@ export function PedidoNuevoForm() {
     const pedidoWhatsapp = {
       id: pedidoId,
       fecha_recojo: fechaRecojoValue,
-      hora_recojo: tipoEntrega === "recoger_despues" ? horaRecojo || null : null,
+      hora_recojo: tipoEntrega === "llevar_ahora"
+        ? getCurrentTime()
+        : tipoEntrega === "recoger_despues" || tipoEntrega === "enviar"
+          ? horaRecojo || null
+          : null,
       metodo_pago: metodoPago,
       total,
       tipo_entrega: tipoEntrega,
@@ -1099,7 +1117,14 @@ export function PedidoNuevoForm() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setTipoEntrega(value as TipoEntrega)}
+                onClick={() => {
+                  const tipo = value as TipoEntrega;
+                  setTipoEntrega(tipo);
+                  if (tipo === "llevar_ahora") {
+                    setFechaRecojo(getTodayDate());
+                    setHoraRecojo(getCurrentTime());
+                  }
+                }}
                 className={`h-11 rounded-md border px-3 text-sm font-semibold ${
                   tipoEntrega === value
                     ? "border-slate-900 bg-slate-900 text-white"
@@ -1111,12 +1136,12 @@ export function PedidoNuevoForm() {
             ))}
           </div>
 
-          {tipoEntrega === "recoger_despues" ? (
+          {tipoEntrega === "recoger_despues" || tipoEntrega === "enviar" ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Fecha de recojo" required>
+              <Field label={tipoEntrega === "enviar" ? "Fecha de entrega" : "Fecha de recojo"} required>
                 <input type="date" value={fechaRecojo} onChange={(event) => setFechaRecojo(event.target.value)} className={inputClassName} />
               </Field>
-              <Field label="Hora de recojo" required>
+              <Field label={tipoEntrega === "enviar" ? "Hora de entrega" : "Hora de recojo"} required>
                 <input type="time" value={horaRecojo} onChange={(event) => setHoraRecojo(event.target.value)} className={inputClassName} />
               </Field>
             </div>
