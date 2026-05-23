@@ -91,6 +91,16 @@ function getInitialValues(producto: Producto | null | undefined): ProductoFormVa
   };
 }
 
+function productCodeSegment(value: string) {
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase();
+
+  return (normalized || "XXX").slice(0, 3).padEnd(3, "X");
+}
+
 export function ProductoForm({
   categorias,
   subcategorias,
@@ -140,6 +150,20 @@ export function ProductoForm({
       (subcategoria) => subcategoria.categoria_id === values.categoria_id,
     );
   }, [subcategorias, values.categoria_id]);
+  const codigoPreview = useMemo(() => {
+    const categoria = categorias.find((item) => item.id === values.categoria_id);
+    const subcategoria = subcategorias.find(
+      (item) => item.id === values.subcategoria_id,
+    );
+
+    if (!categoria || !subcategoria) {
+      return "Selecciona categoria y subcategoria";
+    }
+
+    return `${productCodeSegment(categoria.nombre)}-${productCodeSegment(
+      subcategoria.nombre,
+    )}-###`;
+  }, [categorias, subcategorias, values.categoria_id, values.subcategoria_id]);
 
   function updateValue<Key extends keyof ProductoFormValues>(
     key: Key,
@@ -187,8 +211,11 @@ export function ProductoForm({
   }
 
   function buildImagePath(file: File) {
-    const codigo = values.codigo_interno.trim();
-    const safeCodigo = codigo.replace(/[^a-zA-Z0-9-_]/g, "-");
+    const codeOrName =
+      values.codigo_interno.trim() ||
+      values.nombre_producto.trim() ||
+      "producto";
+    const safeCodigo = codeOrName.replace(/[^a-zA-Z0-9-_]/g, "-");
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
 
     return `imagenes/${safeCodigo}-${Date.now()}.${extension}`;
@@ -203,11 +230,6 @@ export function ProductoForm({
       setImageError(
         supabaseConfigError ?? "No hay conexion configurada a Supabase.",
       );
-      return null;
-    }
-
-    if (!values.codigo_interno.trim()) {
-      setImageError("Ingresa el codigo interno antes de subir la imagen.");
       return null;
     }
 
@@ -358,16 +380,23 @@ export function ProductoForm({
       ) : null}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <Field label="Codigo interno" required>
-          <input
-            type="text"
-            value={values.codigo_interno}
-            onChange={(event) =>
-              updateValue("codigo_interno", event.target.value)
-            }
-            className={inputClassName}
-          />
-        </Field>
+        {productoEditando ? (
+          <Field label="Codigo interno">
+            <input
+              type="text"
+              value={values.codigo_interno}
+              readOnly
+              className={`${inputClassName} bg-slate-50 text-slate-500`}
+            />
+          </Field>
+        ) : (
+          <Field label="Codigo interno">
+            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              <p className="font-medium text-slate-800">Autogenerado al guardar</p>
+              <p className="mt-1">{codigoPreview}</p>
+            </div>
+          </Field>
+        )}
 
         <Field label="Nombre producto" required>
           <input

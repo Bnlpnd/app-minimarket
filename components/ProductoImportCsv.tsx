@@ -5,7 +5,6 @@ import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type { Almacen, Categoria, Marca, Producto, Subcategoria } from "@/types/database";
 
 const REQUIRED_HEADERS = [
-  "codigo_interno",
   "categoria",
   "subcategoria",
   "nombre_producto",
@@ -223,10 +222,6 @@ function buildImportRows(rows: CsvRow[]) {
     const precioVentaParsed = parseNumber(precioVentaRaw, 1);
     const precioVenta = precioVentaParsed === null ? 1 : precioVentaParsed;
 
-    if (!codigoInterno) {
-      errors.push("codigo_interno obligatorio");
-    }
-
     if (!nombreProducto) {
       errors.push("nombre_producto obligatorio");
     }
@@ -323,6 +318,11 @@ type ExistingProductLite = Pick<
   Producto,
   | "id"
   | "codigo_interno"
+  | "categoria_id"
+  | "subcategoria_id"
+  | "nombre_producto"
+  | "marca_id"
+  | "presentacion"
   | "precio_venta"
   | "precio_compra_referencial"
   | "stock_minimo"
@@ -330,31 +330,64 @@ type ExistingProductLite = Pick<
 
 async function fetchExistingProducts() {
   const pageSize = 1000;
-  const products = new Map<string, ExistingProductLite>();
+  const productsByCode = new Map<string, ExistingProductLite>();
+  const productsByNaturalKey = new Map<string, ExistingProductLite>();
   let from = 0;
 
   while (true) {
     const { data, error } = await supabase!
       .from("productos")
-      .select("id,codigo_interno,precio_venta,precio_compra_referencial,stock_minimo")
+      .select("id,codigo_interno,categoria_id,subcategoria_id,nombre_producto,marca_id,presentacion,precio_venta,precio_compra_referencial,stock_minimo")
       .range(from, from + pageSize - 1);
 
     if (error) {
-      return { products, error };
+      return { productsByCode, productsByNaturalKey, error };
     }
 
     const rows = (data ?? []) as ExistingProductLite[];
 
     rows.forEach((product) => {
-      products.set(normalizeKey(product.codigo_interno), product);
+      productsByCode.set(normalizeKey(product.codigo_interno), product);
+      productsByNaturalKey.set(
+        buildNaturalProductKey({
+          categoriaId: product.categoria_id,
+          subcategoriaId: product.subcategoria_id,
+          marcaId: product.marca_id,
+          nombreProducto: product.nombre_producto,
+          presentacion: product.presentacion,
+        }),
+        product,
+      );
     });
 
     if (rows.length < pageSize) {
-      return { products, error: null };
+      return { productsByCode, productsByNaturalKey, error: null };
     }
 
     from += pageSize;
   }
+}
+
+function buildNaturalProductKey({
+  categoriaId,
+  subcategoriaId,
+  marcaId,
+  nombreProducto,
+  presentacion,
+}: {
+  categoriaId: string;
+  subcategoriaId: string;
+  marcaId: string;
+  nombreProducto: string;
+  presentacion: string | null;
+}) {
+  return [
+    categoriaId,
+    subcategoriaId,
+    marcaId,
+    normalizeKey(nombreProducto),
+    normalizeKey(presentacion ?? ""),
+  ].join("|");
 }
 
 async function getTiendaAlmacen() {
@@ -601,7 +634,8 @@ export function ProductoImportCsv({
       return;
     }
 
-    const existingProductsMap = existingProducts.products;
+    const existingProductsByCode = existingProducts.productsByCode;
+    const existingProductsByNaturalKey = existingProducts.productsByNaturalKey;
 
     for (const [index, row] of rows.entries()) {
       setProcessedRows(index + 1);
@@ -646,9 +680,17 @@ export function ProductoImportCsv({
         continue;
       }
 
-      const existingProduct = existingProductsMap.get(
-        normalizeKey(row.codigo_interno),
-      );
+      const naturalKey = buildNaturalProductKey({
+        categoriaId: categoria.id,
+        subcategoriaId: subcategoria.id,
+        marcaId: marca.id,
+        nombreProducto: row.nombre_producto,
+        presentacion: row.presentacion,
+      });
+      const existingProduct =
+        (row.codigo_interno
+          ? existingProductsByCode.get(normalizeKey(row.codigo_interno))
+          : null) ?? existingProductsByNaturalKey.get(naturalKey);
 
       if (existingProduct) {
         const updatePayload: Partial<Producto> = {
@@ -680,7 +722,7 @@ export function ProductoImportCsv({
           currentSummary.errores += 1;
           currentReport.push({
             fila: row.rowNumber,
-            codigo_interno: row.codigo_interno,
+            codigo_interno: row.codigo_interno || existingProduct.codigo_interno,
             estado: "error",
             observacion: `No se pudo actualizar producto: ${error.message}`,
           });
@@ -698,7 +740,7 @@ export function ProductoImportCsv({
             currentSummary.errores += 1;
             currentReport.push({
               fila: row.rowNumber,
-              codigo_interno: row.codigo_interno,
+              codigo_interno: row.codigo_interno || existingProduct.codigo_interno,
               estado: "error",
               observacion: `Producto actualizado, pero fallo stock Tienda: ${stockResult.error.message}`,
             });
@@ -709,7 +751,7 @@ export function ProductoImportCsv({
         currentSummary.actualizados += 1;
         currentReport.push({
           fila: row.rowNumber,
-          codigo_interno: row.codigo_interno,
+          codigo_interno: row.codigo_interno || existingProduct.codigo_interno,
           estado: "actualizado",
           observacion:
             row.stock_actual_explicit
@@ -720,7 +762,6 @@ export function ProductoImportCsv({
       }
 
       const { data: insertedProduct, error } = await supabase.from("productos").insert({
-        codigo_interno: row.codigo_interno,
         categoria_id: categoria.id,
         subcategoria_id: subcategoria.id,
         nombre_producto: row.nombre_producto,
@@ -733,22 +774,25 @@ export function ProductoImportCsv({
         precio_venta: row.precio_venta,
         imagen_url: row.imagen_url,
         activo: row.activo,
-      }).select("id,codigo_interno,precio_venta,precio_compra_referencial,stock_minimo").single();
+      }).select("id,codigo_interno,categoria_id,subcategoria_id,nombre_producto,marca_id,presentacion,precio_venta,precio_compra_referencial,stock_minimo").single();
 
       if (error) {
         if (error.code === "23505") {
           const refreshed = await fetchExistingProducts();
-          const duplicated = refreshed.products.get(normalizeKey(row.codigo_interno));
+          const duplicated = row.codigo_interno
+            ? refreshed.productsByCode.get(normalizeKey(row.codigo_interno))
+            : refreshed.productsByNaturalKey.get(naturalKey);
           if (duplicated) {
-            existingProductsMap.set(normalizeKey(row.codigo_interno), duplicated);
+            existingProductsByCode.set(normalizeKey(duplicated.codigo_interno), duplicated);
+            existingProductsByNaturalKey.set(naturalKey, duplicated);
           }
           currentSummary.omitidos += 1;
           currentReport.push({
             fila: row.rowNumber,
-            codigo_interno: row.codigo_interno,
+            codigo_interno: row.codigo_interno || duplicated?.codigo_interno || "Autogenerado",
             estado: "omitido",
             observacion:
-              "Producto ya existe por codigo_interno; no se duplico.",
+              "Producto ya existe; no se duplico.",
           });
           continue;
         }
@@ -756,7 +800,7 @@ export function ProductoImportCsv({
         currentSummary.errores += 1;
         currentReport.push({
           fila: row.rowNumber,
-          codigo_interno: row.codigo_interno,
+          codigo_interno: row.codigo_interno || "Autogenerado",
           estado: "error",
           observacion: `No se pudo crear producto: ${error.message}`,
         });
@@ -774,18 +818,19 @@ export function ProductoImportCsv({
         currentSummary.errores += 1;
         currentReport.push({
           fila: row.rowNumber,
-          codigo_interno: row.codigo_interno,
+          codigo_interno: newProduct.codigo_interno,
           estado: "error",
           observacion: `Producto creado, pero fallo stock Tienda: ${stockResult.error.message}`,
         });
         continue;
       }
 
-      existingProductsMap.set(normalizeKey(row.codigo_interno), newProduct);
+      existingProductsByCode.set(normalizeKey(newProduct.codigo_interno), newProduct);
+      existingProductsByNaturalKey.set(naturalKey, newProduct);
       currentSummary.creados += 1;
       currentReport.push({
         fila: row.rowNumber,
-        codigo_interno: row.codigo_interno,
+        codigo_interno: newProduct.codigo_interno,
         estado: "creado",
         observacion:
           row.observations.length > 0
@@ -914,7 +959,7 @@ export function ProductoImportCsv({
                   <tr key={`${row.rowNumber}-${row.codigo_interno}`}>
                     <td className="px-4 py-3">{row.rowNumber}</td>
                     <td className="px-4 py-3 font-medium">
-                      {row.codigo_interno || "Sin codigo"}
+                      {row.codigo_interno || "Autogenerado"}
                     </td>
                     <td className="px-4 py-3">{row.nombre_producto}</td>
                     <td className="px-4 py-3">{row.categoria}</td>
@@ -945,9 +990,10 @@ export function ProductoImportCsv({
                 Resumen final
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Los productos existentes se actualizan por codigo interno. El
-                stock de Tienda solo se sobrescribe cuando el CSV trae
-                stock_actual explicito.
+                Si el CSV trae codigo interno, se usa para reconocer productos
+                existentes. Si no lo trae, los productos nuevos reciben codigo
+                automatico. El stock de Tienda solo se sobrescribe cuando el CSV
+                trae stock_actual explicito.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

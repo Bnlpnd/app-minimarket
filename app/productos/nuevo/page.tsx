@@ -262,13 +262,12 @@ function ProductoNuevoContent() {
       return false;
     }
 
-    const codigoInterno = normalizeSpaces(values.codigo_interno);
     const nombreProducto = normalizeSpaces(values.nombre_producto);
 
-    if (!codigoInterno || !nombreProducto) {
+    if (!nombreProducto) {
       setMessage({
         type: "error",
-        text: "Codigo interno y nombre del producto son obligatorios.",
+        text: "Nombre del producto es obligatorio.",
       });
       return false;
     }
@@ -282,7 +281,6 @@ function ProductoNuevoContent() {
     }
 
     const payload = {
-      codigo_interno: codigoInterno,
       categoria_id: values.categoria_id,
       subcategoria_id: values.subcategoria_id,
       nombre_producto: nombreProducto,
@@ -302,7 +300,11 @@ function ProductoNuevoContent() {
     setIsSaving(true);
     const result = productoEditando
       ? await supabase.from("productos").update(payload).eq("id", productoEditando.id)
-      : await supabase.from("productos").insert(payload).select("id").single();
+      : await supabase
+          .from("productos")
+          .insert(payload)
+          .select("id,codigo_interno")
+          .single();
     setIsSaving(false);
 
     if (result.error) {
@@ -337,7 +339,10 @@ function ProductoNuevoContent() {
       type: "success",
       text: productoEditando
         ? "Producto actualizado correctamente."
-        : "Producto creado correctamente. El stock inicial queda en 0 en Tienda.",
+        : `Producto creado correctamente con codigo ${
+            (result.data as { codigo_interno?: string } | null)?.codigo_interno ??
+            "autogenerado"
+          }. El stock inicial queda en 0 en Tienda.`,
     });
     await loadProducto();
     return true;
