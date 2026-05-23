@@ -9,9 +9,18 @@ import type {
   Marca,
   Presentacion,
   Producto,
+  ProductoPrecioMayor,
+  ProductoPresentacionCompra,
+  Proveedor,
   Subcategoria,
   UnidadBase,
 } from "@/types/database";
+
+export type PrecioMayorFormValue = {
+  cantidad_minima: string;
+  precio_unitario: string;
+  descripcion: string;
+};
 
 export type ProductoFormValues = {
   codigo_interno: string;
@@ -22,10 +31,17 @@ export type ProductoFormValues = {
   presentacion: string;
   unidad_base: string;
   stock_minimo: string;
-  precio_compra_referencial: string;
   precio_venta: string;
   imagen_url: string;
   activo: boolean;
+  proveedor_id: string;
+  presentacion_compra_id: string;
+  presentacion_compra: string;
+  unidades_por_presentacion: string;
+  precio_compra_presentacion: string;
+  stock_cantidad_presentaciones: string;
+  stock_unidades_sueltas: string;
+  precios_mayor: PrecioMayorFormValue[];
 };
 
 type ProductoFormProps = {
@@ -34,6 +50,9 @@ type ProductoFormProps = {
   marcas: Marca[];
   presentaciones: Presentacion[];
   unidadesBase: UnidadBase[];
+  proveedores: Proveedor[];
+  presentacionesCompra?: ProductoPresentacionCompra[];
+  preciosMayor?: ProductoPrecioMayor[];
   productoEditando?: Producto | null;
   isSaving: boolean;
   onSubmit: (values: ProductoFormValues) => Promise<boolean>;
@@ -60,20 +79,52 @@ const emptyValues: ProductoFormValues = {
   presentacion: "",
   unidad_base: "unidad",
   stock_minimo: "10",
-  precio_compra_referencial: "",
   precio_venta: "1.00",
   imagen_url: "",
   activo: true,
+  proveedor_id: "",
+  presentacion_compra_id: "",
+  presentacion_compra: "UND",
+  unidades_por_presentacion: "1",
+  precio_compra_presentacion: "",
+  stock_cantidad_presentaciones: "0",
+  stock_unidades_sueltas: "0",
+  precios_mayor: [
+    { cantidad_minima: "3", precio_unitario: "", descripcion: "Mayor x3" },
+    { cantidad_minima: "6", precio_unitario: "", descripcion: "Mayor x6" },
+    { cantidad_minima: "12", precio_unitario: "", descripcion: "Mayor x12" },
+  ],
 };
 
 function toInputValue(value: string | number | null, fallback = "") {
   return value === null ? fallback : String(value);
 }
 
-function getInitialValues(producto: Producto | null | undefined): ProductoFormValues {
+function getInitialValues({
+  producto,
+  presentacionesCompra,
+  preciosMayor,
+}: {
+  producto: Producto | null | undefined;
+  presentacionesCompra: ProductoPresentacionCompra[];
+  preciosMayor: ProductoPrecioMayor[];
+}): ProductoFormValues {
   if (!producto) {
     return emptyValues;
   }
+
+  const presentacionPrincipal =
+    presentacionesCompra.find((item) => item.es_principal && item.activo) ??
+    presentacionesCompra.find((item) => item.activo) ??
+    null;
+  const preciosMayorValues =
+    preciosMayor.length > 0
+      ? preciosMayor.map((precio) => ({
+          cantidad_minima: toInputValue(precio.cantidad_minima),
+          precio_unitario: toInputValue(precio.precio_unitario),
+          descripcion: precio.descripcion ?? "",
+        }))
+      : emptyValues.precios_mayor;
 
   return {
     codigo_interno: producto.codigo_interno,
@@ -84,10 +135,22 @@ function getInitialValues(producto: Producto | null | undefined): ProductoFormVa
     presentacion: producto.presentacion ?? "",
     unidad_base: producto.unidad_base ?? "unidad",
     stock_minimo: toInputValue(producto.stock_minimo, "10"),
-    precio_compra_referencial: toInputValue(producto.precio_compra_referencial),
     precio_venta: toInputValue(producto.precio_venta, "1.00"),
     imagen_url: producto.imagen_url ?? "",
     activo: producto.activo,
+    proveedor_id: presentacionPrincipal?.proveedor_id ?? "",
+    presentacion_compra_id: presentacionPrincipal?.id ?? "",
+    presentacion_compra: presentacionPrincipal?.nombre_presentacion ?? "UND",
+    unidades_por_presentacion: toInputValue(
+      presentacionPrincipal?.unidades_por_presentacion ?? 1,
+      "1",
+    ),
+    precio_compra_presentacion: toInputValue(
+      presentacionPrincipal?.costo_presentacion ?? producto.precio_compra_referencial,
+    ),
+    stock_cantidad_presentaciones: "0",
+    stock_unidades_sueltas: "0",
+    precios_mayor: preciosMayorValues,
   };
 }
 
@@ -107,6 +170,9 @@ export function ProductoForm({
   marcas,
   presentaciones,
   unidadesBase,
+  proveedores,
+  presentacionesCompra = [],
+  preciosMayor = [],
   productoEditando,
   isSaving,
   onSubmit,
@@ -116,7 +182,7 @@ export function ProductoForm({
   onQuickCreateMarca,
 }: ProductoFormProps) {
   const [values, setValues] = useState<ProductoFormValues>(() =>
-    getInitialValues(productoEditando),
+    getInitialValues({ producto: productoEditando, presentacionesCompra, preciosMayor }),
   );
   const [quickCatalogOpen, setQuickCatalogOpen] = useState(false);
   const [quickCategoria, setQuickCategoria] = useState("");
@@ -128,10 +194,10 @@ export function ProductoForm({
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   useEffect(() => {
-    setValues(getInitialValues(productoEditando));
+    setValues(getInitialValues({ producto: productoEditando, presentacionesCompra, preciosMayor }));
     clearSelectedImage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productoEditando?.id]);
+  }, [productoEditando?.id, presentacionesCompra.length, preciosMayor.length]);
 
   useEffect(() => {
     return () => {
@@ -164,6 +230,36 @@ export function ProductoForm({
       subcategoria.nombre,
     )}-###`;
   }, [categorias, subcategorias, values.categoria_id, values.subcategoria_id]);
+  const costoUnitarioCalculado = useMemo(() => {
+    const costoPresentacion = Number(values.precio_compra_presentacion);
+    const unidades = Number(values.unidades_por_presentacion);
+
+    if (
+      !Number.isFinite(costoPresentacion) ||
+      !Number.isFinite(unidades) ||
+      costoPresentacion < 0 ||
+      unidades <= 0
+    ) {
+      return null;
+    }
+
+    return costoPresentacion / unidades;
+  }, [values.precio_compra_presentacion, values.unidades_por_presentacion]);
+  const stockInicialUnidades = useMemo(() => {
+    const cantidadPresentaciones = Number(values.stock_cantidad_presentaciones);
+    const unidadesPresentacion = Number(values.unidades_por_presentacion);
+    const unidadesSueltas = Number(values.stock_unidades_sueltas);
+
+    return (
+      (Number.isFinite(cantidadPresentaciones) ? cantidadPresentaciones : 0) *
+        (Number.isFinite(unidadesPresentacion) ? unidadesPresentacion : 0) +
+      (Number.isFinite(unidadesSueltas) ? unidadesSueltas : 0)
+    );
+  }, [
+    values.stock_cantidad_presentaciones,
+    values.stock_unidades_sueltas,
+    values.unidades_por_presentacion,
+  ]);
 
   function updateValue<Key extends keyof ProductoFormValues>(
     key: Key,
@@ -269,6 +365,36 @@ export function ProductoForm({
       setValues(emptyValues);
       clearSelectedImage();
     }
+  }
+
+  function updatePrecioMayor(
+    index: number,
+    key: keyof PrecioMayorFormValue,
+    value: string,
+  ) {
+    setValues((current) => ({
+      ...current,
+      precios_mayor: current.precios_mayor.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item,
+      ),
+    }));
+  }
+
+  function addPrecioMayor() {
+    setValues((current) => ({
+      ...current,
+      precios_mayor: [
+        ...current.precios_mayor,
+        { cantidad_minima: "", precio_unitario: "", descripcion: "" },
+      ],
+    }));
+  }
+
+  function removePrecioMayor(index: number) {
+    setValues((current) => ({
+      ...current,
+      precios_mayor: current.precios_mayor.filter((_, itemIndex) => itemIndex !== index),
+    }));
   }
 
   async function handleQuickCategoria() {
@@ -497,19 +623,6 @@ export function ProductoForm({
           />
         </Field>
 
-        <Field label="Precio compra referencial">
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={values.precio_compra_referencial}
-            onChange={(event) =>
-              updateValue("precio_compra_referencial", event.target.value)
-            }
-            className={inputClassName}
-          />
-        </Field>
-
         <Field label="Precio venta">
           <input
             type="number"
@@ -548,6 +661,179 @@ export function ProductoForm({
           ) : null}
         </Field>
       </div>
+
+      <section className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">
+            Compra, proveedor y costo unitario
+          </h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Registra como compras el producto. El stock y las ventas se controlan
+            en unidades.
+          </p>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <Field label="Proveedor">
+            <select
+              value={values.proveedor_id}
+              onChange={(event) => updateValue("proveedor_id", event.target.value)}
+              className={inputClassName}
+            >
+              <option value="">Sin proveedor</option>
+              {proveedores.map((proveedor) => (
+                <option key={proveedor.id} value={proveedor.id}>
+                  {proveedor.nombre}
+                  {proveedor.ruc ? ` - ${proveedor.ruc}` : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Presentacion de compra">
+            <input
+              value={values.presentacion_compra}
+              onChange={(event) =>
+                updateValue("presentacion_compra", event.target.value)
+              }
+              placeholder="Ej. caja x12, paquete x6, unidad"
+              className={inputClassName}
+            />
+          </Field>
+          <Field label="Unidades por presentacion">
+            <input
+              type="number"
+              step="0.01"
+              min="1"
+              value={values.unidades_por_presentacion}
+              onChange={(event) =>
+                updateValue("unidades_por_presentacion", event.target.value)
+              }
+              className={inputClassName}
+            />
+          </Field>
+          <Field label="Precio compra de la presentacion">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={values.precio_compra_presentacion}
+              onChange={(event) =>
+                updateValue("precio_compra_presentacion", event.target.value)
+              }
+              className={inputClassName}
+            />
+          </Field>
+          <Field label="Costo unitario calculado">
+            <input
+              value={
+                costoUnitarioCalculado === null
+                  ? ""
+                  : costoUnitarioCalculado.toFixed(2)
+              }
+              readOnly
+              className={`${inputClassName} bg-white text-slate-600`}
+            />
+          </Field>
+          {!productoEditando ? (
+            <>
+              <Field label="Stock: cantidad de presentaciones">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={values.stock_cantidad_presentaciones}
+                  onChange={(event) =>
+                    updateValue("stock_cantidad_presentaciones", event.target.value)
+                  }
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Stock: unidades sueltas o bonificacion">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={values.stock_unidades_sueltas}
+                  onChange={(event) =>
+                    updateValue("stock_unidades_sueltas", event.target.value)
+                  }
+                  className={inputClassName}
+                />
+              </Field>
+              <div className="rounded-md bg-white p-3">
+                <p className="text-xs text-slate-500">Stock inicial en unidades</p>
+                <p className="mt-1 text-lg font-semibold text-slate-950">
+                  {Number.isFinite(stockInicialUnidades)
+                    ? stockInicialUnidades.toFixed(2).replace(/\.00$/, "")
+                    : "0"}
+                </p>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-950">
+              Precios por mayor
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Define desde cuantas unidades aplica un precio especial.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addPrecioMayor}
+            className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Agregar escala
+          </button>
+        </div>
+        <div className="mt-4 space-y-3">
+          {values.precios_mayor.map((precio, index) => (
+            <div key={index} className="grid gap-3 md:grid-cols-[1fr_1fr_1.4fr_auto]">
+              <input
+                type="number"
+                step="0.01"
+                min="1"
+                value={precio.cantidad_minima}
+                onChange={(event) =>
+                  updatePrecioMayor(index, "cantidad_minima", event.target.value)
+                }
+                placeholder="Desde unidades"
+                className={inputClassName}
+              />
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={precio.precio_unitario}
+                onChange={(event) =>
+                  updatePrecioMayor(index, "precio_unitario", event.target.value)
+                }
+                placeholder="Precio unitario"
+                className={inputClassName}
+              />
+              <input
+                value={precio.descripcion}
+                onChange={(event) =>
+                  updatePrecioMayor(index, "descripcion", event.target.value)
+                }
+                placeholder="Ej. precio x6"
+                className={inputClassName}
+              />
+              <button
+                type="button"
+                onClick={() => removePrecioMayor(index)}
+                className="h-11 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+              >
+                Quitar
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {imagePreview || values.imagen_url ? (
         <div className="mt-4 flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 p-3">

@@ -39,6 +39,10 @@ export const navigationItems = [
     items: [{ href: "/clientes", label: "Clientes" }],
   },
   {
+    label: "Proveedores",
+    items: [{ href: "/proveedores", label: "Proveedores" }],
+  },
+  {
     label: "Personal",
     items: [{ href: "/personal", label: "Usuarios y roles" }],
   },

@@ -107,6 +107,46 @@ export interface UnidadBase {
   updated_at: string;
 }
 
+export interface Proveedor {
+  id: string;
+  nombre: string;
+  ruc: string | null;
+  contacto: string | null;
+  telefono: string | null;
+  email: string | null;
+  direccion: string | null;
+  observacion: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductoPresentacionCompra {
+  id: string;
+  producto_id: string;
+  proveedor_id: string | null;
+  nombre_presentacion: string;
+  unidades_por_presentacion: number;
+  costo_presentacion: number | null;
+  costo_unitario: number | null;
+  es_principal: boolean;
+  observacion: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductoPrecioMayor {
+  id: string;
+  producto_id: string;
+  cantidad_minima: number;
+  precio_unitario: number;
+  descripcion: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Rol {
   id: number;
   nombre: string;

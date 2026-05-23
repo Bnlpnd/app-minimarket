@@ -13,6 +13,9 @@ import type {
   Marca,
   Presentacion,
   Producto,
+  ProductoPrecioMayor,
+  ProductoPresentacionCompra,
+  Proveedor,
   Subcategoria,
   UnidadBase,
 } from "@/types/database";
@@ -46,6 +49,15 @@ function parseNumber(value: string, fallback: number | null) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parsePositiveNumber(value: string, fallback: number | null) {
+  const parsed = parseNumber(value, fallback);
+  if (parsed === null) {
+    return null;
+  }
+
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export default function ProductoNuevoPage() {
   return (
     <Suspense fallback={<div className="p-4 text-sm text-slate-500">Cargando formulario...</div>}>
@@ -62,6 +74,11 @@ function ProductoNuevoContent() {
   const [marcas, setMarcas] = useState<Marca[]>([]);
   const [presentaciones, setPresentaciones] = useState<Presentacion[]>([]);
   const [unidadesBase, setUnidadesBase] = useState<UnidadBase[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  const [presentacionesCompra, setPresentacionesCompra] = useState<
+    ProductoPresentacionCompra[]
+  >([]);
+  const [preciosMayor, setPreciosMayor] = useState<ProductoPrecioMayor[]>([]);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
@@ -78,6 +95,7 @@ function ProductoNuevoContent() {
       marcasResult,
       presentacionesResult,
       unidadesResult,
+      proveedoresResult,
     ] = await Promise.all([
       supabase.from("categorias").select("*").eq("activo", true).order("nombre"),
       supabase
@@ -92,6 +110,7 @@ function ProductoNuevoContent() {
         .eq("activo", true)
         .order("nombre"),
       supabase.from("unidades_base").select("*").eq("activo", true).order("nombre"),
+      supabase.from("proveedores").select("*").eq("activo", true).order("nombre"),
     ]);
 
     if (
@@ -99,7 +118,8 @@ function ProductoNuevoContent() {
       subcategoriasResult.error ||
       marcasResult.error ||
       presentacionesResult.error ||
-      unidadesResult.error
+      unidadesResult.error ||
+      proveedoresResult.error
     ) {
       setMessage({
         type: "error",
@@ -113,6 +133,7 @@ function ProductoNuevoContent() {
     setMarcas((marcasResult.data ?? []) as Marca[]);
     setPresentaciones((presentacionesResult.data ?? []) as Presentacion[]);
     setUnidadesBase((unidadesResult.data ?? []) as UnidadBase[]);
+    setProveedores((proveedoresResult.data ?? []) as Proveedor[]);
   }
 
   async function loadProducto() {
@@ -136,6 +157,36 @@ function ProductoNuevoContent() {
     }
 
     setProductoEditando((data ?? null) as Producto | null);
+
+    if (data?.id) {
+      const [presentacionesResult, preciosResult] = await Promise.all([
+        supabase
+          .from("producto_presentaciones_compra")
+          .select("*")
+          .eq("producto_id", data.id)
+          .order("es_principal", { ascending: false })
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("producto_precios_mayor")
+          .select("*")
+          .eq("producto_id", data.id)
+          .eq("activo", true)
+          .order("cantidad_minima", { ascending: true }),
+      ]);
+
+      if (!presentacionesResult.error) {
+        setPresentacionesCompra(
+          (presentacionesResult.data ?? []) as ProductoPresentacionCompra[],
+        );
+      }
+
+      if (!preciosResult.error) {
+        setPreciosMayor((preciosResult.data ?? []) as ProductoPrecioMayor[]);
+      }
+    } else {
+      setPresentacionesCompra([]);
+      setPreciosMayor([]);
+    }
   }
 
   useEffect(() => {
@@ -288,14 +339,38 @@ function ProductoNuevoContent() {
       presentacion: emptyToNull(values.presentacion),
       unidad_base: emptyToNull(values.unidad_base),
       stock_minimo: parseNumber(values.stock_minimo, 10),
-      precio_compra_referencial: parseNumber(
-        values.precio_compra_referencial,
-        null,
-      ),
+      precio_compra_referencial: null as number | null,
       precio_venta: parseNumber(values.precio_venta, 1),
       imagen_url: emptyToNull(values.imagen_url),
       activo: values.activo,
     };
+    const unidadesPorPresentacion = parsePositiveNumber(
+      values.unidades_por_presentacion,
+      1,
+    );
+    const precioCompraPresentacion = parsePositiveNumber(
+      values.precio_compra_presentacion,
+      null,
+    );
+    const stockCantidadPresentaciones = parsePositiveNumber(
+      values.stock_cantidad_presentaciones,
+      0,
+    );
+    const stockUnidadesSueltas = parsePositiveNumber(values.stock_unidades_sueltas, 0);
+
+    if (!unidadesPorPresentacion || unidadesPorPresentacion <= 0) {
+      setMessage({
+        type: "error",
+        text: "Unidades por presentacion debe ser mayor a cero.",
+      });
+      return false;
+    }
+
+    if (precioCompraPresentacion !== null) {
+      payload.precio_compra_referencial = Number(
+        (precioCompraPresentacion / unidadesPorPresentacion).toFixed(2),
+      );
+    }
 
     setIsSaving(true);
     const result = productoEditando
@@ -327,11 +402,82 @@ function ProductoNuevoContent() {
         .maybeSingle();
 
       if (tienda.data?.id) {
+        const stockInicial =
+          Number(stockCantidadPresentaciones ?? 0) * unidadesPorPresentacion +
+          Number(stockUnidadesSueltas ?? 0);
         await supabase.from("producto_almacen").upsert({
           producto_id: productoIdCreado,
           almacen_id: tienda.data.id,
-          stock_actual: 0,
+          stock_actual: stockInicial,
         });
+      }
+    }
+
+    const savedProductId = productoEditando
+      ? productoEditando.id
+      : (result.data as { id: string }).id;
+
+    if (normalizeSpaces(values.presentacion_compra)) {
+      await supabase
+        .from("producto_presentaciones_compra")
+        .update({ es_principal: false })
+        .eq("producto_id", savedProductId);
+
+      const presentationPayload = {
+        producto_id: savedProductId,
+        proveedor_id: values.proveedor_id || null,
+        nombre_presentacion: normalizeSpaces(values.presentacion_compra),
+        unidades_por_presentacion: unidadesPorPresentacion,
+        costo_presentacion: precioCompraPresentacion,
+        es_principal: true,
+        activo: true,
+      };
+      const presentationResult = values.presentacion_compra_id
+        ? await supabase
+            .from("producto_presentaciones_compra")
+            .update(presentationPayload)
+            .eq("id", values.presentacion_compra_id)
+        : await supabase
+            .from("producto_presentaciones_compra")
+            .insert(presentationPayload);
+
+      if (presentationResult.error) {
+        setMessage({
+          type: "error",
+          text: `Producto guardado, pero fallo la presentacion de compra: ${presentationResult.error.message}`,
+        });
+        return false;
+      }
+    }
+
+    await supabase
+      .from("producto_precios_mayor")
+      .delete()
+      .eq("producto_id", savedProductId);
+    const preciosMayorPayload = values.precios_mayor
+      .map((precio) => ({
+        producto_id: savedProductId,
+        cantidad_minima: parsePositiveNumber(precio.cantidad_minima, null),
+        precio_unitario: parsePositiveNumber(precio.precio_unitario, null),
+        descripcion: emptyToNull(precio.descripcion),
+        activo: true,
+      }))
+      .filter(
+        (precio) =>
+          precio.cantidad_minima !== null && precio.precio_unitario !== null,
+      );
+
+    if (preciosMayorPayload.length > 0) {
+      const { error: preciosError } = await supabase
+        .from("producto_precios_mayor")
+        .insert(preciosMayorPayload);
+
+      if (preciosError) {
+        setMessage({
+          type: "error",
+          text: `Producto guardado, pero fallaron precios por mayor: ${preciosError.message}`,
+        });
+        return false;
       }
     }
 
@@ -373,6 +519,9 @@ function ProductoNuevoContent() {
           marcas={marcas}
           presentaciones={presentaciones}
           unidadesBase={unidadesBase}
+          proveedores={proveedores}
+          presentacionesCompra={presentacionesCompra}
+          preciosMayor={preciosMayor}
           productoEditando={productoEditando}
           isSaving={isSaving}
           onSubmit={handleSubmit}
