@@ -218,10 +218,6 @@ export function PedidoNuevoForm() {
     }
 
     const term = normalizeSpaces(productoSearch);
-    if (!term && !categoriaId && !subcategoriaId) {
-      setProductos([]);
-      return;
-    }
 
     setIsSearchingProducts(true);
     const productMap = new Map<string, ProductoSearchRow>();
@@ -909,6 +905,19 @@ export function PedidoNuevoForm() {
     clearCapture();
   }
 
+  function handleAnular() {
+    setItems([]);
+    setMetodoPago("efectivo");
+    clearCapture();
+    setStep(1);
+  }
+
+  function handleEditar() {
+    setMetodoPago("efectivo");
+    clearCapture();
+    setStep(1);
+  }
+
   const canGoNext = Boolean(
     step === 1
       ? items.length > 0 && stockWarnings.length === 0
@@ -990,12 +999,7 @@ export function PedidoNuevoForm() {
             </select>
           </div>
 
-          {!productoSearch.trim() && !categoriaId && !subcategoriaId ? (
-            <p className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500">
-              Busca un producto o selecciona una categoria para empezar.
-            </p>
-          ) : (
-            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
               {isSearchingProducts ? (
                 <p className="text-sm text-slate-500">Buscando productos...</p>
               ) : productos.length > 0 ? (
@@ -1004,18 +1008,25 @@ export function PedidoNuevoForm() {
                     key={producto.id}
                     type="button"
                     onClick={() => addProducto(producto)}
-                    className="rounded-md border border-slate-200 p-3 text-left text-sm hover:bg-slate-50"
+                    className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-left text-sm hover:bg-slate-50"
                   >
-                    <span className="block font-semibold text-slate-950">
-                      {producto.nombre_producto}
-                    </span>
-                    <span className="mt-1 block text-xs text-slate-500">
-                      {producto.codigo_interno} · {producto.marcas?.nombre ?? "Sin marca"}
-                    </span>
-                    <span className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-600">
-                      <span>Tienda {stockByName(producto, "Tienda")}</span>
-                      <span>Casa {stockByName(producto, "Casa")}</span>
-                      <span>{formatMoney(getPrecio(producto))}</span>
+                    {producto.imagen_url ? (
+                      <img src={producto.imagen_url} alt="" className="h-14 w-14 shrink-0 rounded-md border border-slate-100 object-cover" />
+                    ) : (
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-400">IMG</span>
+                    )}
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-slate-950">
+                        {producto.nombre_producto}
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {producto.codigo_interno} · {producto.marcas?.nombre ?? "Sin marca"}
+                      </span>
+                      <span className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                        <span>Tienda {stockByName(producto, "Tienda")}</span>
+                        <span>Casa {stockByName(producto, "Casa")}</span>
+                        <span>{formatMoney(getPrecio(producto))}</span>
+                      </span>
                     </span>
                   </button>
                 ))
@@ -1025,7 +1036,6 @@ export function PedidoNuevoForm() {
                 </p>
               )}
             </div>
-          )}
 
           <Cart
             items={items}
@@ -1214,15 +1224,65 @@ export function PedidoNuevoForm() {
             <SummaryItem label="Entrega" value={tipoEntrega.replaceAll("_", " ")} />
             <SummaryItem label="Total" value={formatMoney(total)} strong />
           </div>
-          <Cart items={items} almacenes={almacenes} readonly onUpdate={updateItem} onRemove={removeProducto} />
+          <section className="rounded-lg border border-slate-200">
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-3 font-medium">Cant</th>
+                    <th className="px-3 py-3 font-medium">Producto</th>
+                    <th className="px-3 py-3 font-medium">Precio</th>
+                    <th className="px-3 py-3 font-medium">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {items.map((item) => {
+                    const precio = getPrecio(item.producto);
+                    return (
+                      <tr key={item.producto.id}>
+                        <td className="px-3 py-3 text-slate-700">{item.cantidad}</td>
+                        <td className="px-3 py-3 font-medium text-slate-950">{item.producto.nombre_producto}</td>
+                        <td className="px-3 py-3 text-slate-600">{formatMoney(precio)}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-950">{formatMoney(item.cantidad * precio)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="border-t border-slate-200 bg-slate-50">
+                  <tr>
+                    <td colSpan={3} className="px-3 py-3 text-right text-sm font-semibold text-slate-700">Total</td>
+                    <td className="px-3 py-3 text-sm font-bold text-slate-950">{formatMoney(total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="space-y-3 p-3 lg:hidden">
+              {items.map((item) => {
+                const precio = getPrecio(item.producto);
+                return (
+                  <div key={item.producto.id} className="flex justify-between rounded-md border border-slate-200 p-3 text-sm">
+                    <span className="text-slate-700">{item.cantidad}x {item.producto.nombre_producto}</span>
+                    <span className="font-semibold text-slate-950">{formatMoney(item.cantidad * precio)}</span>
+                  </div>
+                );
+              })}
+              <div className="flex justify-between rounded-md bg-slate-50 px-3 py-3 text-sm font-bold text-slate-950">
+                <span>Total</span>
+                <span>{formatMoney(total)}</span>
+              </div>
+            </div>
+          </section>
           {stockWarnings.length > 0 ? (
             <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {stockWarnings.join(" ")}
             </p>
           ) : null}
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <button type="button" onClick={() => setStep(4)} className="h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700">
-              Volver
+            <button type="button" onClick={() => void handleAnular()} className="h-11 rounded-md border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50">
+              Anular
+            </button>
+            <button type="button" onClick={() => void handleEditar()} className="h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700">
+              Editar
             </button>
             <button type="button" onClick={() => void savePedido(false)} disabled={isSavingPedido} className="h-11 rounded-md bg-slate-900 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
               {isSavingPedido ? "Guardando..." : "Guardar pedido"}
@@ -1332,6 +1392,17 @@ function Cart({
               </tr>
             )}
           </tbody>
+          {items.length > 0 ? (
+            <tfoot className="border-t border-slate-200 bg-slate-50">
+              <tr>
+                <td colSpan={5} className="px-3 py-3 text-right text-sm font-semibold text-slate-700">Total</td>
+                <td className="px-3 py-3 text-sm font-bold text-slate-950">
+                  {formatMoney(items.reduce((sum, item) => sum + item.cantidad * getPrecio(item.producto), 0))}
+                </td>
+                <td className="px-3 py-3" />
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       </div>
       <div className="space-y-3 p-3 lg:hidden">
@@ -1373,6 +1444,12 @@ function Cart({
             </article>
           );
         })}
+        {items.length > 0 ? (
+          <div className="flex justify-between rounded-md bg-slate-50 px-3 py-3 text-sm font-bold text-slate-950">
+            <span>Total</span>
+            <span>{formatMoney(items.reduce((sum, item) => sum + item.cantidad * getPrecio(item.producto), 0))}</span>
+          </div>
+        ) : null}
       </div>
     </section>
   );
