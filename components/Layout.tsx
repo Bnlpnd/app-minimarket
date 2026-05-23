@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Header } from "@/components/Header";
 import { Sidebar } from "@/components/Sidebar";
 
@@ -16,7 +16,9 @@ export function Layout({ title, description, children }: LayoutProps) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="hidden md:fixed md:inset-y-0 md:left-0 md:block">
-        <Sidebar />
+        <Suspense fallback={null}>
+          <Sidebar />
+        </Suspense>
       </div>
 
       {isMenuOpen ? (
@@ -28,7 +30,9 @@ export function Layout({ title, description, children }: LayoutProps) {
             onClick={() => setIsMenuOpen(false)}
           />
           <div className="relative h-full w-72 max-w-[86vw] shadow-xl">
-            <Sidebar onNavigate={() => setIsMenuOpen(false)} />
+            <Suspense fallback={null}>
+              <Sidebar onNavigate={() => setIsMenuOpen(false)} />
+            </Suspense>
           </div>
         </div>
       ) : null}

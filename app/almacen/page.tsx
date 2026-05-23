@@ -1,15 +1,7 @@
-import { AlmacenDashboard } from "@/components/AlmacenDashboard";
-import { Layout } from "@/components/Layout";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default function AlmacenPage() {
-  return (
-    <Layout
-      title="Almacen"
-      description="Stock por ubicacion, costos referenciales y alertas operativas."
-    >
-      <AlmacenDashboard />
-    </Layout>
-  );
+  redirect("/almacen/transferencias");
 }

@@ -7,7 +7,7 @@ export default function TransferenciasAlmacenPage() {
   return (
     <Layout
       title="Transferencias"
-      description="Mueve stock entre Tienda y Casa sin permitir stock negativo."
+      description="Prepara envios de Casa a Negocio y pedidos de abastecimiento."
     >
       <AlmacenTransferencias />
     </Layout>

@@ -317,3 +317,41 @@ export interface StockMovimiento {
   registrado_por_id: string | null;
   created_at: string;
 }
+
+export interface AlmacenTransferenciaSolicitud {
+  id: string;
+  estado: "pendiente" | "enviado" | "recibido" | "cancelado";
+  observacion: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AlmacenTransferenciaItem {
+  id: string;
+  solicitud_id: string;
+  producto_id: string;
+  cantidad_solicitada: number;
+  cantidad_recibida: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AbastecimientoPedido {
+  id: string;
+  proveedor_id: string | null;
+  estado: "pendiente" | "enviado" | "comprado" | "cancelado";
+  urgencia: "baja" | "normal" | "alta";
+  observacion: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AbastecimientoItem {
+  id: string;
+  pedido_id: string;
+  producto_id: string;
+  cantidad: number;
+  observacion: string | null;
+  created_at: string;
+  updated_at: string;
+}
