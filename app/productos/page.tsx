@@ -91,6 +91,9 @@ export default function ProductosPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [message, setMessage] = useState<Message | null>(null);
+  const [showStockCasa, setShowStockCasa] = useState(false);
+  const [showStockTienda, setShowStockTienda] = useState(true);
+  const [showStockBajo, setShowStockBajo] = useState(false);
 
   const hasCriteria = hasAccess;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
@@ -227,9 +230,12 @@ export default function ProductosPage() {
       return;
     }
 
-    const rows = ((data ?? []) as ProductoConRelaciones[]).filter(
-      (producto) => getStockByName(producto, "Tienda") > 0,
-    );
+    const rows = ((data ?? []) as ProductoConRelaciones[]).filter((producto) => {
+      if (showStockTienda && getStockByName(producto, "Tienda") <= 0) return false;
+      if (showStockCasa && getStockByName(producto, "Casa") <= 0) return false;
+      if (showStockBajo && producto.stock_minimo != null && getStockByName(producto, "Tienda") > producto.stock_minimo) return false;
+      return true;
+    });
     setProductos(rows);
     setTotalCount(count ?? 0);
     setQuickValues(buildQuickValues(rows));
@@ -242,13 +248,13 @@ export default function ProductosPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, categoriaId, subcategoriaId, marcaId]);
+  }, [search, categoriaId, subcategoriaId, marcaId, showStockTienda, showStockCasa, showStockBajo]);
 
   useEffect(() => {
     if (!catalogLoading) {
       void loadProductos(page);
     }
-  }, [page, search, categoriaId, subcategoriaId, marcaId, catalogLoading]);
+  }, [page, search, categoriaId, subcategoriaId, marcaId, catalogLoading, showStockTienda, showStockCasa, showStockBajo]);
 
   function handleQuickValueChange(
     productoId: string,
@@ -476,6 +482,20 @@ export default function ProductosPage() {
                 </option>
               ))}
             </select>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={showStockTienda} onChange={(event) => setShowStockTienda(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+              Stock Tienda
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={showStockCasa} onChange={(event) => setShowStockCasa(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+              Stock Casa
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={showStockBajo} onChange={(event) => setShowStockBajo(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+              Stock bajo
+            </label>
           </div>
         </section>
 

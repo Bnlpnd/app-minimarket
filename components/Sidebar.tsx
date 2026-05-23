@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 export const navigationItems = [
   {
@@ -11,26 +11,24 @@ export const navigationItems = [
   {
     label: "Productos",
     items: [
-      { href: "/productos", label: "Listado" },
       { href: "/productos/nuevo", label: "Nuevo producto" },
-      { href: "/productos/importar", label: "Importar CSV" },
+      { href: "/productos", label: "Listado" },
       { href: "/productos/mantenimiento", label: "Mantenimiento" },
+      { href: "/productos/importar", label: "Importar CSV" },
     ],
   },
   {
-    label: "Almacen",
+    label: "Almacenes",
     items: [
-      { href: "/almacen", label: "Stock" },
-      { href: "/almacen/movimientos", label: "Movimientos" },
       { href: "/almacen/transferencias", label: "Transferencias" },
-      { href: "/almacen/ajustes", label: "Ajustes" },
+      { href: "/almacen/ajustes", label: "Agregar stock" },
     ],
   },
   {
-    label: "Ventas / Pedidos",
+    label: "Ventas",
     items: [
       { href: "/pedidos/nuevo", label: "Nueva venta" },
-      { href: "/pedidos", label: "Pedidos" },
+      { href: "/pedidos", label: "Lista pedidos" },
       { href: "/preparacion", label: "Preparacion" },
     ],
   },
@@ -44,11 +42,10 @@ export const navigationItems = [
   },
   {
     label: "Personal",
-    items: [{ href: "/personal", label: "Usuarios y roles" }],
-  },
-  {
-    label: "Pagos",
-    items: [{ href: "/pagos", label: "Validar Yape" }],
+    items: [
+      { href: "/personal?tab=nuevo", label: "Nuevo personal" },
+      { href: "/personal?tab=pago", label: "Pago semanal" },
+    ],
   },
 ];
 
@@ -58,6 +55,16 @@ type SidebarProps = {
 
 export function Sidebar({ onNavigate }: SidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  function isItemActive(href: string) {
+    const [path, query] = href.split("?");
+    if (query) {
+      const params = new URLSearchParams(query);
+      return pathname === path && params.get("tab") === searchParams.get("tab");
+    }
+    return pathname === path || pathname.startsWith(`${path}/`);
+  }
 
   return (
     <aside className="flex h-full w-72 flex-col border-r border-slate-200 bg-white">
@@ -80,8 +87,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             </p>
             <div className="mt-2 space-y-1">
               {group.items.map((item) => {
-                const isActive =
-                  pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const isActive = isItemActive(item.href);
 
                 return (
                   <Link

@@ -359,6 +359,12 @@ function Actions({
       >
         Editar
       </Link>
+      <Link
+        href={`/almacen/transferencias?producto=${producto.id}`}
+        className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+      >
+        Transferir
+      </Link>
       <button
         type="button"
         onClick={() => onToggleActivo(producto)}

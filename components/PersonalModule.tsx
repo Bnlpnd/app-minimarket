@@ -191,8 +191,15 @@ function getPaySummary(worker: UsuarioInterno, asistencias: PersonalAsistencia[]
   };
 }
 
+function getInitialTab(): ActiveTab {
+  if (typeof window === "undefined") return "listado";
+  const param = new URLSearchParams(window.location.search).get("tab");
+  if (param === "pago") return "pagos";
+  return "listado";
+}
+
 export function PersonalModule() {
-  const [tab, setTab] = useState<ActiveTab>("listado");
+  const [tab, setTab] = useState<ActiveTab>(getInitialTab);
   const [usuarios, setUsuarios] = useState<UsuarioInterno[]>([]);
   const [asistencias, setAsistencias] = useState<PersonalAsistencia[]>([]);
   const [descuentos, setDescuentos] = useState<PersonalDescuento[]>([]);
