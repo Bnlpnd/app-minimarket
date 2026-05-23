@@ -11,15 +11,13 @@ import type {
   Marca,
   Presentacion,
   Subcategoria,
-  UnidadBase,
 } from "@/types/database";
 
 type CatalogType =
   | "categorias"
   | "subcategorias"
   | "marcas"
-  | "presentaciones"
-  | "unidades_base";
+  | "presentaciones";
 
 type CatalogItem = {
   id: string;
@@ -38,7 +36,6 @@ const tabs: Array<{ value: CatalogType; label: string }> = [
   { value: "subcategorias", label: "Subcategorias" },
   { value: "marcas", label: "Marcas" },
   { value: "presentaciones", label: "Presentaciones" },
-  { value: "unidades_base", label: "Unidades base" },
 ];
 
 const inputClassName =
@@ -61,7 +58,6 @@ export default function ProductosMantenimientoPage() {
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
   const [marcas, setMarcas] = useState<Marca[]>([]);
   const [presentaciones, setPresentaciones] = useState<Presentacion[]>([]);
-  const [unidades, setUnidades] = useState<UnidadBase[]>([]);
   const [nombre, setNombre] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
@@ -105,21 +101,18 @@ export default function ProductosMantenimientoPage() {
       subcategoriasResult,
       marcasResult,
       presentacionesResult,
-      unidadesResult,
     ] = await Promise.all([
       supabase.from("categorias").select("*").order("nombre"),
       supabase.from("subcategorias").select("*").order("nombre"),
       supabase.from("marcas").select("*").order("nombre"),
       supabase.from("presentaciones").select("*").order("nombre"),
-      supabase.from("unidades_base").select("*").order("nombre"),
     ]);
 
     if (
       categoriasResult.error ||
       subcategoriasResult.error ||
       marcasResult.error ||
-      presentacionesResult.error ||
-      unidadesResult.error
+      presentacionesResult.error
     ) {
       setMessage({ type: "error", text: "No se pudieron cargar catalogos." });
       return;
@@ -129,7 +122,6 @@ export default function ProductosMantenimientoPage() {
     setSubcategorias((subcategoriasResult.data ?? []) as Subcategoria[]);
     setMarcas((marcasResult.data ?? []) as Marca[]);
     setPresentaciones((presentacionesResult.data ?? []) as Presentacion[]);
-    setUnidades((unidadesResult.data ?? []) as UnidadBase[]);
   }
 
   useEffect(() => {
@@ -149,8 +141,8 @@ export default function ProductosMantenimientoPage() {
     if (activeTab === "presentaciones") {
       return presentaciones;
     }
-    return unidades;
-  }, [activeTab, categorias, marcas, presentaciones, subcategorias, unidades]);
+    return [];
+  }, [activeTab, categorias, marcas, presentaciones, subcategorias]);
 
   const filteredItems = useMemo(() => {
     const term = normalizeKey(appliedSearch);
@@ -208,11 +200,10 @@ export default function ProductosMantenimientoPage() {
       return count ?? 0;
     }
 
-    const field = type === "presentaciones" ? "presentacion" : "unidad_base";
     const { count } = await supabase
       .from("productos")
       .select("*", { count: "exact", head: true })
-      .eq(field, item.nombre);
+      .eq("presentacion", item.nombre);
     return count ?? 0;
   }
 
@@ -316,7 +307,7 @@ export default function ProductosMantenimientoPage() {
 
   return (
     <Layout
-      title="Mantenimiento de productos"
+      title="Mantenimiento"
       description="Administra catalogos sin saturar la pantalla de productos."
     >
       <div className="space-y-5">
@@ -356,7 +347,7 @@ export default function ProductosMantenimientoPage() {
         ) : null}
 
         <section className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {tabs.map((tab) => (
               <button
                 key={tab.value}

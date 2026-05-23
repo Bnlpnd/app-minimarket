@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { Layout } from "@/components/Layout";
 import { ProductoForm } from "@/components/ProductoForm";
 import type { ProductoFormValues } from "@/components/ProductoForm";
+import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
   Categoria,
@@ -15,9 +16,7 @@ import type {
   Producto,
   ProductoPrecioMayor,
   ProductoPresentacionCompra,
-  Proveedor,
   Subcategoria,
-  UnidadBase,
 } from "@/types/database";
 
 type Message = {
@@ -73,15 +72,34 @@ function ProductoNuevoContent() {
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
   const [marcas, setMarcas] = useState<Marca[]>([]);
   const [presentaciones, setPresentaciones] = useState<Presentacion[]>([]);
-  const [unidadesBase, setUnidadesBase] = useState<UnidadBase[]>([]);
-  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [presentacionesCompra, setPresentacionesCompra] = useState<
     ProductoPresentacionCompra[]
   >([]);
   const [preciosMayor, setPreciosMayor] = useState<ProductoPrecioMayor[]>([]);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
+  const [hasAccess, setHasAccess] = useState(false);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [accessMessage, setAccessMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
+
+  async function checkAccess() {
+    const { profile } = await getCurrentUserProfile();
+    const allowed = isAdmin(profile) || isTrabajador(profile);
+
+    setHasAccess(allowed);
+    setAccessMessage(
+      allowed
+        ? ""
+        : "Debes iniciar sesion como admin o trabajador para registrar productos.",
+    );
+    setIsCheckingAccess(false);
+
+    if (allowed) {
+      void loadCatalogos();
+      void loadProducto();
+    }
+  }
 
   async function loadCatalogos() {
     if (supabaseConfigError || !supabase) {
@@ -94,8 +112,6 @@ function ProductoNuevoContent() {
       subcategoriasResult,
       marcasResult,
       presentacionesResult,
-      unidadesResult,
-      proveedoresResult,
     ] = await Promise.all([
       supabase.from("categorias").select("*").eq("activo", true).order("nombre"),
       supabase
@@ -109,17 +125,13 @@ function ProductoNuevoContent() {
         .select("*")
         .eq("activo", true)
         .order("nombre"),
-      supabase.from("unidades_base").select("*").eq("activo", true).order("nombre"),
-      supabase.from("proveedores").select("*").eq("activo", true).order("nombre"),
     ]);
 
     if (
       categoriasResult.error ||
       subcategoriasResult.error ||
       marcasResult.error ||
-      presentacionesResult.error ||
-      unidadesResult.error ||
-      proveedoresResult.error
+      presentacionesResult.error
     ) {
       setMessage({
         type: "error",
@@ -132,8 +144,6 @@ function ProductoNuevoContent() {
     setSubcategorias((subcategoriasResult.data ?? []) as Subcategoria[]);
     setMarcas((marcasResult.data ?? []) as Marca[]);
     setPresentaciones((presentacionesResult.data ?? []) as Presentacion[]);
-    setUnidadesBase((unidadesResult.data ?? []) as UnidadBase[]);
-    setProveedores((proveedoresResult.data ?? []) as Proveedor[]);
   }
 
   async function loadProducto() {
@@ -190,8 +200,7 @@ function ProductoNuevoContent() {
   }
 
   useEffect(() => {
-    void loadCatalogos();
-    void loadProducto();
+    void checkAccess();
   }, [productoId]);
 
   async function quickCreateCategoria(nombre: string) {
@@ -304,6 +313,44 @@ function ProductoNuevoContent() {
     return marca;
   }
 
+  async function quickCreatePresentacion(nombre: string) {
+    if (!supabase) {
+      return null;
+    }
+    const normalized = normalizeSpaces(nombre);
+    if (!normalized) {
+      setMessage({ type: "error", text: "Ingresa una presentacion." });
+      return null;
+    }
+
+    const existing = presentaciones.find(
+      (item) => normalizeKey(item.nombre) === normalizeKey(normalized),
+    );
+    if (existing) {
+      return existing;
+    }
+
+    const { data, error } = await supabase
+      .from("presentaciones")
+      .insert({ nombre: normalized })
+      .select("*")
+      .single();
+
+    if (error) {
+      setMessage({
+        type: "error",
+        text: `No se pudo crear presentacion: ${error.message}`,
+      });
+      return null;
+    }
+
+    const presentacion = data as Presentacion;
+    setPresentaciones((current) =>
+      [...current, presentacion].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    );
+    return presentacion;
+  }
+
   async function handleSubmit(values: ProductoFormValues) {
     if (!supabase) {
       setMessage({
@@ -331,13 +378,21 @@ function ProductoNuevoContent() {
       return false;
     }
 
+    if (!values.presentacion) {
+      setMessage({
+        type: "error",
+        text: "Selecciona una presentacion.",
+      });
+      return false;
+    }
+
     const payload = {
       categoria_id: values.categoria_id,
       subcategoria_id: values.subcategoria_id,
       nombre_producto: nombreProducto,
       marca_id: values.marca_id,
       presentacion: emptyToNull(values.presentacion),
-      unidad_base: emptyToNull(values.unidad_base),
+      unidad_base: null,
       stock_minimo: parseNumber(values.stock_minimo, 10),
       precio_compra_referencial: null as number | null,
       precio_venta: parseNumber(values.precio_venta, 1),
@@ -417,7 +472,7 @@ function ProductoNuevoContent() {
       ? productoEditando.id
       : (result.data as { id: string }).id;
 
-    if (normalizeSpaces(values.presentacion_compra)) {
+    if (normalizeSpaces(values.presentacion)) {
       await supabase
         .from("producto_presentaciones_compra")
         .update({ es_principal: false })
@@ -425,8 +480,8 @@ function ProductoNuevoContent() {
 
       const presentationPayload = {
         producto_id: savedProductId,
-        proveedor_id: values.proveedor_id || null,
-        nombre_presentacion: normalizeSpaces(values.presentacion_compra),
+        proveedor_id: null,
+        nombre_presentacion: normalizeSpaces(values.presentacion),
         unidades_por_presentacion: unidadesPorPresentacion,
         costo_presentacion: precioCompraPresentacion,
         es_principal: true,
@@ -488,7 +543,7 @@ function ProductoNuevoContent() {
         : `Producto creado correctamente con codigo ${
             (result.data as { codigo_interno?: string } | null)?.codigo_interno ??
             "autogenerado"
-          }. El stock inicial queda en 0 en Tienda.`,
+          }.`,
     });
     await loadProducto();
     return true;
@@ -500,6 +555,29 @@ function ProductoNuevoContent() {
       description="Registra los datos generales del producto. El stock se administra desde Almacen."
     >
       <div className="space-y-5">
+        {isCheckingAccess ? (
+          <section className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-500 shadow-sm">
+            Verificando permisos...
+          </section>
+        ) : null}
+
+        {!isCheckingAccess && !hasAccess ? (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+            <h2 className="text-base font-semibold text-amber-950">
+              Acceso restringido
+            </h2>
+            <p className="mt-2">{accessMessage}</p>
+            <a
+              href="/login"
+              className="mt-4 inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
+            >
+              Ir al login
+            </a>
+          </section>
+        ) : null}
+
+        {hasAccess ? (
+          <>
         {message ? (
           <div
             className={`rounded-lg border p-4 text-sm ${
@@ -518,8 +596,6 @@ function ProductoNuevoContent() {
           subcategorias={subcategorias}
           marcas={marcas}
           presentaciones={presentaciones}
-          unidadesBase={unidadesBase}
-          proveedores={proveedores}
           presentacionesCompra={presentacionesCompra}
           preciosMayor={preciosMayor}
           productoEditando={productoEditando}
@@ -528,7 +604,10 @@ function ProductoNuevoContent() {
           onQuickCreateCategoria={quickCreateCategoria}
           onQuickCreateSubcategoria={quickCreateSubcategoria}
           onQuickCreateMarca={quickCreateMarca}
+          onQuickCreatePresentacion={quickCreatePresentacion}
         />
+          </>
+        ) : null}
       </div>
     </Layout>
   );

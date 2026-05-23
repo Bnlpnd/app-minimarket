@@ -1,4 +1,5 @@
 import { Layout } from "@/components/Layout";
+import { AdminOnly } from "@/components/AdminOnly";
 import { ProductoImportCsv } from "@/components/ProductoImportCsv";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type { Categoria, Marca, Subcategoria } from "@/types/database";
@@ -47,11 +48,13 @@ export default async function ImportarProductosPage() {
       title="Importar productos"
       description="Carga productos desde un archivo CSV exportado desde Excel."
     >
-      <ProductoImportCsv
-        initialCategorias={catalogos.categorias}
-        initialSubcategorias={catalogos.subcategorias}
-        initialMarcas={catalogos.marcas}
-      />
+      <AdminOnly>
+        <ProductoImportCsv
+          initialCategorias={catalogos.categorias}
+          initialSubcategorias={catalogos.subcategorias}
+          initialMarcas={catalogos.marcas}
+        />
+      </AdminOnly>
     </Layout>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { ProductoTable } from "@/components/ProductoTable";
 import type { ProductoConRelaciones } from "@/components/ProductoTable";
+import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type { Almacen, Categoria, Marca, Subcategoria } from "@/types/database";
 
@@ -81,9 +82,9 @@ export default function ProductosPage() {
   const [categoriaId, setCategoriaId] = useState("");
   const [subcategoriaId, setSubcategoriaId] = useState("");
   const [marcaId, setMarcaId] = useState("");
-  const [estado, setEstado] = useState<"activos" | "inactivos" | "todos">(
-    "activos",
-  );
+  const [hasAccess, setHasAccess] = useState(false);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [accessMessage, setAccessMessage] = useState("");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [quickValues, setQuickValues] = useState<QuickValues>({});
@@ -91,8 +92,7 @@ export default function ProductosPage() {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [message, setMessage] = useState<Message | null>(null);
 
-  const hasCriteria =
-    normalizeSearch(search) || categoriaId || subcategoriaId || marcaId || estado !== "activos";
+  const hasCriteria = hasAccess;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const subcategoriasFiltradas = useMemo(() => {
     return categoriaId
@@ -134,6 +134,23 @@ export default function ProductosPage() {
     }
 
     setCatalogLoading(false);
+  }
+
+  async function checkAccess() {
+    const { profile } = await getCurrentUserProfile();
+    const allowed = isAdmin(profile) || isTrabajador(profile);
+
+    setHasAccess(allowed);
+    setAccessMessage(
+      allowed
+        ? ""
+        : "Debes iniciar sesion como admin o trabajador para ver productos.",
+    );
+    setIsCheckingAccess(false);
+
+    if (allowed) {
+      void loadCatalogos();
+    }
   }
 
   async function loadProductos(nextPage = page) {
@@ -190,9 +207,7 @@ export default function ProductosPage() {
     if (marcaId) {
       query = query.eq("marca_id", marcaId);
     }
-    if (estado !== "todos") {
-      query = query.eq("activo", estado === "activos");
-    }
+    query = query.eq("activo", true);
 
     const from = (nextPage - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -212,7 +227,9 @@ export default function ProductosPage() {
       return;
     }
 
-    const rows = (data ?? []) as ProductoConRelaciones[];
+    const rows = ((data ?? []) as ProductoConRelaciones[]).filter(
+      (producto) => getStockByName(producto, "Tienda") > 0,
+    );
     setProductos(rows);
     setTotalCount(count ?? 0);
     setQuickValues(buildQuickValues(rows));
@@ -220,19 +237,18 @@ export default function ProductosPage() {
   }
 
   useEffect(() => {
-    void loadCatalogos();
+    void checkAccess();
   }, []);
 
   useEffect(() => {
     setPage(1);
-  }, [search, categoriaId, subcategoriaId, marcaId, estado]);
+  }, [search, categoriaId, subcategoriaId, marcaId]);
 
   useEffect(() => {
     if (!catalogLoading) {
       void loadProductos(page);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search, categoriaId, subcategoriaId, marcaId, estado, catalogLoading]);
+  }, [page, search, categoriaId, subcategoriaId, marcaId, catalogLoading]);
 
   function handleQuickValueChange(
     productoId: string,
@@ -362,6 +378,29 @@ export default function ProductosPage() {
       description="Busca, filtra y edita datos rapidos del catalogo."
     >
       <div className="space-y-5">
+        {isCheckingAccess ? (
+          <section className="rounded-lg border border-slate-200 bg-white p-5 text-sm text-slate-500 shadow-sm">
+            Verificando permisos...
+          </section>
+        ) : null}
+
+        {!isCheckingAccess && !hasAccess ? (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+            <h2 className="text-base font-semibold text-amber-950">
+              Acceso restringido
+            </h2>
+            <p className="mt-2">{accessMessage}</p>
+            <a
+              href="/login"
+              className="mt-4 inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
+            >
+              Ir al login
+            </a>
+          </section>
+        ) : null}
+
+        {hasAccess ? (
+          <>
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <Link
             href="/productos/nuevo"
@@ -374,12 +413,6 @@ export default function ProductosPage() {
             className="inline-flex h-11 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Importar CSV
-          </Link>
-          <Link
-            href="/productos/mantenimiento"
-            className="inline-flex h-11 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Mantenimiento
           </Link>
         </div>
 
@@ -396,7 +429,7 @@ export default function ProductosPage() {
         ) : null}
 
         <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <input
               type="search"
               value={search}
@@ -443,17 +476,6 @@ export default function ProductosPage() {
                 </option>
               ))}
             </select>
-            <select
-              value={estado}
-              onChange={(event) =>
-                setEstado(event.target.value as "activos" | "inactivos" | "todos")
-              }
-              className={inputClassName}
-            >
-              <option value="activos">Activos</option>
-              <option value="inactivos">Inactivos</option>
-              <option value="todos">Todos</option>
-            </select>
           </div>
         </section>
 
@@ -499,6 +521,8 @@ export default function ProductosPage() {
             </div>
           </>
         )}
+          </>
+        ) : null}
       </div>
     </Layout>
   );

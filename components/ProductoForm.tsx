@@ -11,9 +11,7 @@ import type {
   Producto,
   ProductoPrecioMayor,
   ProductoPresentacionCompra,
-  Proveedor,
   Subcategoria,
-  UnidadBase,
 } from "@/types/database";
 
 export type PrecioMayorFormValue = {
@@ -29,12 +27,10 @@ export type ProductoFormValues = {
   nombre_producto: string;
   marca_id: string;
   presentacion: string;
-  unidad_base: string;
   stock_minimo: string;
   precio_venta: string;
   imagen_url: string;
   activo: boolean;
-  proveedor_id: string;
   presentacion_compra_id: string;
   presentacion_compra: string;
   unidades_por_presentacion: string;
@@ -49,8 +45,6 @@ type ProductoFormProps = {
   subcategorias: Subcategoria[];
   marcas: Marca[];
   presentaciones: Presentacion[];
-  unidadesBase: UnidadBase[];
-  proveedores: Proveedor[];
   presentacionesCompra?: ProductoPresentacionCompra[];
   preciosMayor?: ProductoPrecioMayor[];
   productoEditando?: Producto | null;
@@ -63,6 +57,7 @@ type ProductoFormProps = {
     nombre: string,
   ) => Promise<Subcategoria | null>;
   onQuickCreateMarca?: (nombre: string) => Promise<Marca | null>;
+  onQuickCreatePresentacion?: (nombre: string) => Promise<Presentacion | null>;
 };
 
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
@@ -77,12 +72,10 @@ const emptyValues: ProductoFormValues = {
   nombre_producto: "",
   marca_id: "",
   presentacion: "",
-  unidad_base: "unidad",
   stock_minimo: "10",
   precio_venta: "1.00",
   imagen_url: "",
   activo: true,
-  proveedor_id: "",
   presentacion_compra_id: "",
   presentacion_compra: "UND",
   unidades_por_presentacion: "1",
@@ -133,12 +126,10 @@ function getInitialValues({
     nombre_producto: producto.nombre_producto,
     marca_id: producto.marca_id,
     presentacion: producto.presentacion ?? "",
-    unidad_base: producto.unidad_base ?? "unidad",
     stock_minimo: toInputValue(producto.stock_minimo, "10"),
     precio_venta: toInputValue(producto.precio_venta, "1.00"),
     imagen_url: producto.imagen_url ?? "",
     activo: producto.activo,
-    proveedor_id: presentacionPrincipal?.proveedor_id ?? "",
     presentacion_compra_id: presentacionPrincipal?.id ?? "",
     presentacion_compra: presentacionPrincipal?.nombre_presentacion ?? "UND",
     unidades_por_presentacion: toInputValue(
@@ -154,23 +145,11 @@ function getInitialValues({
   };
 }
 
-function productCodeSegment(value: string) {
-  const normalized = value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .toUpperCase();
-
-  return (normalized || "XXX").slice(0, 3).padEnd(3, "X");
-}
-
 export function ProductoForm({
   categorias,
   subcategorias,
   marcas,
   presentaciones,
-  unidadesBase,
-  proveedores,
   presentacionesCompra = [],
   preciosMayor = [],
   productoEditando,
@@ -180,6 +159,7 @@ export function ProductoForm({
   onQuickCreateCategoria,
   onQuickCreateSubcategoria,
   onQuickCreateMarca,
+  onQuickCreatePresentacion,
 }: ProductoFormProps) {
   const [values, setValues] = useState<ProductoFormValues>(() =>
     getInitialValues({ producto: productoEditando, presentacionesCompra, preciosMayor }),
@@ -188,6 +168,7 @@ export function ProductoForm({
   const [quickCategoria, setQuickCategoria] = useState("");
   const [quickSubcategoria, setQuickSubcategoria] = useState("");
   const [quickMarca, setQuickMarca] = useState("");
+  const [quickPresentacion, setQuickPresentacion] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
   const [imageError, setImageError] = useState("");
@@ -216,20 +197,6 @@ export function ProductoForm({
       (subcategoria) => subcategoria.categoria_id === values.categoria_id,
     );
   }, [subcategorias, values.categoria_id]);
-  const codigoPreview = useMemo(() => {
-    const categoria = categorias.find((item) => item.id === values.categoria_id);
-    const subcategoria = subcategorias.find(
-      (item) => item.id === values.subcategoria_id,
-    );
-
-    if (!categoria || !subcategoria) {
-      return "Selecciona categoria y subcategoria";
-    }
-
-    return `${productCodeSegment(categoria.nombre)}-${productCodeSegment(
-      subcategoria.nombre,
-    )}-###`;
-  }, [categorias, subcategorias, values.categoria_id, values.subcategoria_id]);
   const costoUnitarioCalculado = useMemo(() => {
     const costoPresentacion = Number(values.precio_compra_presentacion);
     const unidades = Number(values.unidades_por_presentacion);
@@ -436,8 +403,24 @@ export function ProductoForm({
     }
   }
 
+  async function handleQuickPresentacion() {
+    if (!onQuickCreatePresentacion) {
+      return;
+    }
+
+    const presentacion = await onQuickCreatePresentacion(quickPresentacion);
+    if (presentacion) {
+      updateValue("presentacion", presentacion.nombre);
+      updateValue("presentacion_compra", presentacion.nombre);
+      setQuickPresentacion("");
+    }
+  }
+
   const hasCatalogOptions =
-    categorias.length > 0 && subcategorias.length > 0 && marcas.length > 0;
+    categorias.length > 0 &&
+    subcategorias.length > 0 &&
+    marcas.length > 0 &&
+    presentaciones.length > 0;
 
   return (
     <form
@@ -450,8 +433,8 @@ export function ProductoForm({
             {productoEditando ? "Editar producto" : "Nuevo producto"}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            El stock operativo se controla por almacen. Aqui registra los datos
-            generales del producto.
+            El codigo se genera automaticamente al guardar. Registra compra,
+            unidades y precio de venta por unidad.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -477,12 +460,12 @@ export function ProductoForm({
       {!hasCatalogOptions ? (
         <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           Para crear productos necesitas al menos una categoria, una
-          subcategoria y una marca activas.
+          subcategoria, una marca y una presentacion activas.
         </p>
       ) : null}
 
       {quickCatalogOpen ? (
-        <section className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+        <section className="mt-4 grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-2 xl:grid-cols-4">
           <QuickCreate
             label="Nueva categoria"
             value={quickCategoria}
@@ -502,28 +485,16 @@ export function ProductoForm({
             onChange={setQuickMarca}
             onCreate={handleQuickMarca}
           />
+          <QuickCreate
+            label="Nueva presentacion"
+            value={quickPresentacion}
+            onChange={setQuickPresentacion}
+            onCreate={handleQuickPresentacion}
+          />
         </section>
       ) : null}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {productoEditando ? (
-          <Field label="Codigo interno">
-            <input
-              type="text"
-              value={values.codigo_interno}
-              readOnly
-              className={`${inputClassName} bg-slate-50 text-slate-500`}
-            />
-          </Field>
-        ) : (
-          <Field label="Codigo interno">
-            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-              <p className="font-medium text-slate-800">Autogenerado al guardar</p>
-              <p className="mt-1">{codigoPreview}</p>
-            </div>
-          </Field>
-        )}
-
         <Field label="Nombre producto" required>
           <input
             type="text"
@@ -582,135 +553,25 @@ export function ProductoForm({
           </select>
         </Field>
 
-        <Field label="Presentacion">
-          <input
-            list="presentaciones-list"
-            value={values.presentacion}
-            onChange={(event) => updateValue("presentacion", event.target.value)}
-            placeholder="Ej. Bolsa 1 kg"
-            className={inputClassName}
-          />
-          <datalist id="presentaciones-list">
-            {presentaciones.map((presentacion) => (
-              <option key={presentacion.id} value={presentacion.nombre} />
-            ))}
-          </datalist>
-        </Field>
-
-        <Field label="Unidad base">
+        <Field label="Presentacion" required>
           <select
-            value={values.unidad_base}
-            onChange={(event) => updateValue("unidad_base", event.target.value)}
+            value={values.presentacion}
+            onChange={(event) => {
+              updateValue("presentacion", event.target.value);
+              updateValue("presentacion_compra", event.target.value);
+            }}
             className={inputClassName}
           >
-            <option value="">Sin unidad</option>
-            {unidadesBase.map((unidad) => (
-              <option key={unidad.id} value={unidad.nombre}>
-                {unidad.nombre}
+            <option value="">Seleccionar</option>
+            {presentaciones.map((presentacion) => (
+              <option key={presentacion.id} value={presentacion.nombre}>
+                {presentacion.nombre}
               </option>
             ))}
           </select>
         </Field>
 
-        <Field label="Stock minimo">
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={values.stock_minimo}
-            onChange={(event) => updateValue("stock_minimo", event.target.value)}
-            className={inputClassName}
-          />
-        </Field>
-
-        <Field label="Precio venta">
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={values.precio_venta}
-            onChange={(event) => updateValue("precio_venta", event.target.value)}
-            className={inputClassName}
-          />
-        </Field>
-
-        <Field label="Imagen URL">
-          <input
-            type="url"
-            value={values.imagen_url}
-            onChange={(event) => updateValue("imagen_url", event.target.value)}
-            placeholder="https://..."
-            className={inputClassName}
-          />
-        </Field>
-
-        <Field label="Subir imagen">
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleImageChange}
-            className="block w-full text-sm text-slate-700 file:mr-3 file:h-10 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:text-sm file:font-medium file:text-white hover:file:bg-slate-700"
-          />
-          <p className="mt-1 text-xs text-slate-500">
-            JPG, PNG o WebP. Tamano maximo 1 MB.
-          </p>
-          {imageError ? (
-            <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              {imageError}
-            </p>
-          ) : null}
-        </Field>
-      </div>
-
-      <section className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-950">
-            Compra, proveedor y costo unitario
-          </h3>
-          <p className="mt-1 text-sm text-slate-600">
-            Registra como compras el producto. El stock y las ventas se controlan
-            en unidades.
-          </p>
-        </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <Field label="Proveedor">
-            <select
-              value={values.proveedor_id}
-              onChange={(event) => updateValue("proveedor_id", event.target.value)}
-              className={inputClassName}
-            >
-              <option value="">Sin proveedor</option>
-              {proveedores.map((proveedor) => (
-                <option key={proveedor.id} value={proveedor.id}>
-                  {proveedor.nombre}
-                  {proveedor.ruc ? ` - ${proveedor.ruc}` : ""}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Presentacion de compra">
-            <input
-              value={values.presentacion_compra}
-              onChange={(event) =>
-                updateValue("presentacion_compra", event.target.value)
-              }
-              placeholder="Ej. caja x12, paquete x6, unidad"
-              className={inputClassName}
-            />
-          </Field>
-          <Field label="Unidades por presentacion">
-            <input
-              type="number"
-              step="0.01"
-              min="1"
-              value={values.unidades_por_presentacion}
-              onChange={(event) =>
-                updateValue("unidades_por_presentacion", event.target.value)
-              }
-              className={inputClassName}
-            />
-          </Field>
-          <Field label="Precio compra de la presentacion">
+          <Field label="Precio compra presentacion">
             <input
               type="number"
               step="0.01"
@@ -722,7 +583,21 @@ export function ProductoForm({
               className={inputClassName}
             />
           </Field>
-          <Field label="Costo unitario calculado">
+
+          <Field label="Unidades de la presentacion">
+            <input
+              type="number"
+              step="0.01"
+              min="1"
+              value={values.unidades_por_presentacion}
+              onChange={(event) =>
+                updateValue("unidades_por_presentacion", event.target.value)
+              }
+              className={inputClassName}
+            />
+          </Field>
+
+          <Field label="Costo unidad">
             <input
               value={
                 costoUnitarioCalculado === null
@@ -730,9 +605,21 @@ export function ProductoForm({
                   : costoUnitarioCalculado.toFixed(2)
               }
               readOnly
-              className={`${inputClassName} bg-white text-slate-600`}
+              className={`${inputClassName} bg-slate-50 text-slate-600`}
             />
           </Field>
+
+          <Field label="Precio venta unidad">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={values.precio_venta}
+              onChange={(event) => updateValue("precio_venta", event.target.value)}
+              className={inputClassName}
+            />
+          </Field>
+
           {!productoEditando ? (
             <>
               <Field label="Stock: cantidad de presentaciones">
@@ -769,8 +656,45 @@ export function ProductoForm({
               </div>
             </>
           ) : null}
-        </div>
-      </section>
+
+        <Field label="Stock minimo">
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={values.stock_minimo}
+            onChange={(event) => updateValue("stock_minimo", event.target.value)}
+            className={inputClassName}
+          />
+        </Field>
+
+        <Field label="Imagen URL">
+          <input
+            type="url"
+            value={values.imagen_url}
+            onChange={(event) => updateValue("imagen_url", event.target.value)}
+            placeholder="https://..."
+            className={inputClassName}
+          />
+        </Field>
+
+        <Field label="Subir imagen">
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleImageChange}
+            className="block w-full text-sm text-slate-700 file:mr-3 file:h-10 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:text-sm file:font-medium file:text-white hover:file:bg-slate-700"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            JPG, PNG o WebP. Tamano maximo 1 MB.
+          </p>
+          {imageError ? (
+            <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {imageError}
+            </p>
+          ) : null}
+        </Field>
+      </div>
 
       <section className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
