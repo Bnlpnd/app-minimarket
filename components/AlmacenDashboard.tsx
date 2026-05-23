@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type {
   Almacen,
   Categoria,
@@ -146,13 +147,12 @@ export function AlmacenDashboard() {
           producto_almacen(*, almacenes(id,nombre))
         `,
       )
-      .order("nombre_producto")
-      .limit(500);
+      .order("nombre_producto");
     if (categoriaId) {
       query = query.eq("categoria_id", categoriaId);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await fetchAllRows<ProductoRow>(query);
     setIsLoading(false);
 
     if (error) {
@@ -161,7 +161,7 @@ export function AlmacenDashboard() {
       return;
     }
 
-    let rows = ((data ?? []) as ProductoRow[]).filter((producto) =>
+    let rows = data.filter((producto) =>
       matchesSearch(search, [
         producto.codigo_interno,
         producto.nombre_producto,

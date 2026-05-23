@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getCurrentUserProfile, getStoredAppUser, isAdmin } from "@/lib/authRoles";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type {
   AppUsuario,
   PersonalAsistencia,
@@ -254,13 +255,15 @@ export function PersonalModule() {
 
     const [{ data: usersData, error: usersError }, { data: asistenciasData }, { data: descuentosData }, { data: pagosData }] =
       await Promise.all([
-        supabase
-          .from("app_usuarios")
-          .select(
-            "id,email,rol,nombres,apellidos,telefono,pago_hora,horas_semana,gastos_semana,horario_laboral,activo,created_at,updated_at",
-          )
-          .in("rol", ["admin", "trabajador"])
-          .order("created_at", { ascending: false }),
+        fetchAllRows<UsuarioInterno>(
+          supabase
+            .from("app_usuarios")
+            .select(
+              "id,email,rol,nombres,apellidos,telefono,pago_hora,horas_semana,gastos_semana,horario_laboral,activo,created_at,updated_at",
+            )
+            .in("rol", ["admin", "trabajador"])
+            .order("created_at", { ascending: false }),
+        ),
         supabase
           .from("personal_asistencias")
           .select("*")
@@ -287,7 +290,7 @@ export function PersonalModule() {
       return;
     }
 
-    const internalUsers = (usersData ?? []) as UsuarioInterno[];
+    const internalUsers = usersData ?? [];
     setUsuarios(internalUsers);
     setAsistencias((asistenciasData ?? []) as PersonalAsistencia[]);
     setDescuentos((descuentosData ?? []) as PersonalDescuento[]);

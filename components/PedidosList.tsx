@@ -6,6 +6,7 @@ import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { getStoredAppUser } from "@/lib/authRoles";
 import { formatDate, formatTime } from "@/lib/dateUtils";
 import { matchesSearch } from "@/lib/searchUtils";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Cliente, Pago, Pedido, PedidoEstado } from "@/types/database";
 
 type PedidoListItem = Pedido & {
@@ -67,16 +68,18 @@ export function PedidosList() {
     }
 
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("pedidos")
-      .select(
-        `
-          *,
-          clientes(nombres, telefono),
-          pagos(metodo, estado, captura_yape_url)
-        `,
-      )
-      .order("created_at", { ascending: false });
+    const { data, error } = await fetchAllRows<PedidoListItem>(
+      supabase
+        .from("pedidos")
+        .select(
+          `
+            *,
+            clientes(nombres, telefono),
+            pagos(metodo, estado, captura_yape_url)
+          `,
+        )
+        .order("created_at", { ascending: false }),
+    );
 
     if (error) {
       setMessage({
@@ -88,7 +91,7 @@ export function PedidosList() {
       return;
     }
 
-    setPedidos((data ?? []) as PedidoListItem[]);
+    setPedidos(data);
     setIsLoading(false);
   }
 

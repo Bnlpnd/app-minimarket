@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getStoredAppUser } from "@/lib/authRoles";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import { generarLinkWhatsApp, generarMensajePedido } from "@/lib/whatsapp";
 import type {
   Almacen,
@@ -241,7 +242,7 @@ export function PedidoNuevoForm() {
       query = query.eq("subcategoria_id", subcategoriaId);
     }
 
-    const { data, error } = await query.range(0, 2499);
+    const { data, error } = await fetchAllRows<ProductoSearchRow>(query);
 
     if (error) {
       setIsSearchingProducts(false);
@@ -249,7 +250,7 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    ((data ?? []) as ProductoSearchRow[])
+    data
       .filter((producto) =>
         matchesSearch(productoSearch, [
           producto.codigo_interno,
@@ -279,12 +280,13 @@ export function PedidoNuevoForm() {
     }
 
     setIsSearchingClientes(true);
-    const { data, error } = await supabase
+    const { data, error } = await fetchAllRows<Cliente>(
+      supabase
       .from("clientes")
       .select("*")
       .eq("activo", true)
       .order("created_at", { ascending: false })
-      .limit(500);
+    );
     setIsSearchingClientes(false);
 
     if (error) {
@@ -293,7 +295,7 @@ export function PedidoNuevoForm() {
     }
 
     setClientes(
-      ((data ?? []) as Cliente[])
+      data
         .filter((cliente) =>
           matchesSearch(clienteSearch, [
             cliente.nombres,

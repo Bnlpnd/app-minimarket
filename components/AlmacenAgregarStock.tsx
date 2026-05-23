@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type {
   Almacen,
   Categoria,
@@ -147,7 +148,7 @@ export function AlmacenAgregarStock() {
       query = query.eq("subcategoria_id", subcategoriaId);
     }
 
-    const { data, error } = await query.range(0, 2499);
+    const { data, error } = await fetchAllRows<ProductoStockRow>(query);
     setIsLoading(false);
 
     if (error) {
@@ -156,7 +157,7 @@ export function AlmacenAgregarStock() {
       return;
     }
 
-    const rows = ((data ?? []) as ProductoStockRow[]).filter((producto) =>
+    const rows = data.filter((producto) =>
       matchesSearch(search, [
         producto.codigo_interno,
         producto.nombre_producto,

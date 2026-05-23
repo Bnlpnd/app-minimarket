@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Almacen, Producto, ProductoAlmacen } from "@/types/database";
 
 type ProductoRow = Pick<Producto, "id" | "codigo_interno" | "nombre_producto"> & {
@@ -69,12 +70,13 @@ export function AlmacenAjustes() {
     }
 
     setIsLoading(true);
-    const { data, error } = await supabase
+    const { data, error } = await fetchAllRows<ProductoRow>(
+      supabase
       .from("productos")
       .select("id,codigo_interno,nombre_producto,producto_almacen(almacen_id,stock_actual)")
       .eq("activo", true)
       .order("nombre_producto")
-      .limit(500);
+    );
     setIsLoading(false);
 
     if (error) {
@@ -83,7 +85,7 @@ export function AlmacenAjustes() {
     }
 
     setProductos(
-      ((data ?? []) as ProductoRow[])
+      data
         .filter((producto) =>
           matchesSearch(search, [producto.codigo_interno, producto.nombre_producto]),
         )

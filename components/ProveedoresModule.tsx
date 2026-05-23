@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Proveedor } from "@/types/database";
 
 type FormValues = {
@@ -83,10 +84,12 @@ export function ProveedoresModule() {
     }
 
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("proveedores")
-      .select("*")
-      .order("nombre", { ascending: true });
+    const { data, error } = await fetchAllRows<Proveedor>(
+      supabase
+        .from("proveedores")
+        .select("*")
+        .order("nombre", { ascending: true }),
+    );
     setIsLoading(false);
 
     if (error) {
@@ -97,7 +100,7 @@ export function ProveedoresModule() {
       return;
     }
 
-    setProveedores((data ?? []) as Proveedor[]);
+    setProveedores(data);
   }
 
   useEffect(() => {

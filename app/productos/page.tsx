@@ -10,6 +10,7 @@ import type { ProductoConRelaciones } from "@/components/ProductoTable";
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Almacen, Categoria, Marca, Subcategoria } from "@/types/database";
 
 type Message = {
@@ -202,9 +203,9 @@ export default function ProductosPage() {
       query = query.eq("activo", false);
     }
 
-    const { data, error, count } = await query
-      .order("nombre_producto", { ascending: true })
-      .range(0, 2499);
+    const { data, error } = await fetchAllRows<ProductoConRelaciones>(
+      query.order("nombre_producto", { ascending: true }),
+    );
 
     if (error) {
       setMessage({
@@ -218,7 +219,7 @@ export default function ProductosPage() {
       return;
     }
 
-    const allRows = ((data ?? []) as ProductoConRelaciones[]).filter((producto) => {
+    const allRows = data.filter((producto) => {
       if (
         !matchesSearch(search, [
           producto.codigo_interno,
@@ -239,7 +240,7 @@ export default function ProductosPage() {
     const from = (nextPage - 1) * PAGE_SIZE;
     const rows = allRows.slice(from, from + PAGE_SIZE);
     setProductos(rows);
-    setTotalCount(search || showStockTienda || showStockCasa || showStockBajo ? allRows.length : count ?? allRows.length);
+    setTotalCount(allRows.length);
     setQuickValues(buildQuickValues(rows));
     setIsLoading(false);
   }

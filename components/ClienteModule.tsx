@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Cliente } from "@/types/database";
 
 type ClienteFormValues = {
@@ -91,7 +92,9 @@ export function ClienteModule() {
 
     setIsLoading(true);
     const [clientesResult, pedidosResult] = await Promise.all([
-      supabase.from("clientes").select("*").order("created_at", { ascending: false }),
+      fetchAllRows<Cliente>(
+        supabase.from("clientes").select("*").order("created_at", { ascending: false }),
+      ),
       supabase
         .from("pedidos")
         .select("cliente_id,total,monto_a_cuenta,estado_pago")

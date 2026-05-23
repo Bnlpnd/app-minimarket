@@ -9,6 +9,7 @@ import { Layout } from "@/components/Layout";
 import { getCurrentUserProfile, getStoredAppUser, isTrabajador } from "@/lib/authRoles";
 import { formatDate, formatTime } from "@/lib/dateUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { AppUsuario, Cliente, PagoMetodo, Pedido, PedidoEstado, Producto } from "@/types/database";
 
 type PedidoResumen = Pick<
@@ -218,12 +219,13 @@ function AdminDashboard() {
           .select("id,estado,fecha_recojo,hora_recojo,total,metodo_pago,created_at,clientes(nombres, telefono)")
           .order("created_at", { ascending: false })
           .limit(5),
-        supabase
-          .from("productos")
-          .select("id,codigo_interno,nombre_producto,stock_actual,stock_minimo")
-          .eq("activo", true)
-          .not("stock_minimo", "is", null)
-          .range(0, 2499),
+        fetchAllRows<ProductoStockBajo>(
+          supabase
+            .from("productos")
+            .select("id,codigo_interno,nombre_producto,stock_actual,stock_minimo")
+            .eq("activo", true)
+            .not("stock_minimo", "is", null),
+        ),
       ]);
 
       const errors = [
@@ -247,7 +249,7 @@ function AdminDashboard() {
         (sum, pedido) => sum + Number(pedido.descuento ?? 0),
         0,
       );
-      const productosStockBajo = ((productos.data ?? []) as ProductoStockBajo[])
+      const productosStockBajo = (productos.data ?? [])
         .filter((producto) => Number(producto.stock_actual ?? 0) <= Number(producto.stock_minimo ?? 0))
         .sort((a, b) => Number(a.stock_actual ?? 0) - Number(b.stock_actual ?? 0))
         .slice(0, 8);
