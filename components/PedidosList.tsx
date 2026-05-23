@@ -57,7 +57,11 @@ export function PedidosList() {
   const [pedidos, setPedidos] = useState<PedidoListItem[]>([]);
   const [estado, setEstado] = useState<PedidoEstado | "">("");
   const [fechaRecojo, setFechaRecojo] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : (new URLSearchParams(window.location.search).get("pedido") ?? ""),
+  );
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -112,7 +116,11 @@ export function PedidosList() {
         ? (pedido.fecha_recojo ?? "").slice(0, 10) === fechaRecojo
         : true;
       const matchesSearch = term
-        ? normalizeSearch(`${cliente?.nombres ?? ""} ${cliente?.telefono ?? ""}`)
+        ? normalizeSearch(
+            `${pedido.id} ${pedido.id.slice(0, 8)} ${cliente?.nombres ?? ""} ${
+              cliente?.telefono ?? ""
+            }`,
+          )
             .includes(term)
         : true;
 
@@ -166,7 +174,8 @@ export function PedidosList() {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por cliente o WhatsApp"
+            placeholder="Buscar por cliente, WhatsApp o pedido"
+            aria-label="Buscar por cliente, WhatsApp o codigo de pedido"
             className="h-10 rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
           />
         </div>

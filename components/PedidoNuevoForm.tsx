@@ -10,6 +10,7 @@ import type {
   Almacen,
   Categoria,
   Cliente,
+  DetallePedido,
   Marca,
   PagoMetodo,
   Pedido,
@@ -35,6 +36,15 @@ type PedidoItem = {
   producto: ProductoSearchRow;
   cantidad: number;
   almacen_id: string;
+};
+
+type DuplicatedPedidoRow = Pedido & {
+  clientes: Cliente | null;
+  detalle_pedido: Array<
+    Pick<DetallePedido, "cantidad" | "almacen_id"> & {
+      productos: ProductoSearchRow | null;
+    }
+  >;
 };
 
 type ClienteForm = {
@@ -127,6 +137,7 @@ export function PedidoNuevoForm() {
   const [isSearchingClientes, setIsSearchingClientes] = useState(false);
   const [isSavingCliente, setIsSavingCliente] = useState(false);
   const [isSavingPedido, setIsSavingPedido] = useState(false);
+  const [queryLoaded, setQueryLoaded] = useState(false);
 
   const tienda = useMemo(
     () => almacenes.find((almacen) => almacen.nombre.toLowerCase() === "tienda"),
@@ -322,9 +333,136 @@ export function PedidoNuevoForm() {
     setClientes((data ?? []) as Cliente[]);
   }
 
+  async function loadClienteFromQuery(clienteId: string) {
+    if (!supabase) {
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("clientes")
+      .select("*")
+      .eq("id", clienteId)
+      .maybeSingle();
+
+    if (error || !data) {
+      setMessage({
+        type: "error",
+        text: `No se pudo cargar el cliente seleccionado: ${error?.message ?? "no encontrado"}`,
+      });
+      return;
+    }
+
+    const cliente = data as Cliente;
+    setSelectedCliente(cliente);
+    setClienteForm({
+      nombres: cliente.nombres,
+      whatsapp: cliente.telefono ?? "",
+      direccion_entrega: cliente.direccion_entrega ?? cliente.direccion ?? "",
+      referencia: cliente.referencia ?? "",
+    });
+    setDireccionEntrega(cliente.direccion_entrega ?? cliente.direccion ?? "");
+    setReferenciaEntrega(cliente.referencia ?? "");
+    setMessage({ type: "success", text: "Cliente cargado para la nueva venta." });
+  }
+
+  async function loadDuplicatedPedido(pedidoId: string) {
+    if (!supabase) {
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("pedidos")
+      .select(
+        `
+          *,
+          clientes(*),
+          detalle_pedido(
+            cantidad,
+            almacen_id,
+            productos(
+              *,
+              marcas(nombre),
+              categorias(nombre),
+              subcategorias(nombre),
+              producto_almacen(almacen_id,stock_actual,almacenes(id,nombre))
+            )
+          )
+        `,
+      )
+      .eq("id", pedidoId)
+      .maybeSingle();
+
+    if (error || !data) {
+      setMessage({
+        type: "error",
+        text: `No se pudo duplicar pedido: ${error?.message ?? "pedido no encontrado"}`,
+      });
+      return;
+    }
+
+    const pedido = data as DuplicatedPedidoRow;
+    const cliente = pedido.clientes;
+    if (cliente) {
+      setSelectedCliente(cliente);
+      setClienteForm({
+        nombres: cliente.nombres,
+        whatsapp: cliente.telefono ?? "",
+        direccion_entrega: cliente.direccion_entrega ?? cliente.direccion ?? "",
+        referencia: cliente.referencia ?? "",
+      });
+      setDireccionEntrega(cliente.direccion_entrega ?? cliente.direccion ?? "");
+      setReferenciaEntrega(cliente.referencia ?? "");
+    }
+
+    const defaultAlmacenId = tienda?.id ?? almacenes[0]?.id ?? "";
+    const duplicatedItems = (pedido.detalle_pedido ?? [])
+      .filter((detalle) => detalle.productos)
+      .map((detalle) => ({
+        producto: detalle.productos as ProductoSearchRow,
+        cantidad: Number(detalle.cantidad ?? 1),
+        almacen_id: detalle.almacen_id ?? defaultAlmacenId,
+      }));
+
+    setItems(duplicatedItems);
+    setTipoEntrega(pedido.tipo_entrega ?? "llevar_ahora");
+    setFechaRecojo(getTodayDate());
+    setHoraRecojo("");
+    setMetodoPago("efectivo");
+    setNotaCliente("");
+    setStep(1);
+    setMessage({
+      type: "success",
+      text:
+        duplicatedItems.length > 0
+          ? "Pedido duplicado. Revisa stock antes de guardar la nueva venta."
+          : "El pedido anterior no tenia productos para duplicar.",
+    });
+  }
+
   useEffect(() => {
     void loadCatalogos();
   }, []);
+
+  useEffect(() => {
+    if (queryLoaded || almacenes.length === 0) {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const duplicateId = params.get("duplicar");
+    const clienteId = params.get("cliente");
+    setQueryLoaded(true);
+
+    if (duplicateId) {
+      void loadDuplicatedPedido(duplicateId);
+      return;
+    }
+
+    if (clienteId) {
+      void loadClienteFromQuery(clienteId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [almacenes.length, queryLoaded]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1110,8 +1248,12 @@ function Cart({
               items.map((item) => {
                 const stock = stockIn(item.producto, item.almacen_id);
                 const precio = getPrecio(item.producto);
+                const hasStockIssue = item.cantidad > stock;
                 return (
-                  <tr key={item.producto.id}>
+                  <tr
+                    key={item.producto.id}
+                    className={hasStockIssue ? "bg-red-50/70" : undefined}
+                  >
                     <td className="px-3 py-3">
                       <p className="font-medium text-slate-950">{item.producto.nombre_producto}</p>
                       <p className="text-xs text-slate-500">{item.producto.codigo_interno}</p>
@@ -1128,7 +1270,14 @@ function Cart({
                         ))}
                       </select>
                     </td>
-                    <td className="px-3 py-3 text-slate-600">{stock}</td>
+                    <td className={`px-3 py-3 ${hasStockIssue ? "font-semibold text-red-700" : "text-slate-600"}`}>
+                      {stock}
+                      {hasStockIssue ? (
+                        <span className="ml-2 rounded bg-red-100 px-2 py-1 text-xs text-red-700">
+                          Sin stock
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-3">
                       <input
                         type="number"
@@ -1163,10 +1312,22 @@ function Cart({
       <div className="space-y-3 p-3 lg:hidden">
         {items.map((item) => {
           const precio = getPrecio(item.producto);
+          const stock = stockIn(item.producto, item.almacen_id);
+          const hasStockIssue = item.cantidad > stock;
           return (
-            <article key={item.producto.id} className="rounded-md border border-slate-200 p-3 text-sm">
+            <article
+              key={item.producto.id}
+              className={`rounded-md border p-3 text-sm ${
+                hasStockIssue ? "border-red-200 bg-red-50" : "border-slate-200"
+              }`}
+            >
               <p className="font-semibold text-slate-950">{item.producto.nombre_producto}</p>
               <p className="mt-1 text-xs text-slate-500">{item.producto.codigo_interno}</p>
+              {hasStockIssue ? (
+                <p className="mt-2 rounded-md bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
+                  Stock insuficiente: disponible {stock}
+                </p>
+              ) : null}
               <div className="mt-3 grid gap-2">
                 <select value={item.almacen_id} disabled={readonly} onChange={(event) => onUpdate(item.producto.id, { almacen_id: event.target.value })} className={inputClassName}>
                   {almacenes.map((almacen) => (

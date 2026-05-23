@@ -2,11 +2,10 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-import { formatDate } from "@/lib/dateUtils";
-import type { Cliente, Pedido, PedidoEstadoPago } from "@/types/database";
+import type { Cliente } from "@/types/database";
 
 type ClienteFormValues = {
   nombre: string;
@@ -17,11 +16,11 @@ type ClienteFormValues = {
   activo: boolean;
 };
 
-type PedidoFormValues = {
-  fecha_pedido: string;
-  detalle_manual: string;
-  total: string;
-  monto_a_cuenta: string;
+type PedidoDeudaRow = {
+  cliente_id: string | null;
+  total: number;
+  monto_a_cuenta: number;
+  estado_pago: "pagado" | "debe";
 };
 
 type Message = {
@@ -36,13 +35,6 @@ const emptyClienteForm: ClienteFormValues = {
   referencia: "",
   observacion: "",
   activo: true,
-};
-
-const emptyPedidoForm: PedidoFormValues = {
-  fecha_pedido: new Date().toISOString().slice(0, 10),
-  detalle_manual: "",
-  total: "",
-  monto_a_cuenta: "",
 };
 
 const inputClassName =
@@ -63,39 +55,36 @@ function normalizeSearch(value: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function parseMoney(value: string) {
-  const normalized = value.trim().replace(",", ".");
-  if (!normalized) {
-    return 0;
-  }
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
-}
-
 function formatMoney(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
 }
 
-function getEstadoPago(total: number, montoACuenta: number): PedidoEstadoPago {
-  return montoACuenta >= total ? "pagado" : "debe";
+function getDebtByClient(pedidos: PedidoDeudaRow[]) {
+  const debtMap = new Map<string, number>();
+
+  pedidos.forEach((pedido) => {
+    if (!pedido.cliente_id || pedido.estado_pago !== "debe") {
+      return;
+    }
+
+    const saldo = Math.max(0, Number(pedido.total ?? 0) - Number(pedido.monto_a_cuenta ?? 0));
+    debtMap.set(pedido.cliente_id, (debtMap.get(pedido.cliente_id) ?? 0) + saldo);
+  });
+
+  return debtMap;
 }
 
 export function ClienteModule() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [pedidos, setPedidos] = useState<Pedido[]>([]);
-  const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
+  const [pedidos, setPedidos] = useState<PedidoDeudaRow[]>([]);
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
-  const [clienteForm, setClienteForm] =
-    useState<ClienteFormValues>(emptyClienteForm);
-  const [pedidoForm, setPedidoForm] =
-    useState<PedidoFormValues>(emptyPedidoForm);
+  const [clienteForm, setClienteForm] = useState<ClienteFormValues>(emptyClienteForm);
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
+  const [showDebtOnly, setShowDebtOnly] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingCliente, setIsSavingCliente] = useState(false);
-  const [isSavingPedido, setIsSavingPedido] = useState(false);
 
   async function loadClientes() {
     if (supabaseConfigError || !supabase) {
@@ -105,66 +94,56 @@ export function ClienteModule() {
     }
 
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("clientes")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const [clientesResult, pedidosResult] = await Promise.all([
+      supabase.from("clientes").select("*").order("created_at", { ascending: false }),
+      supabase
+        .from("pedidos")
+        .select("cliente_id,total,monto_a_cuenta,estado_pago")
+        .eq("estado_pago", "debe"),
+    ]);
 
-    if (error) {
+    if (clientesResult.error) {
       setMessage({
         type: "error",
-        text: `No se pudieron cargar clientes: ${error.message}`,
+        text: `No se pudieron cargar clientes: ${clientesResult.error.message}`,
       });
       setClientes([]);
       setIsLoading(false);
       return;
     }
 
-    setClientes((data ?? []) as Cliente[]);
-    setIsLoading(false);
-  }
-
-  async function loadPedidos(clienteId: string) {
-    if (!supabase) {
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("pedidos")
-      .select("*")
-      .eq("cliente_id", clienteId)
-      .order("fecha_pedido", { ascending: false });
-
-    if (error) {
+    if (pedidosResult.error) {
       setMessage({
         type: "error",
-        text: `No se pudieron cargar pedidos: ${error.message}`,
+        text: `No se pudo calcular deuda: ${pedidosResult.error.message}`,
       });
-      setPedidos([]);
-      return;
     }
 
-    setPedidos((data ?? []) as Pedido[]);
+    setClientes((clientesResult.data ?? []) as Cliente[]);
+    setPedidos((pedidosResult.data ?? []) as PedidoDeudaRow[]);
+    setIsLoading(false);
   }
 
   useEffect(() => {
     void loadClientes();
   }, []);
 
+  const debtByClient = useMemo(() => getDebtByClient(pedidos), [pedidos]);
+
   const filteredClientes = useMemo(() => {
     const term = normalizeSearch(search);
 
     return clientes.filter((cliente) => {
+      const deuda = debtByClient.get(cliente.id) ?? 0;
       const matchesEstado = showInactive ? true : cliente.activo;
+      const matchesDebt = showDebtOnly ? deuda > 0 : true;
       const matchesTerm = term
-        ? normalizeSearch(`${cliente.nombres} ${cliente.telefono ?? ""}`).includes(
-            term,
-          )
+        ? normalizeSearch(`${cliente.nombres} ${cliente.telefono ?? ""}`).includes(term)
         : true;
 
-      return matchesEstado && matchesTerm;
+      return matchesEstado && matchesDebt && matchesTerm;
     });
-  }, [clientes, search, showInactive]);
+  }, [clientes, debtByClient, search, showDebtOnly, showInactive]);
 
   function startEditCliente(cliente: Cliente) {
     setEditingCliente(cliente);
@@ -217,10 +196,7 @@ export function ClienteModule() {
     );
 
     if (duplicated) {
-      setMessage({
-        type: "error",
-        text: "Ya existe un cliente con ese WhatsApp.",
-      });
+      setMessage({ type: "error", text: "Ya existe un cliente con ese WhatsApp." });
       return;
     }
 
@@ -252,9 +228,7 @@ export function ClienteModule() {
 
     setMessage({
       type: "success",
-      text: editingCliente
-        ? "Cliente actualizado correctamente."
-        : "Cliente creado correctamente.",
+      text: editingCliente ? "Cliente actualizado correctamente." : "Cliente creado correctamente.",
     });
     resetClienteForm();
     await loadClientes();
@@ -271,90 +245,12 @@ export function ClienteModule() {
       .eq("id", cliente.id);
 
     if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo cambiar estado: ${error.message}`,
-      });
+      setMessage({ type: "error", text: `No se pudo cambiar estado: ${error.message}` });
       return;
     }
 
     setMessage({ type: "success", text: "Estado de cliente actualizado." });
     await loadClientes();
-  }
-
-  async function handleSelectCliente(cliente: Cliente) {
-    setSelectedCliente(cliente);
-    setPedidos([]);
-    await loadPedidos(cliente.id);
-  }
-
-  async function handleSubmitPedido(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!supabase || !selectedCliente) {
-      setMessage({
-        type: "error",
-        text: "Selecciona un cliente antes de registrar pedido.",
-      });
-      return;
-    }
-
-    const detalle = normalizeSpaces(pedidoForm.detalle_manual);
-    const total = parseMoney(pedidoForm.total);
-    const montoACuenta = parseMoney(pedidoForm.monto_a_cuenta);
-
-    if (!pedidoForm.fecha_pedido) {
-      setMessage({ type: "error", text: "La fecha del pedido es obligatoria." });
-      return;
-    }
-
-    if (!detalle) {
-      setMessage({ type: "error", text: "El detalle del pedido es obligatorio." });
-      return;
-    }
-
-    if (Number.isNaN(total) || total < 0) {
-      setMessage({ type: "error", text: "El monto a pagar no es valido." });
-      return;
-    }
-
-    if (Number.isNaN(montoACuenta) || montoACuenta < 0) {
-      setMessage({ type: "error", text: "El monto a cuenta no es valido." });
-      return;
-    }
-
-    const estadoPago = getEstadoPago(total, montoACuenta);
-    const fecha = new Date(`${pedidoForm.fecha_pedido}T00:00:00`).toISOString();
-
-    setIsSavingPedido(true);
-    const { error } = await supabase.from("pedidos").insert({
-      cliente_id: selectedCliente.id,
-      fecha_pedido: fecha,
-      fecha_recojo: fecha,
-      tipo_entrega: "recoger_despues",
-      detalle_manual: detalle,
-      subtotal: total,
-      total,
-      monto_a_cuenta: montoACuenta,
-      estado_pago: estadoPago,
-      estado: "pendiente",
-      metodo_pago: estadoPago === "pagado" ? "efectivo" : "otro",
-      observaciones:
-        estadoPago === "pagado" ? "Pedido pagado" : "Pedido con saldo pendiente",
-    });
-    setIsSavingPedido(false);
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo guardar el pedido: ${error.message}`,
-      });
-      return;
-    }
-
-    setMessage({ type: "success", text: "Pedido registrado correctamente." });
-    setPedidoForm(emptyPedidoForm);
-    await loadPedidos(selectedCliente.id);
   }
 
   return (
@@ -373,7 +269,7 @@ export function ClienteModule() {
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <h2 className="text-base font-semibold text-slate-950">
-          {editingCliente ? "Editar cliente" : "Nuevo cliente rapido"}
+          {editingCliente ? "Editar cliente" : "Nuevo cliente"}
         </h2>
         <form onSubmit={handleSubmitCliente} className="mt-4 space-y-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -381,27 +277,21 @@ export function ClienteModule() {
               <input
                 value={clienteForm.nombre}
                 onChange={(event) =>
-                  setClienteForm((current) => ({
-                    ...current,
-                    nombre: event.target.value,
-                  }))
+                  setClienteForm((current) => ({ ...current, nombre: event.target.value }))
                 }
                 className={inputClassName}
               />
             </Field>
-            <Field label="WhatsApp" required>
+            <Field label="WSP" required>
               <input
                 value={clienteForm.whatsapp}
                 onChange={(event) =>
-                  setClienteForm((current) => ({
-                    ...current,
-                    whatsapp: event.target.value,
-                  }))
+                  setClienteForm((current) => ({ ...current, whatsapp: event.target.value }))
                 }
                 className={inputClassName}
               />
             </Field>
-            <Field label="Direccion de entrega">
+            <Field label="Direccion entrega">
               <input
                 value={clienteForm.direccion_entrega}
                 onChange={(event) =>
@@ -417,10 +307,7 @@ export function ClienteModule() {
               <input
                 value={clienteForm.referencia}
                 onChange={(event) =>
-                  setClienteForm((current) => ({
-                    ...current,
-                    referencia: event.target.value,
-                  }))
+                  setClienteForm((current) => ({ ...current, referencia: event.target.value }))
                 }
                 className={inputClassName}
               />
@@ -429,10 +316,7 @@ export function ClienteModule() {
               <input
                 value={clienteForm.observacion}
                 onChange={(event) =>
-                  setClienteForm((current) => ({
-                    ...current,
-                    observacion: event.target.value,
-                  }))
+                  setClienteForm((current) => ({ ...current, observacion: event.target.value }))
                 }
                 className={inputClassName}
               />
@@ -442,10 +326,7 @@ export function ClienteModule() {
                 type="checkbox"
                 checked={clienteForm.activo}
                 onChange={(event) =>
-                  setClienteForm((current) => ({
-                    ...current,
-                    activo: event.target.checked,
-                  }))
+                  setClienteForm((current) => ({ ...current, activo: event.target.checked }))
                 }
                 className="h-4 w-4 rounded border-slate-300 text-emerald-700"
               />
@@ -474,258 +355,109 @@ export function ClienteModule() {
         </form>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 p-4 sm:p-5">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px]">
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 p-4 sm:p-5">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_120px]">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar"
+              className={inputClassName}
+            />
+            <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700">
               <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por nombre o WhatsApp"
-                className={inputClassName}
+                type="checkbox"
+                checked={showInactive}
+                onChange={(event) => setShowInactive(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-700"
               />
-              <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={showInactive}
-                  onChange={(event) => setShowInactive(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-emerald-700"
-                />
-                Ver inactivos
-              </label>
-            </div>
-          </div>
-
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Nombre</th>
-                  <th className="px-4 py-3 font-medium">WhatsApp</th>
-                  <th className="px-4 py-3 font-medium">Direccion</th>
-                  <th className="px-4 py-3 font-medium">Referencia</th>
-                  <th className="px-4 py-3 font-medium">Estado</th>
-                  <th className="px-4 py-3 font-medium">Creado</th>
-                  <th className="px-4 py-3 font-medium">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                      Cargando clientes...
-                    </td>
-                  </tr>
-                ) : filteredClientes.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                      No hay clientes para mostrar.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredClientes.map((cliente) => (
-                    <tr key={cliente.id}>
-                      <td className="px-4 py-3 font-medium text-slate-950">
-                        {cliente.nombres}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{cliente.telefono}</td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {cliente.direccion_entrega ?? cliente.direccion ?? "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {cliente.referencia ?? "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
-                          {cliente.activo ? "Activo" : "Inactivo"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {formatDate(cliente.created_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Actions
-                          cliente={cliente}
-                          onEdit={startEditCliente}
-                          onPedidos={(item) => void handleSelectCliente(item)}
-                          onToggle={(item) => void toggleActivo(item)}
-                        />
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="space-y-3 p-4 lg:hidden">
-            {filteredClientes.map((cliente) => (
-              <article key={cliente.id} className="rounded-lg border border-slate-200 p-4 text-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-950">{cliente.nombres}</h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {cliente.telefono ?? "Sin WhatsApp"}
-                    </p>
-                  </div>
-                  <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
-                    {cliente.activo ? "Activo" : "Inactivo"}
-                  </span>
-                </div>
-                <dl className="mt-3 grid gap-2">
-                  <Info label="Direccion" value={cliente.direccion_entrega ?? cliente.direccion ?? "-"} />
-                  <Info label="Referencia" value={cliente.referencia ?? "-"} />
-                  <Info label="Observacion" value={cliente.observacion ?? "-"} />
-                </dl>
-                <div className="mt-3">
-                  <Actions
-                    cliente={cliente}
-                    onEdit={startEditCliente}
-                    onPedidos={(item) => void handleSelectCliente(item)}
-                    onToggle={(item) => void toggleActivo(item)}
-                  />
-                </div>
-              </article>
-            ))}
+              Ver inactivos
+            </label>
+            <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={showDebtOnly}
+                onChange={(event) => setShowDebtOnly(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+              />
+              Deuda
+            </label>
           </div>
         </div>
 
-        <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <h2 className="text-base font-semibold text-slate-950">
-            Pedidos del cliente
-          </h2>
-          {selectedCliente ? (
-            <>
-              <p className="mt-1 text-sm text-slate-600">
-                {selectedCliente.nombres} · {selectedCliente.telefono}
-              </p>
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="w-full min-w-[860px] text-left text-sm">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Nombre</th>
+                <th className="px-4 py-3 font-medium">WSP</th>
+                <th className="px-4 py-3 font-medium">Deuda</th>
+                <th className="px-4 py-3 font-medium">Estado</th>
+                <th className="px-4 py-3 font-medium">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    Cargando clientes...
+                  </td>
+                </tr>
+              ) : filteredClientes.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    No hay clientes para mostrar.
+                  </td>
+                </tr>
+              ) : (
+                filteredClientes.map((cliente) => (
+                  <tr key={cliente.id}>
+                    <td className="px-4 py-3 font-medium text-slate-950">{cliente.nombres}</td>
+                    <td className="px-4 py-3 text-slate-600">{cliente.telefono}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-950">
+                      {formatMoney(debtByClient.get(cliente.id) ?? 0)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusPill active={cliente.activo} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <Actions
+                        cliente={cliente}
+                        onEdit={startEditCliente}
+                        onToggle={(item) => void toggleActivo(item)}
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
 
-              <form onSubmit={handleSubmitPedido} className="mt-4 space-y-3">
-                <Field label="Fecha" required>
-                  <input
-                    type="date"
-                    value={pedidoForm.fecha_pedido}
-                    onChange={(event) =>
-                      setPedidoForm((current) => ({
-                        ...current,
-                        fecha_pedido: event.target.value,
-                      }))
-                    }
-                    className={inputClassName}
-                  />
-                </Field>
-                <Field label="Detalle del pedido" required>
-                  <textarea
-                    value={pedidoForm.detalle_manual}
-                    onChange={(event) =>
-                      setPedidoForm((current) => ({
-                        ...current,
-                        detalle_manual: event.target.value,
-                      }))
-                    }
-                    rows={3}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-                  />
-                </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Monto a pagar" required>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={pedidoForm.total}
-                      onChange={(event) =>
-                        setPedidoForm((current) => ({
-                          ...current,
-                          total: event.target.value,
-                        }))
-                      }
-                      className={inputClassName}
-                    />
-                  </Field>
-                  <Field label="A cuenta">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={pedidoForm.monto_a_cuenta}
-                      onChange={(event) =>
-                        setPedidoForm((current) => ({
-                          ...current,
-                          monto_a_cuenta: event.target.value,
-                        }))
-                      }
-                      className={inputClassName}
-                    />
-                  </Field>
+        <div className="space-y-3 p-4 lg:hidden">
+          {filteredClientes.map((cliente) => (
+            <article key={cliente.id} className="rounded-lg border border-slate-200 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-slate-950">{cliente.nombres}</h3>
+                  <p className="mt-1 text-xs text-slate-500">{cliente.telefono ?? "Sin WSP"}</p>
                 </div>
-                <button
-                  type="submit"
-                  disabled={isSavingPedido}
-                  className="h-11 w-full rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
-                >
-                  {isSavingPedido ? "Guardando..." : "Registrar pedido manual"}
-                </button>
-              </form>
-
-              <div className="mt-5 space-y-3">
-                {pedidos.length > 0 ? (
-                  pedidos.map((pedido) => {
-                    const saldo = Math.max(
-                      0,
-                      Number(pedido.total) - Number(pedido.monto_a_cuenta),
-                    );
-
-                    return (
-                      <article
-                        key={pedido.id}
-                        className="rounded-md border border-slate-200 p-3 text-sm"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="font-medium text-slate-950">
-                            {formatDate(pedido.fecha_pedido)}
-                          </p>
-                          <span
-                            className={`rounded-md px-2 py-1 text-xs font-medium ${
-                              pedido.estado_pago === "pagado"
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-amber-50 text-amber-700"
-                            }`}
-                          >
-                            {pedido.estado_pago === "pagado" ? "Pagado" : "Debe"}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-slate-600">
-                          {pedido.detalle_manual}
-                        </p>
-                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                          <Info label="Total" value={formatMoney(Number(pedido.total))} />
-                          <Info label="A cuenta" value={formatMoney(Number(pedido.monto_a_cuenta))} />
-                          <Info label="Falta" value={formatMoney(saldo)} />
-                        </div>
-                        <Link
-                          href={`/pedidos/${pedido.id}`}
-                          className="mt-3 inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700"
-                        >
-                          Ver detalle
-                        </Link>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
-                    Este cliente aun no tiene pedidos asociados.
-                  </p>
-                )}
+                <StatusPill active={cliente.activo} />
               </div>
-            </>
-          ) : (
-            <p className="mt-3 rounded-md bg-slate-50 p-3 text-sm text-slate-500">
-              Selecciona un cliente para ver o registrar pedidos.
-            </p>
-          )}
-        </aside>
+              <p className="mt-3 text-sm font-semibold text-slate-950">
+                Deuda: {formatMoney(debtByClient.get(cliente.id) ?? 0)}
+              </p>
+              <div className="mt-3">
+                <Actions
+                  cliente={cliente}
+                  onEdit={startEditCliente}
+                  onToggle={(item) => void toggleActivo(item)}
+                />
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -734,12 +466,10 @@ export function ClienteModule() {
 function Actions({
   cliente,
   onEdit,
-  onPedidos,
   onToggle,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
-  onPedidos: (cliente: Cliente) => void;
   onToggle: (cliente: Cliente) => void;
 }) {
   return (
@@ -751,13 +481,12 @@ function Actions({
       >
         Editar
       </button>
-      <button
-        type="button"
-        onClick={() => onPedidos(cliente)}
-        className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+      <Link
+        href={`/clientes/${cliente.id}/pedidos`}
+        className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
       >
         Ver pedidos
-      </button>
+      </Link>
       <button
         type="button"
         onClick={() => onToggle(cliente)}
@@ -789,11 +518,10 @@ function Field({
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function StatusPill({ active }: { active: boolean }) {
   return (
-    <div className="rounded-md bg-slate-50 p-2">
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words font-medium text-slate-950">{value}</dd>
-    </div>
+    <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+      {active ? "Activo" : "Inactivo"}
+    </span>
   );
 }
