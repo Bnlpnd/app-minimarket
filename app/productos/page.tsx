@@ -16,6 +16,8 @@ type Message = {
   text: string;
 };
 
+type EstadoFilter = "todos" | "activos" | "inactivos";
+
 type QuickValues = Record<
   string,
   {
@@ -82,6 +84,7 @@ export default function ProductosPage() {
   const [categoriaId, setCategoriaId] = useState("");
   const [subcategoriaId, setSubcategoriaId] = useState("");
   const [marcaId, setMarcaId] = useState("");
+  const [estadoFilter, setEstadoFilter] = useState<EstadoFilter>("todos");
   const [hasAccess, setHasAccess] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [accessMessage, setAccessMessage] = useState("");
@@ -210,7 +213,12 @@ export default function ProductosPage() {
     if (marcaId) {
       query = query.eq("marca_id", marcaId);
     }
-    query = query.eq("activo", true);
+    if (estadoFilter === "activos") {
+      query = query.eq("activo", true);
+    }
+    if (estadoFilter === "inactivos") {
+      query = query.eq("activo", false);
+    }
 
     const from = (nextPage - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -248,13 +256,13 @@ export default function ProductosPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, categoriaId, subcategoriaId, marcaId, showStockTienda, showStockCasa, showStockBajo]);
+  }, [search, categoriaId, subcategoriaId, marcaId, estadoFilter, showStockTienda, showStockCasa, showStockBajo]);
 
   useEffect(() => {
     if (!catalogLoading) {
       void loadProductos(page);
     }
-  }, [page, search, categoriaId, subcategoriaId, marcaId, catalogLoading, showStockTienda, showStockCasa, showStockBajo]);
+  }, [page, search, categoriaId, subcategoriaId, marcaId, estadoFilter, catalogLoading, showStockTienda, showStockCasa, showStockBajo]);
 
   function handleQuickValueChange(
     productoId: string,
@@ -435,7 +443,7 @@ export default function ProductosPage() {
         ) : null}
 
         <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <input
               type="search"
               value={search}
@@ -481,6 +489,15 @@ export default function ProductosPage() {
                   {marca.nombre}
                 </option>
               ))}
+            </select>
+            <select
+              value={estadoFilter}
+              onChange={(event) => setEstadoFilter(event.target.value as EstadoFilter)}
+              className={inputClassName}
+            >
+              <option value="todos">Todos</option>
+              <option value="activos">Activos</option>
+              <option value="inactivos">Inactivos</option>
             </select>
           </div>
           <div className="mt-3 flex flex-wrap gap-4">

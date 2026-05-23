@@ -28,6 +28,8 @@ type Message = {
   text: string;
 };
 
+type EstadoFilter = "todos" | "activos" | "inactivos";
+
 const emptyClienteForm: ClienteFormValues = {
   nombre: "",
   whatsapp: "",
@@ -80,7 +82,7 @@ export function ClienteModule() {
   const [editingCliente, setEditingCliente] = useState<Cliente | null>(null);
   const [clienteForm, setClienteForm] = useState<ClienteFormValues>(emptyClienteForm);
   const [search, setSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
+  const [estadoFilter, setEstadoFilter] = useState<EstadoFilter>("todos");
   const [showDebtOnly, setShowDebtOnly] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -135,7 +137,10 @@ export function ClienteModule() {
 
     return clientes.filter((cliente) => {
       const deuda = debtByClient.get(cliente.id) ?? 0;
-      const matchesEstado = showInactive ? true : cliente.activo;
+      const matchesEstado =
+        estadoFilter === "todos" ||
+        (estadoFilter === "activos" && cliente.activo) ||
+        (estadoFilter === "inactivos" && !cliente.activo);
       const matchesDebt = showDebtOnly ? deuda > 0 : true;
       const matchesTerm = term
         ? normalizeSearch(`${cliente.nombres} ${cliente.telefono ?? ""}`).includes(term)
@@ -143,7 +148,7 @@ export function ClienteModule() {
 
       return matchesEstado && matchesDebt && matchesTerm;
     });
-  }, [clientes, debtByClient, search, showDebtOnly, showInactive]);
+  }, [clientes, debtByClient, estadoFilter, search, showDebtOnly]);
 
   function startEditCliente(cliente: Cliente) {
     setEditingCliente(cliente);
@@ -365,15 +370,15 @@ export function ClienteModule() {
               placeholder="Buscar"
               className={inputClassName}
             />
-            <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={showInactive}
-                onChange={(event) => setShowInactive(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-emerald-700"
-              />
-              Ver inactivos
-            </label>
+            <select
+              value={estadoFilter}
+              onChange={(event) => setEstadoFilter(event.target.value as EstadoFilter)}
+              className={inputClassName}
+            >
+              <option value="todos">Todos</option>
+              <option value="activos">Activos</option>
+              <option value="inactivos">Inactivos</option>
+            </select>
             <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-700">
               <input
                 type="checkbox"

@@ -22,6 +22,8 @@ type Message = {
   text: string;
 };
 
+type EstadoFilter = "todos" | "activos" | "inactivos";
+
 const emptyForm: FormValues = {
   nombre: "",
   ruc: "",
@@ -67,6 +69,7 @@ export function ProveedoresModule() {
   const [form, setForm] = useState<FormValues>(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [search, setSearch] = useState("");
+  const [estadoFilter, setEstadoFilter] = useState<EstadoFilter>("todos");
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -103,18 +106,18 @@ export function ProveedoresModule() {
   const filteredProveedores = useMemo(() => {
     const term = normalizeSpaces(search).toLowerCase();
 
-    if (!term) {
-      return proveedores;
-    }
-
     return proveedores.filter((proveedor) =>
-      `${proveedor.nombre} ${proveedor.ruc ?? ""} ${proveedor.contacto ?? ""} ${
-        proveedor.telefono ?? ""
-      }`
-        .toLowerCase()
-        .includes(term),
+      (estadoFilter === "todos" ||
+        (estadoFilter === "activos" && proveedor.activo) ||
+        (estadoFilter === "inactivos" && !proveedor.activo)) &&
+      (!term ||
+        `${proveedor.nombre} ${proveedor.ruc ?? ""} ${proveedor.contacto ?? ""} ${
+          proveedor.telefono ?? ""
+        }`
+          .toLowerCase()
+          .includes(term)),
     );
-  }, [proveedores, search]);
+  }, [estadoFilter, proveedores, search]);
 
   function updateForm<Key extends keyof FormValues>(
     key: Key,
@@ -296,7 +299,7 @@ export function ProveedoresModule() {
 
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-4 sm:p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="grid gap-3 lg:grid-cols-[1fr_180px_320px] lg:items-end">
             <div>
               <h2 className="text-base font-semibold text-slate-950">
                 Proveedores
@@ -305,12 +308,21 @@ export function ProveedoresModule() {
                 {proveedores.length} proveedores registrados.
               </p>
             </div>
+            <select
+              value={estadoFilter}
+              onChange={(event) => setEstadoFilter(event.target.value as EstadoFilter)}
+              className={inputClassName}
+            >
+              <option value="todos">Todos</option>
+              <option value="activos">Activos</option>
+              <option value="inactivos">Inactivos</option>
+            </select>
             <input
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar por nombre, RUC o telefono"
-              className={`${inputClassName} sm:max-w-sm`}
+              className={inputClassName}
             />
           </div>
         </div>

@@ -31,6 +31,8 @@ type Message = {
   text: string;
 };
 
+type EstadoFilter = "todos" | "activos" | "inactivos";
+
 const tabs: Array<{ value: CatalogType; label: string }> = [
   { value: "categorias", label: "Categorias" },
   { value: "subcategorias", label: "Subcategorias" },
@@ -61,6 +63,7 @@ export default function ProductosMantenimientoPage() {
   const [nombre, setNombre] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
+  const [estadoFilter, setEstadoFilter] = useState<EstadoFilter>("todos");
   const [categoriaId, setCategoriaId] = useState("");
   const [editing, setEditing] = useState<CatalogItem | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
@@ -147,12 +150,16 @@ export default function ProductosMantenimientoPage() {
   const filteredItems = useMemo(() => {
     const term = normalizeKey(appliedSearch);
 
-    if (!term) {
-      return items;
-    }
+    return items.filter((item) => {
+      const matchesSearch = term ? normalizeKey(item.nombre).includes(term) : true;
+      const matchesEstado =
+        estadoFilter === "todos" ||
+        (estadoFilter === "activos" && item.activo) ||
+        (estadoFilter === "inactivos" && !item.activo);
 
-    return items.filter((item) => normalizeKey(item.nombre).includes(term));
-  }, [appliedSearch, items]);
+      return matchesSearch && matchesEstado;
+    });
+  }, [appliedSearch, estadoFilter, items]);
 
   function startEdit(item: CatalogItem) {
     setEditing(item);
@@ -170,6 +177,7 @@ export default function ProductosMantenimientoPage() {
     setActiveTab(tab);
     setSearchInput("");
     setAppliedSearch("");
+    setEstadoFilter("todos");
     resetForm();
   }
 
@@ -441,6 +449,15 @@ export default function ProductosMantenimientoPage() {
                   }`}
                   className={`${inputClassName} sm:max-w-sm`}
                 />
+                <select
+                  value={estadoFilter}
+                  onChange={(event) => setEstadoFilter(event.target.value as EstadoFilter)}
+                  className={`${inputClassName} sm:max-w-[160px]`}
+                >
+                  <option value="todos">Todos</option>
+                  <option value="activos">Activos</option>
+                  <option value="inactivos">Inactivos</option>
+                </select>
                 <button
                   type="button"
                   onClick={() => setAppliedSearch(searchInput)}

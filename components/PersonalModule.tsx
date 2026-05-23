@@ -16,6 +16,7 @@ import type {
 type InternalRole = "admin" | "trabajador";
 type ActiveTab = "listado" | "pagos";
 type WorkerAction = "asistencia" | "descuento" | "pago";
+type EstadoFilter = "todos" | "activos" | "inactivos";
 
 type UsuarioInterno = Omit<AppUsuario, "rol"> & {
   rol: InternalRole;
@@ -211,6 +212,7 @@ export function PersonalModule() {
   const [editingDiscountId, setEditingDiscountId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<"todos" | InternalRole>("todos");
+  const [estadoFilter, setEstadoFilter] = useState<EstadoFilter>("todos");
   const [message, setMessage] = useState<Message | null>(null);
   const [selectedUser, setSelectedUser] = useState<UsuarioInterno | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
@@ -305,15 +307,19 @@ export function PersonalModule() {
 
     return usuarios.filter((usuario) => {
       const matchesRole = roleFilter === "todos" || usuario.rol === roleFilter;
+      const matchesEstado =
+        estadoFilter === "todos" ||
+        (estadoFilter === "activos" && usuario.activo) ||
+        (estadoFilter === "inactivos" && !usuario.activo);
       const matchesSearch =
         !term ||
         `${usuario.email} ${usuario.nombres} ${usuario.apellidos ?? ""} ${usuario.telefono ?? ""}`
           .toLowerCase()
           .includes(term);
 
-      return matchesRole && matchesSearch;
+      return matchesRole && matchesEstado && matchesSearch;
     });
-  }, [roleFilter, search, usuarios]);
+  }, [estadoFilter, roleFilter, search, usuarios]);
 
   const activeWorkers = useMemo(
     () => usuarios.filter((usuario) => usuario.rol === "trabajador" && usuario.activo),
@@ -737,7 +743,7 @@ export function PersonalModule() {
 
           <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 p-4 sm:p-5">
-              <div className="grid gap-3 lg:grid-cols-[1fr_180px_280px] lg:items-end">
+              <div className="grid gap-3 lg:grid-cols-[1fr_160px_160px_260px] lg:items-end">
                 <div>
                   <h2 className="text-base font-semibold text-slate-950">Usuarios registrados</h2>
                   <p className="mt-1 text-sm text-slate-500">
@@ -753,6 +759,17 @@ export function PersonalModule() {
                     <option value="todos">Todos</option>
                     <option value="trabajador">Trabajador</option>
                     <option value="admin">Admin</option>
+                  </select>
+                </Field>
+                <Field label="Estado">
+                  <select
+                    value={estadoFilter}
+                    onChange={(event) => setEstadoFilter(event.target.value as EstadoFilter)}
+                    className={inputClassName}
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="activos">Activos</option>
+                    <option value="inactivos">Inactivos</option>
                   </select>
                 </Field>
                 <Field label="Buscar">
