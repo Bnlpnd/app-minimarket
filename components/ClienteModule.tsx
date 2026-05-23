@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type { Cliente } from "@/types/database";
 
@@ -48,13 +49,6 @@ function normalizeSpaces(value: string) {
 
 function normalizeWhatsapp(value: string) {
   return value.trim().replace(/\s+/g, "");
-}
-
-function normalizeSearch(value: string) {
-  return normalizeSpaces(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function formatMoney(value: number) {
@@ -133,8 +127,6 @@ export function ClienteModule() {
   const debtByClient = useMemo(() => getDebtByClient(pedidos), [pedidos]);
 
   const filteredClientes = useMemo(() => {
-    const term = normalizeSearch(search);
-
     return clientes.filter((cliente) => {
       const deuda = debtByClient.get(cliente.id) ?? 0;
       const matchesEstado =
@@ -142,9 +134,12 @@ export function ClienteModule() {
         (estadoFilter === "activos" && cliente.activo) ||
         (estadoFilter === "inactivos" && !cliente.activo);
       const matchesDebt = showDebtOnly ? deuda > 0 : true;
-      const matchesTerm = term
-        ? normalizeSearch(`${cliente.nombres} ${cliente.telefono ?? ""}`).includes(term)
-        : true;
+      const matchesTerm = matchesSearch(search, [
+        cliente.nombres,
+        cliente.telefono,
+        cliente.direccion_entrega,
+        cliente.referencia,
+      ]);
 
       return matchesEstado && matchesDebt && matchesTerm;
     });
@@ -391,9 +386,9 @@ export function ClienteModule() {
           </div>
         </div>
 
-        <div className="hidden overflow-x-auto lg:block">
+        <div className="hidden max-h-[70vh] overflow-auto lg:block">
           <table className="w-full min-w-[860px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Nombre</th>
                 <th className="px-4 py-3 font-medium">WSP</th>

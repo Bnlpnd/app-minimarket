@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type { Almacen, Producto, ProductoAlmacen } from "@/types/database";
 
@@ -68,14 +69,12 @@ export function AlmacenAjustes() {
     }
 
     setIsLoading(true);
-    const term = normalizeSpaces(search);
     const { data, error } = await supabase
       .from("productos")
       .select("id,codigo_interno,nombre_producto,producto_almacen(almacen_id,stock_actual)")
       .eq("activo", true)
-      .or(`codigo_interno.ilike.%${term}%,nombre_producto.ilike.%${term}%`)
       .order("nombre_producto")
-      .limit(20);
+      .limit(500);
     setIsLoading(false);
 
     if (error) {
@@ -83,7 +82,13 @@ export function AlmacenAjustes() {
       return;
     }
 
-    setProductos((data ?? []) as ProductoRow[]);
+    setProductos(
+      ((data ?? []) as ProductoRow[])
+        .filter((producto) =>
+          matchesSearch(search, [producto.codigo_interno, producto.nombre_producto]),
+        )
+        .slice(0, 20),
+    );
   }
 
   useEffect(() => {

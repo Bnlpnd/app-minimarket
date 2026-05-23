@@ -372,9 +372,9 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
           </Panel>
 
           <Panel title="Productos del pedido">
-            <div className="overflow-x-auto">
+            <div className="max-h-[70vh] overflow-auto">
               <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
                     <th className="px-3 py-3 font-medium">Codigo</th>
                     <th className="px-3 py-3 font-medium">Producto</th>

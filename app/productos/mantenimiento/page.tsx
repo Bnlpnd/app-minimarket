@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { getCurrentUserProfile, isAdmin } from "@/lib/authRoles";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
   Categoria,
@@ -148,18 +149,21 @@ export default function ProductosMantenimientoPage() {
   }, [activeTab, categorias, marcas, presentaciones, subcategorias]);
 
   const filteredItems = useMemo(() => {
-    const term = normalizeKey(appliedSearch);
-
     return items.filter((item) => {
-      const matchesSearch = term ? normalizeKey(item.nombre).includes(term) : true;
+      const matchesTerm = matchesSearch(appliedSearch, [
+        item.nombre,
+        activeTab === "subcategorias"
+          ? categorias.find((categoria) => categoria.id === item.categoria_id)?.nombre
+          : null,
+      ]);
       const matchesEstado =
         estadoFilter === "todos" ||
         (estadoFilter === "activos" && item.activo) ||
         (estadoFilter === "inactivos" && !item.activo);
 
-      return matchesSearch && matchesEstado;
+      return matchesTerm && matchesEstado;
     });
-  }, [appliedSearch, estadoFilter, items]);
+  }, [activeTab, appliedSearch, categorias, estadoFilter, items]);
 
   function startEdit(item: CatalogItem) {
     setEditing(item);

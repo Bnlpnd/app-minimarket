@@ -5,6 +5,7 @@
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { getCurrentUserProfile, getStoredAppUser, isAdmin } from "@/lib/authRoles";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
   AppUsuario,
@@ -303,21 +304,21 @@ export function PersonalModule() {
   }, []);
 
   const filteredUsuarios = useMemo(() => {
-    const term = normalizeSpaces(search).toLowerCase();
-
     return usuarios.filter((usuario) => {
       const matchesRole = roleFilter === "todos" || usuario.rol === roleFilter;
       const matchesEstado =
         estadoFilter === "todos" ||
         (estadoFilter === "activos" && usuario.activo) ||
         (estadoFilter === "inactivos" && !usuario.activo);
-      const matchesSearch =
-        !term ||
-        `${usuario.email} ${usuario.nombres} ${usuario.apellidos ?? ""} ${usuario.telefono ?? ""}`
-          .toLowerCase()
-          .includes(term);
+      const matchesTerm = matchesSearch(search, [
+        usuario.email,
+        usuario.nombres,
+        usuario.apellidos,
+        usuario.telefono,
+        usuario.rol,
+      ]);
 
-      return matchesRole && matchesEstado && matchesSearch;
+      return matchesRole && matchesEstado && matchesTerm;
     });
   }, [estadoFilter, roleFilter, search, usuarios]);
 
@@ -784,9 +785,9 @@ export function PersonalModule() {
               </div>
             </div>
 
-            <div className="hidden overflow-x-auto lg:block">
+            <div className="hidden max-h-[70vh] overflow-auto lg:block">
               <table className="w-full min-w-[960px] text-left text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
                     <th className="px-4 py-3 font-medium">Correo</th>
                     <th className="px-4 py-3 font-medium">Nombre</th>
@@ -1096,9 +1097,9 @@ function WeeklyPaySection({
             Semana {week.label}. El pago usa horas registradas; si aun no hay asistencia, usa horas por semana.
           </p>
         </div>
-        <div className="hidden overflow-x-auto lg:block">
+        <div className="hidden max-h-[70vh] overflow-auto lg:block">
           <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Nombre</th>
                 <th className="px-4 py-3 font-medium">Pago por hora</th>

@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
   Almacen,
@@ -146,12 +147,7 @@ export function AlmacenDashboard() {
         `,
       )
       .order("nombre_producto")
-      .limit(100);
-
-    const term = search.trim();
-    if (term) {
-      query = query.or(`codigo_interno.ilike.%${term}%,nombre_producto.ilike.%${term}%`);
-    }
+      .limit(500);
     if (categoriaId) {
       query = query.eq("categoria_id", categoriaId);
     }
@@ -165,7 +161,16 @@ export function AlmacenDashboard() {
       return;
     }
 
-    let rows = (data ?? []) as ProductoRow[];
+    let rows = ((data ?? []) as ProductoRow[]).filter((producto) =>
+      matchesSearch(search, [
+        producto.codigo_interno,
+        producto.nombre_producto,
+        producto.presentacion,
+        producto.marcas?.nombre,
+        producto.categorias?.nombre,
+        producto.subcategorias?.nombre,
+      ]),
+    );
     if (almacenId) {
       rows = rows.filter((producto) =>
         producto.producto_almacen.some(

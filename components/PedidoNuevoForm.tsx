@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getStoredAppUser } from "@/lib/authRoles";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { generarLinkWhatsApp, generarMensajePedido } from "@/lib/whatsapp";
 import type {
@@ -217,8 +218,6 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    const term = normalizeSpaces(productoSearch);
-
     setIsSearchingProducts(true);
     const productMap = new Map<string, ProductoSearchRow>();
 
@@ -234,12 +233,7 @@ export function PedidoNuevoForm() {
         `,
       )
       .eq("activo", true)
-      .order("nombre_producto")
-      .limit(40);
-
-    if (term) {
-      query = query.or(`codigo_interno.ilike.%${term}%,nombre_producto.ilike.%${term}%`);
-    }
+      .order("nombre_producto");
     if (categoriaId) {
       query = query.eq("categoria_id", categoriaId);
     }
@@ -247,7 +241,7 @@ export function PedidoNuevoForm() {
       query = query.eq("subcategoria_id", subcategoriaId);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await query.range(0, 2499);
 
     if (error) {
       setIsSearchingProducts(false);
@@ -255,50 +249,20 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    ((data ?? []) as ProductoSearchRow[]).forEach((producto) => {
-      productMap.set(producto.id, producto);
-    });
-
-    if (term) {
-      const marcasResult = await supabase
-        .from("marcas")
-        .select("id")
-        .ilike("nombre", `%${term}%`)
-        .limit(10);
-
-      const marcaIds = (marcasResult.data ?? []).map((marca) => marca.id as string);
-      if (marcaIds.length > 0) {
-        let marcaQuery = supabase
-          .from("productos")
-          .select(
-            `
-              *,
-              marcas(nombre),
-              categorias(nombre),
-              subcategorias(nombre),
-              producto_almacen(almacen_id,stock_actual,almacenes(id,nombre))
-            `,
-          )
-          .eq("activo", true)
-          .in("marca_id", marcaIds)
-          .order("nombre_producto")
-          .limit(40);
-
-        if (categoriaId) {
-          marcaQuery = marcaQuery.eq("categoria_id", categoriaId);
-        }
-        if (subcategoriaId) {
-          marcaQuery = marcaQuery.eq("subcategoria_id", subcategoriaId);
-        }
-
-        const marcaProducts = await marcaQuery;
-        if (!marcaProducts.error) {
-          ((marcaProducts.data ?? []) as ProductoSearchRow[]).forEach((producto) => {
-            productMap.set(producto.id, producto);
-          });
-        }
-      }
-    }
+    ((data ?? []) as ProductoSearchRow[])
+      .filter((producto) =>
+        matchesSearch(productoSearch, [
+          producto.codigo_interno,
+          producto.nombre_producto,
+          producto.presentacion,
+          producto.marcas?.nombre,
+          producto.categorias?.nombre,
+          producto.subcategorias?.nombre,
+        ]),
+      )
+      .forEach((producto) => {
+        productMap.set(producto.id, producto);
+      });
 
     setProductos([...productMap.values()].slice(0, 40));
     setIsSearchingProducts(false);
@@ -309,8 +273,7 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    const term = normalizeSpaces(clienteSearch);
-    if (!term) {
+    if (!normalizeSpaces(clienteSearch)) {
       setClientes([]);
       return;
     }
@@ -320,9 +283,8 @@ export function PedidoNuevoForm() {
       .from("clientes")
       .select("*")
       .eq("activo", true)
-      .or(`nombres.ilike.%${term}%,telefono.ilike.%${term}%`)
       .order("created_at", { ascending: false })
-      .limit(10);
+      .limit(500);
     setIsSearchingClientes(false);
 
     if (error) {
@@ -330,7 +292,18 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    setClientes((data ?? []) as Cliente[]);
+    setClientes(
+      ((data ?? []) as Cliente[])
+        .filter((cliente) =>
+          matchesSearch(clienteSearch, [
+            cliente.nombres,
+            cliente.telefono,
+            cliente.direccion_entrega,
+            cliente.referencia,
+          ]),
+        )
+        .slice(0, 10),
+    );
   }
 
   async function loadClienteFromQuery(clienteId: string) {
@@ -1225,9 +1198,9 @@ export function PedidoNuevoForm() {
             <SummaryItem label="Total" value={formatMoney(total)} strong />
           </div>
           <section className="rounded-lg border border-slate-200">
-            <div className="hidden overflow-x-auto lg:block">
+            <div className="hidden max-h-[70vh] overflow-auto lg:block">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
                     <th className="px-3 py-3 font-medium">Cant</th>
                     <th className="px-3 py-3 font-medium">Producto</th>
@@ -1315,9 +1288,9 @@ function Cart({
       <div className="border-b border-slate-200 px-4 py-3">
         <h3 className="text-sm font-semibold text-slate-950">Detalle</h3>
       </div>
-      <div className="hidden overflow-x-auto lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto lg:block">
         <table className="w-full min-w-[880px] text-left text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+          <thead className="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
               <th className="px-3 py-3 font-medium">Producto</th>
               <th className="px-3 py-3 font-medium">Almacen</th>

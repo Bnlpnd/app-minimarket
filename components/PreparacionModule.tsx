@@ -433,9 +433,9 @@ export function PreparacionModule() {
                     Marca cada producto cuando este preparado.
                   </p>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="max-h-[70vh] overflow-auto">
                   <table className="w-full min-w-[760px] text-left text-sm">
-                    <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                    <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
                       <tr>
                         <th className="px-4 py-3 font-medium">Listo</th>
                         <th className="px-4 py-3 font-medium">Producto</th>

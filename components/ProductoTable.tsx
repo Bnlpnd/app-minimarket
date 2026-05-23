@@ -116,9 +116,9 @@ export function ProductoTable({
         </span>
       </div>
 
-      <div className="hidden overflow-x-auto lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto lg:block">
         <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-3 font-medium">Producto</th>
               <th className="px-3 py-3 font-medium">Marca</th>

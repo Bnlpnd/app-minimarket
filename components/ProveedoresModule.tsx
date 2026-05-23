@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type { Proveedor } from "@/types/database";
 
@@ -104,18 +105,18 @@ export function ProveedoresModule() {
   }, []);
 
   const filteredProveedores = useMemo(() => {
-    const term = normalizeSpaces(search).toLowerCase();
-
     return proveedores.filter((proveedor) =>
       (estadoFilter === "todos" ||
         (estadoFilter === "activos" && proveedor.activo) ||
         (estadoFilter === "inactivos" && !proveedor.activo)) &&
-      (!term ||
-        `${proveedor.nombre} ${proveedor.ruc ?? ""} ${proveedor.contacto ?? ""} ${
-          proveedor.telefono ?? ""
-        }`
-          .toLowerCase()
-          .includes(term)),
+      matchesSearch(search, [
+        proveedor.nombre,
+        proveedor.ruc,
+        proveedor.contacto,
+        proveedor.telefono,
+        proveedor.email,
+        proveedor.direccion,
+      ]),
     );
   }, [estadoFilter, proveedores, search]);
 
@@ -327,9 +328,9 @@ export function ProveedoresModule() {
           </div>
         </div>
 
-        <div className="hidden overflow-x-auto lg:block">
+        <div className="hidden max-h-[70vh] overflow-auto lg:block">
           <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Proveedor</th>
                 <th className="px-4 py-3 font-medium">RUC</th>

@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
   Almacen,
@@ -30,10 +31,6 @@ type Message = {
 
 const inputClassName =
   "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
-
-function normalizeSpaces(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
 
 function formatStock(value: number | null | undefined) {
   return Number(value ?? 0).toFixed(2).replace(/\.00$/, "");
@@ -141,13 +138,8 @@ export function AlmacenAgregarStock() {
         `,
       )
       .eq("activo", true)
-      .order("nombre_producto")
-      .limit(100);
+      .order("nombre_producto");
 
-    const term = normalizeSpaces(search);
-    if (term) {
-      query = query.or(`codigo_interno.ilike.%${term}%,nombre_producto.ilike.%${term}%`);
-    }
     if (categoriaId) {
       query = query.eq("categoria_id", categoriaId);
     }
@@ -155,7 +147,7 @@ export function AlmacenAgregarStock() {
       query = query.eq("subcategoria_id", subcategoriaId);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await query.range(0, 2499);
     setIsLoading(false);
 
     if (error) {
@@ -164,7 +156,15 @@ export function AlmacenAgregarStock() {
       return;
     }
 
-    const rows = (data ?? []) as ProductoStockRow[];
+    const rows = ((data ?? []) as ProductoStockRow[]).filter((producto) =>
+      matchesSearch(search, [
+        producto.codigo_interno,
+        producto.nombre_producto,
+        producto.presentacion,
+        producto.categorias?.nombre,
+        producto.subcategorias?.nombre,
+      ]),
+    );
     setProductos(rows);
     setStockEdit(
       Object.fromEntries(rows.map((producto) => [producto.id, String(stockForAlmacen(producto, almacenId))])),
@@ -320,9 +320,9 @@ export function AlmacenAgregarStock() {
           <h2 className="text-base font-semibold text-slate-950">Stock por almacen</h2>
           <p className="mt-1 text-sm text-slate-500">Edita el stock contado del almacen seleccionado.</p>
         </div>
-        <div className="hidden overflow-x-auto lg:block">
+        <div className="hidden max-h-[70vh] overflow-auto lg:block">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
+            <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3">Nombre</th>
                 <th className="px-4 py-3">Presentacion</th>

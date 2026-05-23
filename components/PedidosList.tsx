@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { getStoredAppUser } from "@/lib/authRoles";
 import { formatDate, formatTime } from "@/lib/dateUtils";
+import { matchesSearch } from "@/lib/searchUtils";
 import type { Cliente, Pago, Pedido, PedidoEstado } from "@/types/database";
 
 type PedidoListItem = Pedido & {
@@ -30,17 +31,6 @@ const pedidoEstados: Array<{ value: PedidoEstado | ""; label: string }> = [
   { value: "entregado", label: "Entregado" },
   { value: "cancelado", label: "Cancelado" },
 ];
-
-function normalizeSpaces(value: string) {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function normalizeSearch(value: string) {
-  return normalizeSpaces(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
 
 function formatMoney(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
@@ -189,24 +179,22 @@ export function PedidosList() {
   }, []);
 
   const filteredPedidos = useMemo(() => {
-    const term = normalizeSearch(search);
-
     return pedidos.filter((pedido) => {
       const cliente = pedido.clientes;
       const matchesEstado = estado ? pedido.estado === estado : true;
       const matchesFecha = fechaRecojo
         ? (pedido.fecha_recojo ?? "").slice(0, 10) === fechaRecojo
         : true;
-      const matchesSearch = term
-        ? normalizeSearch(
-            `${pedido.id} ${pedido.id.slice(0, 8)} ${cliente?.nombres ?? ""} ${
-              cliente?.telefono ?? ""
-            }`,
-          )
-            .includes(term)
-        : true;
+      const matchesTerm = matchesSearch(search, [
+        pedido.id,
+        pedido.id.slice(0, 8),
+        cliente?.nombres,
+        cliente?.telefono,
+        pedido.estado,
+        pedido.metodo_pago,
+      ]);
 
-      return matchesEstado && matchesFecha && matchesSearch;
+      return matchesEstado && matchesFecha && matchesTerm;
     });
   }, [pedidos, estado, fechaRecojo, search]);
 
@@ -276,9 +264,9 @@ export function PedidosList() {
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3 font-medium">Pedido</th>
                 <th className="px-4 py-3 font-medium">Cliente</th>
