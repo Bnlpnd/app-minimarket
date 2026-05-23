@@ -176,7 +176,45 @@ export interface AppUsuario {
   pago_hora: number;
   horas_semana: number;
   gastos_semana: number;
+  horario_laboral: string | null;
   activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalAsistencia {
+  id: string;
+  usuario_id: string;
+  fecha: string;
+  hora_ingreso: string | null;
+  hora_salida: string | null;
+  productividad: 1 | 2 | 3;
+  observacion: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalDescuento {
+  id: string;
+  usuario_id: string;
+  fecha: string;
+  detalle: string;
+  monto: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalPago {
+  id: string;
+  usuario_id: string;
+  semana_inicio: string;
+  semana_fin: string;
+  horas_trabajadas: number;
+  pago_hora: number;
+  descuentos: number;
+  monto_pagado: number;
+  estado: "pendiente" | "pagado";
+  observacion: string | null;
   created_at: string;
   updated_at: string;
 }
