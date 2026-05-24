@@ -18,19 +18,19 @@ export const navigationItems = [
     ],
   },
   {
-    label: "Almacenes",
-    items: [
-      { href: "/almacen/transferencias", label: "Transferencias" },
-      { href: "/almacen/agregar-stock", label: "Agregar stock" },
-      { href: "/almacen/abastecimiento", label: "Abastecimiento" },
-    ],
-  },
-  {
     label: "Ventas",
     items: [
       { href: "/pedidos/nuevo", label: "Nueva venta" },
       { href: "/pedidos", label: "Lista pedidos" },
       { href: "/preparacion", label: "Preparacion" },
+    ],
+  },
+  {
+    label: "Almacenes",
+    items: [
+      { href: "/almacen/transferencias", label: "Transferencias" },
+      { href: "/almacen/agregar-stock", label: "Agregar stock" },
+      { href: "/almacen/abastecimiento", label: "Abastecimiento" },
     ],
   },
   {
