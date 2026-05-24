@@ -115,7 +115,7 @@ export function PreparacionModule() {
       .select(
         `
           *,
-          productos(codigo_interno,nombre_producto,presentacion,stock_actual),
+          productos!producto_id(codigo_interno,nombre_producto,presentacion,stock_actual),
           almacenes(nombre)
         `,
       )

@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getStoredAppUser } from "@/lib/authRoles";
 import {
   getBaseStockByAlmacen,
@@ -139,6 +140,7 @@ function stockByName(producto: ProductoSearchRow, name: string) {
 }
 
 export function PedidoNuevoForm() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [maxStepVisited, setMaxStepVisited] = useState(1);
   const [createdPedidoId, setCreatedPedidoId] = useState<string | null>(null);
@@ -1035,7 +1037,8 @@ export function PedidoNuevoForm() {
       return;
     }
     setCreatedPedidoEstado("en_preparacion");
-    setMessage({ type: "success", text: "Pedido enviado a preparacion." });
+    setMessage({ type: "success", text: "Pedido enviado a preparacion. Abriendo..." });
+    router.push("/preparacion?pedido=" + createdPedidoId);
   }
 
   const canGoNext = Boolean(

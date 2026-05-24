@@ -124,7 +124,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
         .select(
           `
             *,
-            detalle_pedido(id,cantidad,precio_unitario,subtotal,productos(nombre_producto))
+            detalle_pedido(id,cantidad,precio_unitario,subtotal,productos!producto_id(nombre_producto))
           `,
         )
         .eq("cliente_id", clienteId)

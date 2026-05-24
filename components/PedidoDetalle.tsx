@@ -131,7 +131,7 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
         .select(
           `
             *,
-            productos(codigo_interno, nombre_producto, presentacion)
+            productos!producto_id(codigo_interno, nombre_producto, presentacion)
           `,
         )
         .eq("pedido_id", pedidoId)
