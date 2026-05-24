@@ -44,7 +44,7 @@ export const navigationItems = [
   {
     label: "Personal",
     items: [
-      { href: "/personal?tab=nuevo", label: "Nuevo personal" },
+      { href: "/personal?tab=listado", label: "Listado personal" },
       { href: "/personal?tab=pago", label: "Pago semanal" },
     ],
   },

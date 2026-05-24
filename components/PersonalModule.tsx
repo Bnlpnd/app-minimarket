@@ -14,6 +14,9 @@ import type {
   PersonalDescuento,
   PersonalPago,
 } from "@/types/database";
+import { AttendanceWeekBlock } from "@/components/personal/AttendanceWeekBlock";
+import { DiscountWeekBlock } from "@/components/personal/DiscountWeekBlock";
+import { PaymentHistoryBlock } from "@/components/personal/PaymentHistoryBlock";
 
 type InternalRole = "admin" | "trabajador";
 type ActiveTab = "listado" | "pagos";
@@ -124,6 +127,49 @@ function getWeekRange(referenceDate = new Date()) {
   };
 }
 
+function getWeekRangeFromStart(startStr: string) {
+  // startStr is yyyy-mm-dd (Monday). Build range from it.
+  const [y, m, d] = startStr.split("-").map(Number);
+  const start = new Date(y, (m || 1) - 1, d || 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return {
+    start: toInputDate(start),
+    end: toInputDate(end),
+    label: `${formatDateText(toInputDate(start))} - ${formatDateText(toInputDate(end))}`,
+  };
+}
+
+function getWeekDays(startStr: string): Array<{ date: string; label: string; full: string }> {
+  const [y, m, d] = startStr.split("-").map(Number);
+  const start = new Date(y, (m || 1) - 1, d || 1);
+  start.setHours(0, 0, 0, 0);
+  const labels = ["L", "M", "Mi", "J", "V", "S", "D"];
+  const fullNames = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"];
+  return Array.from({ length: 7 }, (_, i) => {
+    const next = new Date(start);
+    next.setDate(start.getDate() + i);
+    return {
+      date: toInputDate(next),
+      label: labels[i],
+      full: fullNames[i],
+    };
+  });
+}
+
+function shiftWeek(startStr: string, deltaWeeks: number): string {
+  const [y, m, d] = startStr.split("-").map(Number);
+  const start = new Date(y, (m || 1) - 1, d || 1);
+  start.setDate(start.getDate() + deltaWeeks * 7);
+  return toInputDate(start);
+}
+
+function isFutureWeek(startStr: string): boolean {
+  const currentStart = getWeekRange().start;
+  return startStr > currentStart;
+}
+
 function toInputDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate(),
@@ -219,7 +265,16 @@ export function PersonalModule() {
   const [selectedUser, setSelectedUser] = useState<UsuarioInterno | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [workerAction, setWorkerAction] = useState<WorkerAction>("asistencia");
+  const [showRegisterForm, setShowRegisterForm] = useState(false);
   const [hasAdminAccess, setHasAdminAccess] = useState(false);
+  const [viewingWeekStart, setViewingWeekStart] = useState<string>(getWeekRange().start);
+  const [selectedDate, setSelectedDate] = useState<string>(todayInput());
+  const [showIngreso, setShowIngreso] = useState(false);
+  const [showSalida, setShowSalida] = useState(false);
+  const [historyAsistencias, setHistoryAsistencias] = useState<PersonalAsistencia[]>([]);
+  const [historyDescuentos, setHistoryDescuentos] = useState<PersonalDescuento[]>([]);
+  const [historyPagos, setHistoryPagos] = useState<PersonalPago[]>([]);
+  const [paymentFilter, setPaymentFilter] = useState<"semana" | "mes">("semana");
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -253,8 +308,18 @@ export function PersonalModule() {
 
     setIsLoading(true);
 
-    const [{ data: usersData, error: usersError }, { data: asistenciasData }, { data: descuentosData }, { data: pagosData }] =
-      await Promise.all([
+    // Compute history range: last 12 weeks for asistencias/descuentos, all pagos.
+    const historyStart = shiftWeek(getWeekRange().start, -12);
+
+    const [
+      { data: usersData, error: usersError },
+      { data: asistenciasData },
+      { data: descuentosData },
+      { data: pagosData },
+      { data: historyAsistenciasData },
+      { data: historyDescuentosData },
+      { data: historyPagosData },
+    ] = await Promise.all([
         fetchAllRows<UsuarioInterno>(
           supabase
             .from("app_usuarios")
@@ -281,6 +346,20 @@ export function PersonalModule() {
           .select("*")
           .eq("semana_inicio", week.start)
           .order("created_at", { ascending: false }),
+        supabase
+          .from("personal_asistencias")
+          .select("*")
+          .gte("fecha", historyStart)
+          .order("fecha", { ascending: false }),
+        supabase
+          .from("personal_descuentos")
+          .select("*")
+          .gte("fecha", historyStart)
+          .order("fecha", { ascending: false }),
+        supabase
+          .from("personal_pagos")
+          .select("*")
+          .order("semana_inicio", { ascending: false }),
       ]);
 
     setIsLoading(false);
@@ -295,6 +374,9 @@ export function PersonalModule() {
     setAsistencias((asistenciasData ?? []) as PersonalAsistencia[]);
     setDescuentos((descuentosData ?? []) as PersonalDescuento[]);
     setPagos((pagosData ?? []) as PersonalPago[]);
+    setHistoryAsistencias((historyAsistenciasData ?? []) as PersonalAsistencia[]);
+    setHistoryDescuentos((historyDescuentosData ?? []) as PersonalDescuento[]);
+    setHistoryPagos((historyPagosData ?? []) as PersonalPago[]);
 
     if (!selectedWorkerId) {
       const firstWorker = internalUsers.find((user) => user.rol === "trabajador" && user.activo);
@@ -406,6 +488,7 @@ export function PersonalModule() {
 
     setMessage({ type: "success", text: "Trabajador registrado correctamente." });
     setForm(emptyForm);
+    setShowRegisterForm(false);
     await loadData();
   }
 
@@ -564,6 +647,71 @@ export function PersonalModule() {
     await loadData();
   }
 
+  async function saveIngreso(fecha: string, hora: string, observacion: string) {
+    if (!supabase || !selectedWorker) return;
+    setIsSaving(true);
+    setMessage(null);
+    // Try to preserve hora_salida + productividad if existing record exists
+    const existing = historyAsistencias.find(
+      (item) => item.usuario_id === selectedWorker.id && item.fecha === fecha,
+    );
+    const { error } = await supabase.from("personal_asistencias").upsert(
+      {
+        usuario_id: selectedWorker.id,
+        fecha,
+        hora_ingreso: hora || null,
+        hora_salida: existing?.hora_salida ?? null,
+        productividad: existing?.productividad ?? 2,
+        observacion: normalizeSpaces(observacion) || existing?.observacion || null,
+      },
+      { onConflict: "usuario_id,fecha" },
+    );
+    setIsSaving(false);
+    if (error) {
+      setMessage({ type: "error", text: "No se pudo guardar ingreso: " + error.message });
+      return;
+    }
+    setMessage({ type: "success", text: "Ingreso registrado." });
+    setShowIngreso(false);
+    await loadData();
+  }
+
+  async function saveSalida(fecha: string, hora: string, productividad: number) {
+    if (!supabase || !selectedWorker) return;
+    setIsSaving(true);
+    setMessage(null);
+    const existing = historyAsistencias.find(
+      (item) => item.usuario_id === selectedWorker.id && item.fecha === fecha,
+    );
+    const { error } = await supabase.from("personal_asistencias").upsert(
+      {
+        usuario_id: selectedWorker.id,
+        fecha,
+        hora_ingreso: existing?.hora_ingreso ?? null,
+        hora_salida: hora || null,
+        productividad: productividad || 2,
+        observacion: existing?.observacion ?? null,
+      },
+      { onConflict: "usuario_id,fecha" },
+    );
+    setIsSaving(false);
+    if (error) {
+      setMessage({ type: "error", text: "No se pudo guardar salida: " + error.message });
+      return;
+    }
+    setMessage({ type: "success", text: "Salida registrada." });
+    setShowSalida(false);
+    await loadData();
+  }
+
+  function editAttendance(item: PersonalAsistencia) {
+    // Admin-only: re-open the day's record by setting selectedDate and pre-populating
+    setSelectedDate(item.fecha);
+    setShowIngreso(true);
+    setShowSalida(true);
+    setMessage({ type: "success", text: "Editar registro del " + formatDateText(item.fecha) });
+  }
+
   async function registerWeeklyPayment() {
     if (!supabase || !selectedWorker) {
       return;
@@ -649,6 +797,16 @@ export function PersonalModule() {
 
       {tab === "listado" ? (
         <>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowRegisterForm((current) => !current)}
+              className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800"
+            >
+              {showRegisterForm ? "Cerrar" : "Registrar usuario"}
+            </button>
+          </div>
+          {showRegisterForm ? (
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <h2 className="text-base font-semibold text-slate-950">Registrar trabajador</h2>
             <form onSubmit={handleSubmit} className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -744,6 +902,7 @@ export function PersonalModule() {
               </div>
             </form>
           </section>
+          ) : null}
 
           <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 p-4 sm:p-5">
@@ -1027,6 +1186,15 @@ export function PersonalModule() {
           discountForm={discountForm}
           editingDiscountId={editingDiscountId}
           isSaving={isSaving}
+          isAdmin={hasAdminAccess}
+          viewingWeekStart={viewingWeekStart}
+          selectedDate={selectedDate}
+          showIngreso={showIngreso}
+          showSalida={showSalida}
+          historyAsistencias={historyAsistencias}
+          historyDescuentos={historyDescuentos}
+          historyPagos={historyPagos}
+          paymentFilter={paymentFilter}
           onSelectAction={selectWorkerAction}
           onAttendanceChange={(key, value) =>
             setAttendanceForm((current) => ({ ...current, [key]: value }))
@@ -1046,6 +1214,14 @@ export function PersonalModule() {
             });
           }}
           onRegisterPayment={() => void registerWeeklyPayment()}
+          setViewingWeekStart={setViewingWeekStart}
+          setSelectedDate={setSelectedDate}
+          setShowIngreso={setShowIngreso}
+          setShowSalida={setShowSalida}
+          setPaymentFilter={setPaymentFilter}
+          onSaveIngreso={saveIngreso}
+          onSaveSalida={saveSalida}
+          onEditAttendance={editAttendance}
         />
       )}
     </div>
@@ -1064,6 +1240,15 @@ function WeeklyPaySection({
   discountForm,
   editingDiscountId,
   isSaving,
+  isAdmin,
+  viewingWeekStart,
+  selectedDate,
+  showIngreso,
+  showSalida,
+  historyAsistencias,
+  historyDescuentos,
+  historyPagos,
+  paymentFilter,
   onSelectAction,
   onAttendanceChange,
   onDiscountChange,
@@ -1071,6 +1256,14 @@ function WeeklyPaySection({
   onSaveDiscount,
   onEditDiscount,
   onRegisterPayment,
+  setViewingWeekStart,
+  setSelectedDate,
+  setShowIngreso,
+  setShowSalida,
+  setPaymentFilter,
+  onSaveIngreso,
+  onSaveSalida,
+  onEditAttendance,
 }: {
   activeWorkers: UsuarioInterno[];
   selectedWorker: UsuarioInterno | null;
@@ -1083,6 +1276,15 @@ function WeeklyPaySection({
   discountForm: DiscountForm;
   editingDiscountId: string | null;
   isSaving: boolean;
+  isAdmin: boolean;
+  viewingWeekStart: string;
+  selectedDate: string;
+  showIngreso: boolean;
+  showSalida: boolean;
+  historyAsistencias: PersonalAsistencia[];
+  historyDescuentos: PersonalDescuento[];
+  historyPagos: PersonalPago[];
+  paymentFilter: "semana" | "mes";
   onSelectAction: (worker: UsuarioInterno, action: WorkerAction) => void;
   onAttendanceChange: (key: keyof AttendanceForm, value: string) => void;
   onDiscountChange: (key: keyof DiscountForm, value: string) => void;
@@ -1090,6 +1292,14 @@ function WeeklyPaySection({
   onSaveDiscount: (event: FormEvent<HTMLFormElement>) => void;
   onEditDiscount: (item: PersonalDescuento) => void;
   onRegisterPayment: () => void;
+  setViewingWeekStart: (start: string) => void;
+  setSelectedDate: (date: string) => void;
+  setShowIngreso: (updater: (current: boolean) => boolean) => void;
+  setShowSalida: (updater: (current: boolean) => boolean) => void;
+  setPaymentFilter: (filter: "semana" | "mes") => void;
+  onSaveIngreso: (date: string, hora: string, observacion: string) => Promise<void>;
+  onSaveSalida: (date: string, hora: string, productividad: number) => Promise<void>;
+  onEditAttendance: (item: PersonalAsistencia) => void;
 }) {
   return (
     <div className="space-y-5">
@@ -1186,36 +1396,57 @@ function WeeklyPaySection({
           </div>
 
           {workerAction === "asistencia" ? (
-            <AttendanceBlock
+            <AttendanceWeekBlock
               worker={selectedWorker}
-              form={attendanceForm}
-              asistencias={asistencias.filter((item) => item.usuario_id === selectedWorker.id)}
+              historyAsistencias={historyAsistencias.filter((item) => item.usuario_id === selectedWorker.id)}
+              viewingWeekStart={viewingWeekStart}
+              selectedDate={selectedDate}
+              showIngreso={showIngreso}
+              showSalida={showSalida}
+              isAdmin={isAdmin}
               isSaving={isSaving}
-              onChange={onAttendanceChange}
-              onSubmit={onSaveAttendance}
+              onChangeViewingWeek={setViewingWeekStart}
+              onChangeSelectedDate={setSelectedDate}
+              onToggleIngreso={() => setShowIngreso((v) => !v)}
+              onToggleSalida={() => setShowSalida((v) => !v)}
+              onSaveIngreso={onSaveIngreso}
+              onSaveSalida={onSaveSalida}
+              onEditAttendance={onEditAttendance}
             />
           ) : null}
 
           {workerAction === "descuento" ? (
-            <DiscountBlock
-              form={discountForm}
-              descuentos={descuentos.filter((item) => item.usuario_id === selectedWorker.id)}
-              editingDiscountId={editingDiscountId}
+            <DiscountWeekBlock
+              worker={selectedWorker}
+              historyDescuentos={historyDescuentos.filter((item) => item.usuario_id === selectedWorker.id)}
+              viewingWeekStart={viewingWeekStart}
+              selectedDate={selectedDate}
+              isAdmin={isAdmin}
               isSaving={isSaving}
-              onChange={onDiscountChange}
-              onSubmit={onSaveDiscount}
-              onEdit={onEditDiscount}
+              editingDiscountId={editingDiscountId}
+              discountForm={discountForm}
+              onChangeViewingWeek={setViewingWeekStart}
+              onChangeSelectedDate={setSelectedDate}
+              onDiscountChange={onDiscountChange}
+              onSaveDiscount={onSaveDiscount}
+              onEditDiscount={onEditDiscount}
             />
           ) : null}
 
           {workerAction === "pago" ? (
-            <PaymentBlock
+            <PaymentHistoryBlock
               worker={selectedWorker}
               asistencias={asistencias}
               descuentos={descuentos}
               pagos={pagos}
+              historyAsistencias={historyAsistencias}
+              historyDescuentos={historyDescuentos}
+              historyPagos={historyPagos}
               week={week}
+              paymentFilter={paymentFilter}
+              isAdmin={isAdmin}
               isSaving={isSaving}
+              onChangeFilter={setPaymentFilter}
               onRegisterPayment={onRegisterPayment}
             />
           ) : null}
