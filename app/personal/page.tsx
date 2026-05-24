@@ -9,4 +9,7 @@ export default function PersonalPage() {
       title="Personal"
       description="Registro de trabajadores, roles, asistencia y pagos semanales."
     >
-     
+      <PersonalModule />
+    </Layout>
+  );
+}
