@@ -363,7 +363,7 @@ export function PedidoNuevoForm() {
     }
 
     const stockByProduct = new Map<string, StockWithAlmacen[]>();
-    ((data ?? []) as StockWithAlmacen[]).forEach((stock) => {
+    ((data ?? []) as unknown as StockWithAlmacen[]).forEach((stock) => {
       if (!stock.producto_id) {
         return;
       }
