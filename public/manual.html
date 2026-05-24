@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Manual de Minimarket Santa Ana</title>
+<style>
+  :root {
+    --primary: #047857;
+    --primary-light: #d1fae5;
+    --slate-950: #0f172a;
+    --slate-700: #334155;
+    --slate-500: #64748b;
+    --slate-300: #cbd5e1;
+    --slate-100: #f1f5f9;
+    --slate-50: #f8fafc;
+    --amber: #b45309;
+    --amber-light: #fef3c7;
+    --red: #b91c1c;
+    --red-light: #fee2e2;
+    --blue: #1d4ed8;
+    --blue-light: #dbeafe;
+    --purple: #6d28d9;
+    --purple-light: #ede9fe;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--slate-50);
+    color: var(--slate-950);
+    line-height: 1.6;
+  }
+  .layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 100vh; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  aside {
+    background: white;
+    border-right: 1px solid var(--slate-300);
+    padding: 24px 20px;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    max-height: 100vh;
+    overflow-y: auto;
+  }
+  aside h1 { font-size: 18px; margin: 0 0 4px; color: var(--primary); }
+  aside p.subtitle { font-size: 13px; color: var(--slate-500); margin: 0 0 16px; }
+  aside .role-chip { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }
+  aside ol { padding-left: 18px; margin: 0; font-size: 14px; }
+  aside ol li { margin-bottom: 6px; }
+  aside a { color: var(--slate-700); text-decoration: none; }
+  aside a:hover { color: var(--primary); }
+  aside button.change-role { width: 100%; margin-top: 16px; padding: 8px 12px; border: 1px solid var(--slate-300); border-radius: 8px; background: white; cursor: pointer; font-size: 13px; color: var(--slate-700); }
+  aside button.change-role:hover { background: var(--slate-100); }
+  main { padding: 32px 40px; max-width: 880px; }
+  @media (max-width: 900px) { main { padding: 24px 16px; } }
+  h2 { color: var(--primary); border-bottom: 2px solid var(--primary-light); padding-bottom: 8px; margin-top: 48px; }
+  h2:first-child { margin-top: 0; }
+  h3 { color: var(--slate-950); margin-top: 24px; }
+  .lead { font-size: 17px; color: var(--slate-700); margin-bottom: 32px; }
+  .step {
+    background: white;
+    border: 1px solid var(--slate-300);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 12px 0;
+  }
+  .step h4 { margin: 0 0 6px; color: var(--primary); }
+  .step ol, .step ul { margin: 8px 0 0; padding-left: 22px; }
+  .step li { margin: 4px 0; }
+  .tip, .warn, .info {
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  .tip { background: var(--primary-light); border-left: 4px solid var(--primary); color: #064e3b; }
+  .warn { background: var(--amber-light); border-left: 4px solid var(--amber); color: #78350f; }
+  .info { background: var(--slate-100); border-left: 4px solid var(--slate-500); color: var(--slate-700); }
+  details {
+    background: white;
+    border: 1px solid var(--slate-300);
+    border-radius: 10px;
+    padding: 12px 18px;
+    margin: 10px 0;
+  }
+  details summary {
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--primary);
+    list-style: none;
+  }
+  details summary::before { content: "+ "; color: var(--primary); font-weight: bold; }
+  details[open] summary::before { content: "- "; }
+  details > *:not(summary) { margin-top: 12px; }
+  kbd { background: var(--slate-100); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px; border: 1px solid var(--slate-300); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge-emerald { background: var(--primary-light); color: #064e3b; }
+  .badge-amber { background: var(--amber-light); color: #78350f; }
+  .badge-red { background: var(--red-light); color: var(--red); }
+  .badge-blue { background: var(--blue-light); color: var(--blue); }
+  .badge-purple { background: var(--purple-light); color: var(--purple); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; background: white; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--slate-100); font-size: 14px; }
+  th { background: var(--slate-100); color: var(--slate-700); font-weight: 600; }
+  .hero { background: linear-gradient(135deg, var(--primary), #065f46); color: white; padding: 40px; border-radius: 14px; margin-bottom: 24px; }
+  .hero h1 { margin: 0 0 8px; font-size: 28px; }
+  .hero p { margin: 0; font-size: 16px; opacity: 0.9; }
+  .quick-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 16px 0 24px; }
+  .quick-card { background: white; border: 1px solid var(--slate-300); border-radius: 10px; padding: 14px; }
+  .quick-card .icon { font-size: 24px; margin-bottom: 6px; }
+  .quick-card a { color: var(--primary); text-decoration: none; font-weight: 600; font-size: 14px; }
+  a.back-top { position: fixed; bottom: 20px; right: 20px; background: var(--primary); color: white; padding: 10px 16px; border-radius: 999px; text-decoration: none; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+
+  /* role picker */
+  .role-picker { background: white; border: 1px solid var(--slate-300); border-radius: 14px; padding: 28px; margin-bottom: 24px; text-align: center; }
+  .role-picker h2 { color: var(--slate-950); border: none; margin: 0 0 8px; padding: 0; }
+  .role-picker p { color: var(--slate-500); margin: 0 0 20px; }
+  .role-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .role-btn {
+    border: 2px solid var(--slate-300);
+    border-radius: 12px;
+    padding: 20px 12px;
+    background: white;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--slate-700);
+    transition: all .15s;
+  }
+  .role-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.08); }
+  .role-btn[data-pick="admin"]:hover { border-color: var(--primary); color: var(--primary); }
+  .role-btn[data-pick="trabajador"]:hover { border-color: var(--blue); color: var(--blue); }
+  .role-btn[data-pick="cliente"]:hover { border-color: var(--purple); color: var(--purple); }
+  .role-btn .icon { display: block; font-size: 36px; margin-bottom: 8px; }
+  .role-btn .desc { display: block; font-size: 12px; font-weight: 400; color: var(--slate-500); margin-top: 6px; }
+
+  /* role-based visibility */
+  [data-role] { display: none; }
+  body[data-active="admin"] [data-role~="admin"] { display: block; }
+  body[data-active="trabajador"] [data-role~="trabajador"] { display: block; }
+  body[data-active="cliente"] [data-role~="cliente"] { display: block; }
+  /* Hide layout pieces until role is selected */
+  body:not([data-active]) .layout { display: none; }
+  body[data-active] .role-picker { display: none; }
+  /* For inline list items role-filtered */
+  body[data-active="admin"] li[data-role]:not([data-role~="admin"]),
+  body[data-active="trabajador"] li[data-role]:not([data-role~="trabajador"]),
+  body[data-active="cliente"] li[data-role]:not([data-role~="cliente"]) { display: none; }
+  body[data-active="admin"] li[data-role~="admin"],
+  body[data-active="trabajador"] li[data-role~="trabajador"],
+  body[data-active="cliente"] li[data-role~="cliente"] { display: list-item; }
+</style>
+</head>
+<body>
+
+<!-- Role picker (shown until user chooses) -->
+<div style="padding: 40px 20px;">
+  <div class="role-picker" id="role-picker">
+    <h2>Bienvenido al manual</h2>
+    <p>Antes de empezar, dime quien eres para mostrarte lo que te corresponde.</p>
+    <div class="role-buttons">
+      <button class="role-btn" data-pick="admin">
+        <span class="icon">&#128100;</span>
+        Administrador / Dueño
+        <span class="desc">Maneja todo: ventas, stock, personal, pagos, reportes</span>
+      </button>
+      <button class="role-btn" data-pick="trabajador">
+        <span class="icon">&#128105;</span>
+        Trabajador
+        <span class="desc">Atiende ventas, prepara pedidos y registra stock</span>
+      </button>
+      <button class="role-btn" data-pick="cliente">
+        <span class="icon">&#128722;</span>
+        Cliente
+        <span class="desc">Hace pedidos y consulta el estado de su pago</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+  <aside>
+    <h1>Manual</h1>
+    <p class="subtitle">Guia rapida del sistema</p>
+    <span class="role-chip" id="role-chip"></span>
+    <ol>
+      <li data-role="admin trabajador cliente"><a href="#inicio">Como entrar al sistema</a></li>
+      <li data-role="admin trabajador"><a href="#dashboard">Resumen del dia</a></li>
+      <li data-role="admin trabajador"><a href="#productos">Productos</a></li>
+      <li data-role="admin trabajador"><a href="#almacenes">Almacenes</a></li>
+      <li data-role="admin trabajador cliente"><a href="#ventas">Ventas y pedidos</a></li>
+      <li data-role="admin trabajador"><a href="#preparacion">Preparacion y entrega</a></li>
+      <li data-role="admin"><a href="#pagos">Validar pagos Yape</a></li>
+      <li data-role="admin trabajador cliente"><a href="#clientes">Clientes</a></li>
+      <li data-role="admin"><a href="#proveedores">Proveedores</a></li>
+      <li data-role="admin"><a href="#personal">Personal</a></li>
+      <li data-role="admin trabajador cliente"><a href="#tips">Trucos y atajos</a></li>
+      <li data-role="admin trabajador cliente"><a href="#problemas">Si algo falla</a></li>
+    </ol>
+    <button class="change-role" id="change-role">Cambiar de rol</button>
+  </aside>
+
+  <main>
+    <section class="hero">
+      <h1 id="hero-title">Manual de Minimarket Santa Ana</h1>
+      <p id="hero-sub">Lo que necesitas saber para usar el sistema dia a dia.</p>
+    </section>
+
+    <!-- ADMIN intro -->
+    <p class="lead" data-role="admin">
+      Como administrador tienes acceso a <strong>todo el sistema</strong>: catalogo, almacenes,
+      ventas, validacion de pagos Yape, gestion del personal y reportes. Esta guia recorre cada
+      seccion en el mismo orden del menu lateral.
+    </p>
+
+    <!-- TRABAJADOR intro -->
+    <p class="lead" data-role="trabajador">
+      Como trabajador puedes <strong>atender ventas, registrar stock y preparar pedidos</strong>.
+      Algunas opciones (Personal, Mantenimiento de catalogos, validar Yape) son solo del admin y no
+      apareceran en tu menu. Vamos paso a paso.
+    </p>
+
+    <!-- CLIENTE intro -->
+    <p class="lead" data-role="cliente">
+      Como cliente puedes <strong>ver tus pedidos, su estado y tu deuda pendiente</strong>. Las
+      compras se hacen directo con la tienda (WhatsApp, telefono o presencial); el personal las
+      registra en el sistema y tu las ves desde tu cuenta.
+    </p>
+
+    <div class="quick-cards" data-role="admin">
+      <div class="quick-card"><div class="icon">&#128722;</div><a href="#ventas">Hacer una venta</a></div>
+      <div class="quick-card"><div class="icon">&#128230;</div><a href="#almacenes">Agregar stock</a></div>
+      <div class="quick-card"><div class="icon">&#128203;</div><a href="#productos">Nuevo producto</a></div>
+      <div class="quick-card"><div class="icon">&#128176;</div><a href="#personal">Pagar al personal</a></div>
+    </div>
+    <div class="quick-cards" data-role="trabajador">
+      <div class="quick-card"><div class="icon">&#128722;</div><a href="#ventas">Hacer una venta</a></div>
+      <div class="quick-card"><div class="icon">&#128230;</div><a href="#almacenes">Agregar stock</a></div>
+      <div class="quick-card"><div class="icon">&#127858;</div><a href="#preparacion">Preparar pedidos</a></div>
+    </div>
+    <div class="quick-cards" data-role="cliente">
+      <div class="quick-card"><div class="icon">&#128722;</div><a href="#ventas">Ver mis pedidos</a></div>
+      <div class="quick-card"><div class="icon">&#128176;</div><a href="#ventas">Saldo pendiente</a></div>
+    </div>
+
+    <!-- 1. Como entrar -->
+    <h2 id="inicio" data-role="admin trabajador cliente">1. Como entrar al sistema</h2>
+    <div class="step" data-role="admin trabajador cliente">
+      <h4>Iniciar sesion</h4>
+      <ol>
+        <li>Abre el navegador (Chrome o Safari) y entra a <kbd>app-minimarket.vercel.app</kbd>.</li>
+        <li>Escribe tu correo y tu clave.</li>
+        <li>Haz click en <strong>Entrar</strong>.</li>
+      </ol>
+      <p style="margin: 8px 0 0; font-size: 13px; color: var(--slate-500);">
+        El sistema reconoce tu rol y te muestra solo las opciones que te corresponden.
+      </p>
+    </div>
+    <div class="tip" data-role="admin trabajador cliente">
+      <strong>Consejo:</strong> Guarda la pagina en favoritos. Si entras desde el celular, anclala
+      a la pantalla de inicio para abrirla como una app.
+    </div>
+
+    <!-- 2. Dashboard -->
+    <h2 id="dashboard" data-role="admin trabajador">2. Resumen del dia (Dashboard)</h2>
+    <p data-role="admin">Es la primera pantalla cuando entras. Como admin ves todo de un vistazo:</p>
+    <ul data-role="admin">
+      <li>Total de ventas del dia y la semana.</li>
+      <li>Pedidos pendientes, en preparacion y listos para entregar.</li>
+      <li>Productos con stock bajo (alerta para reponer).</li>
+      <li>Resumen de pagos pendientes de validar.</li>
+    </ul>
+    <p data-role="trabajador">Como trabajador ves los pedidos pendientes de atender y los productos
+    con stock bajo.</p>
+
+    <!-- 3. Productos -->
+    <h2 id="productos" data-role="admin trabajador">3. Productos</h2>
+    <p data-role="admin trabajador">Es el catalogo de todo lo que vendes. Tiene varias vistas:</p>
+
+    <details open data-role="admin trabajador">
+      <summary>Nuevo producto</summary>
+      <p>Para registrar un producto que aun no existe.</p>
+      <ol>
+        <li>Click en <strong>Productos &rarr; Nuevo producto</strong>.</li>
+        <li>Escribe el <strong>nombre</strong>, elige <strong>categoria, subcategoria y marca</strong>.</li>
+        <li>Selecciona la <strong>presentacion</strong> (unidad, paquete, plancha, etc.).</li>
+        <li>Pon el <strong>precio de venta por unidad</strong>.</li>
+        <li>(Opcional) Si ya tienes stock al momento de registrar: llena <em>cantidad de
+            presentaciones</em>, <em>unidades sueltas</em> y elige el <strong>almacen</strong>
+            donde depositarlo. Si no, dejalo en cero y agregalo despues desde "Agregar stock".</li>
+        <li>Sube una imagen (opcional, recomendado).</li>
+        <li>Si este producto es una <strong>presentacion de otro</strong> (ej. plancha x6 del mismo
+            papel), abre la seccion "Vinculo a producto base" y enlazalo.</li>
+        <li>Click en <strong>Crear producto</strong>.</li>
+      </ol>
+      <div class="tip"><strong>Por que vincular presentaciones?</strong> Asi al vender 1 plancha se
+      descuentan automaticamente 6 unidades del producto base. Llevas un solo stock.</div>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Listado de productos</summary>
+      <ul>
+        <li>Busca por nombre, codigo o marca.</li>
+        <li>Filtra por categoria, subcategoria, marca y estado.</li>
+        <li>Checkboxes utiles: <em>Con stock Tienda / Con stock Casa / Stock bajo</em>.</li>
+        <li>Edita rapidamente precio, stock minimo y cantidades desde la misma fila.</li>
+        <li>Botones <strong>Editar</strong>, <strong>Transferir</strong>, <strong>Desactivar</strong>.</li>
+      </ul>
+    </details>
+
+    <details data-role="admin">
+      <summary>Mantenimiento</summary>
+      <p><span class="badge badge-emerald">Solo admin</span> Crea o edita categorias, subcategorias,
+      marcas, presentaciones y unidades base.</p>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Importar CSV</summary>
+      <p>Si tienes una lista en Excel con varios productos, exportala como CSV y subela aqui. Vista
+      previa antes de guardar.</p>
+    </details>
+
+    <!-- 4. Almacenes -->
+    <h2 id="almacenes" data-role="admin trabajador">4. Almacenes</h2>
+    <p data-role="admin trabajador">Stock dividido entre <strong>Tienda</strong> (lo que se vende) y
+    <strong>Casa</strong> (lo guardado). Tres acciones:</p>
+
+    <details open data-role="admin trabajador">
+      <summary>Agregar stock</summary>
+      <ol>
+        <li>Click en <strong>Almacenes &rarr; Agregar stock</strong>.</li>
+        <li>Elige <strong>producto</strong>, <strong>almacen</strong>, cantidad de
+            <strong>presentaciones</strong> y <strong>unidades sueltas</strong>.</li>
+        <li>Click en <strong>Agregar stock</strong>. El sistema te muestra la conversion.</li>
+      </ol>
+      <div class="warn">Si el producto esta vinculado a otro base, el stock se suma al base
+      automaticamente. El sistema te avisa con un cartel verde.</div>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Transferencias</summary>
+      <ol>
+        <li>Click en <strong>Almacenes &rarr; Transferencias</strong>.</li>
+        <li>Elige producto, almacen <strong>origen</strong> y <strong>destino</strong>, cantidad.</li>
+        <li>Guarda. El movimiento queda en el historial.</li>
+      </ol>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Abastecimiento</summary>
+      <p>Lista los productos por debajo del stock minimo. Util para hacer la lista de compras.</p>
+    </details>
+
+    <!-- 5. Ventas -->
+    <h2 id="ventas" data-role="admin trabajador">5. Ventas y pedidos</h2>
+    <h2 id="ventas" data-role="cliente">3. Tus pedidos</h2>
+
+    <details open data-role="admin trabajador">
+      <summary>Nueva venta (5 pasos en orden)</summary>
+      <p>El sistema te lleva paso a paso. <strong>No te puedes saltear pasos</strong>: si editas uno
+      anterior, debes volver a confirmar los siguientes.</p>
+      <ol>
+        <li><strong>Productos:</strong> busca y agrega al carrito. Pone cantidad y almacen por fila.</li>
+        <li><strong>Cliente:</strong> busca uno existente o crea uno rapido (nombre + WhatsApp).</li>
+        <li><strong>Entrega:</strong> <em>Llevar ahora</em>, <em>Recoger despues</em> o
+            <em>Enviar</em>. Si aplica, pon fecha y hora.</li>
+        <li><strong>Confirmar:</strong> revisa que todo este bien.</li>
+        <li><strong>Pago:</strong> elige Efectivo / Yape / Otro. Marca
+            <span class="badge badge-emerald">Pagado total</span> o
+            <span class="badge badge-amber">Debe</span>. Si debe, pon cuanto entrego a cuenta y la
+            observacion.</li>
+      </ol>
+      <p>Despues de guardar te aparecen 3 botones sin salir de la pantalla:</p>
+      <ul>
+        <li><strong>Confirmar pago</strong> (solo si quedo deuda): cobra el saldo.</li>
+        <li><strong>Enviar a preparacion</strong>: pasa el pedido a la cola de preparacion.</li>
+        <li><strong>Nueva venta</strong>: empieza otra de inmediato.</li>
+      </ul>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Lista de pedidos</summary>
+      <p>Todos los pedidos con su estado. Filtra por estado, busca por cliente y abre el detalle
+      para ver productos, monto, observaciones y reenviar WhatsApp.</p>
+    </details>
+
+    <div class="step" data-role="cliente">
+      <h4>Hacer un pedido</h4>
+      <p>Los pedidos se hacen <strong>con la tienda directamente</strong>: presencial, llamada o
+      WhatsApp al <strong>942 025 999</strong>. El personal de la tienda lo registra en el
+      sistema.</p>
+    </div>
+    <div class="step" data-role="cliente">
+      <h4>Ver mis pedidos</h4>
+      <ol>
+        <li>Entra al sistema con tu correo y clave.</li>
+        <li>En el menu lateral, click en <strong>Mis pedidos</strong>.</li>
+        <li>Veras la lista con el estado de cada pedido:
+          <span class="badge badge-amber">pendiente</span>,
+          <span class="badge badge-blue">en preparacion</span>,
+          <span class="badge badge-emerald">listo</span> o
+          <span class="badge">entregado</span>.</li>
+        <li>Click en cualquiera para ver el detalle: productos, total, monto a cuenta y saldo pendiente.</li>
+      </ol>
+    </div>
+    <div class="info" data-role="cliente">Si tu pedido tiene saldo en <strong>Debe</strong>, recuerda
+    abonar al recoger o al recibir el envio.</div>
+
+    <!-- 6. Preparacion -->
+    <h2 id="preparacion" data-role="admin trabajador">6. Preparacion y entrega</h2>
+    <p data-role="admin trabajador">Pantalla del trabajador que prepara los pedidos.</p>
+    <ol data-role="admin trabajador">
+      <li>A la izquierda: <strong>cola de pedidos</strong>. Cada tarjeta trae el estado del pedido y
+          el estado del pago (<span class="badge badge-emerald">Pagado</span> /
+          <span class="badge badge-amber">Debe</span>).</li>
+      <li>Click en un pedido para ver el detalle.</li>
+      <li>Botones disponibles segun el estado:
+        <ul>
+          <li><strong>Pasar a en preparacion</strong>: empieza el armado y descuenta el stock.</li>
+          <li>Marca check en cada producto a medida que lo preparas.</li>
+          <li><strong>Marcar listo</strong>: queda listo para recoger.</li>
+          <li><strong>Marcar entregado</strong>: cuando el cliente se lo lleva.</li>
+          <li><strong>Confirmar pago</strong> (amarillo): aparece solo si el pedido aun <em>Debe</em>.</li>
+        </ul>
+      </li>
+    </ol>
+    <div class="info" data-role="admin trabajador">Pedidos entregados con saldo pendiente siguen en
+    la cola hasta confirmar pago.</div>
+
+    <!-- 7. Pagos Yape (admin) -->
+    <h2 id="pagos" data-role="admin">7. Validar pagos Yape</h2>
+    <p data-role="admin">Cuando un cliente paga con Yape y manda la captura, el pago llega aqui
+    para validacion.</p>
+    <ol data-role="admin">
+      <li>Click en <strong>Pagos</strong> en el sidebar.</li>
+      <li>Veras los pagos pendientes con la captura.</li>
+      <li>Si esta bien: <strong>Validar</strong>. Si esta mal: <strong>Rechazar</strong> y escribe el
+          motivo.</li>
+    </ol>
+
+    <!-- 8. Clientes -->
+    <h2 id="clientes" data-role="admin trabajador">8. Clientes</h2>
+    <p data-role="admin trabajador">Listado de todos los clientes registrados. Click en cualquiera
+    para ver sus pedidos, telefono, direccion y referencias.</p>
+    <h2 id="clientes" data-role="cliente">4. Mi cuenta</h2>
+    <div class="step" data-role="cliente">
+      <h4>Tus datos</h4>
+      <p>Tus datos (nombre, telefono, direccion) los puede actualizar el admin de la tienda. Si algo
+      esta mal, avisa por WhatsApp al <strong>942 025 999</strong>.</p>
+    </div>
+
+    <!-- 9. Proveedores -->
+    <h2 id="proveedores" data-role="admin">9. Proveedores</h2>
+    <p data-role="admin">Lista de proveedores con datos de contacto. Util para los pedidos de compra
+    y para llamarlos directo.</p>
+
+    <!-- 10. Personal -->
+    <h2 id="personal" data-role="admin">10. Personal</h2>
+    <p data-role="admin"><span class="badge badge-emerald">Solo admin</span>. Dos opciones en el
+    sidebar: Listado y Pago semanal.</p>
+
+    <h3 data-role="admin">Listado personal</h3>
+    <ol data-role="admin">
+      <li>Filtra por <strong>rol</strong>, <strong>estado</strong> o busca.</li>
+      <li>Click en <strong>Detalle</strong> para editar.</li>
+      <li>Click en <strong>Desactivar / Activar</strong> para bloquear sin borrar.</li>
+      <li>Boton verde <strong>Registrar usuario</strong> arriba: despliega el formulario.</li>
+    </ol>
+
+    <h3 data-role="admin">Pago semanal</h3>
+    <p data-role="admin">Tabla con todos los trabajadores activos y 3 botones por fila: Asistencia,
+    Descuento, Pago.</p>
+
+    <details data-role="admin">
+      <summary>Asistencia (registro diario)</summary>
+      <ol>
+        <li>Click en <strong>Asistencia</strong> del trabajador.</li>
+        <li>Arriba: <strong>semana actual</strong> con flechas para ir a pasadas.</li>
+        <li>Chips de los dias <kbd>L</kbd> <kbd>M</kbd> <kbd>Mi</kbd> <kbd>J</kbd> <kbd>V</kbd>
+            <kbd>S</kbd> <kbd>D</kbd>: <span class="badge badge-emerald">verde</span> seleccionado,
+            <span class="badge badge-amber">ambar</span> ya con registro.</li>
+        <li>Selecciona dia y expande <strong>Ingreso</strong> (hora + obs) o <strong>Salida</strong>
+            (hora + productividad 1/2/3).</li>
+        <li>Guardado queda bloqueado. Solo el admin lo edita con el boton de la lista derecha.</li>
+      </ol>
+    </details>
+
+    <details data-role="admin">
+      <summary>Descuento (semanal)</summary>
+      <p>Mismo selector que asistencia. Form de detalle + monto. Lista a la derecha con boton Editar
+      visible solo para admin.</p>
+    </details>
+
+    <details data-role="admin">
+      <summary>Pago</summary>
+      <p>5 tarjetas con resumen de la semana. Boton <strong>Registrar pago</strong>.</p>
+      <p>Mas abajo: <strong>grafico historico</strong> con filtro <em>Semana / Mes</em> que compara
+      pagos, horas, descuentos y productividad promedio.</p>
+    </details>
+
+    <!-- 11. Tips -->
+    <h2 id="tips" data-role="admin trabajador cliente">11. Trucos y atajos</h2>
+    <ul>
+      <li data-role="admin trabajador cliente">Pon <strong>app-minimarket.vercel.app</strong> en
+          favoritos. Desde el celular: "Anadir a pantalla de inicio".</li>
+      <li data-role="admin trabajador cliente">Refresca con <kbd>F5</kbd> o tira hacia abajo si algo
+          no actualiza.</li>
+      <li data-role="admin trabajador">El sistema funciona en cualquier celular con internet.</li>
+      <li data-role="admin trabajador">Para crear muchos productos a la vez, usa Importar CSV.</li>
+      <li data-role="admin trabajador">Chips utiles en el listado: <em>Con stock Tienda</em> y
+          <em>Stock bajo</em>.</li>
+      <li data-role="cliente">Manten tu telefono actualizado para recibir avisos por WhatsApp.</li>
+    </ul>
+
+    <!-- 12. Problemas -->
+    <h2 id="problemas" data-role="admin trabajador cliente">12. Si algo falla</h2>
+    <details data-role="admin trabajador">
+      <summary>"No se guardo stock" o "Failed to fetch"</summary>
+      <p>Verifica internet. Refresca con <kbd>Ctrl + Shift + R</kbd> para limpiar cache.</p>
+    </details>
+    <details data-role="admin trabajador cliente">
+      <summary>No me deja entrar</summary>
+      <p>Revisa correo y clave. La clave distingue mayusculas/minusculas. Si olvidaste la clave, el
+      admin la regenera desde Personal &rarr; Listado &rarr; Detalle.</p>
+    </details>
+    <details data-role="trabajador">
+      <summary>No veo Personal o Mantenimiento</summary>
+      <p>Esas opciones son solo del admin. Si necesitas acceso, pidelo al dueño.</p>
+    </details>
+    <details data-role="admin trabajador">
+      <summary>Vendi pero el stock no bajo</summary>
+      <p>El stock se descuenta cuando el pedido pasa a <strong>"en preparacion"</strong>, no al
+      guardarlo. Pasalo a preparacion desde la pantalla de Preparacion o desde el paso 5 de Nueva
+      venta.</p>
+    </details>
+    <details data-role="cliente">
+      <summary>No veo mi pedido</summary>
+      <p>Avisa por WhatsApp al <strong>942 025 999</strong>. El personal puede asociar el pedido a
+      tu cuenta o registrarlo si no se hizo.</p>
+    </details>
+
+    <div class="tip" style="margin-top: 40px;" data-role="admin trabajador cliente">
+      <strong>Tip final:</strong> el sistema esta hecho para aprender haciendo. Si dudas, prueba:
+      nada se borra solo. Y siempre puedes desactivar productos / clientes en vez de borrarlos.
+    </div>
+
+    <p style="margin-top: 40px; font-size: 13px; color: var(--slate-500); text-align: center;" data-role="admin trabajador cliente">
+      Minimarket Santa Ana &mdash; Sistema en linea &mdash; Manual de usuario v1
+    </p>
+  </main>
+</div>
+
+<a href="#" class="back-top">Subir</a>
+
+<script>
+(function() {
+  function pickRole(role) {
+    document.body.setAttribute('data-active', role);
+    localStorage.setItem('manualRole', role);
+    var chip = document.getElementById('role-chip');
+    var labels = {
+      admin: ['Administrador', '#d1fae5', '#064e3b'],
+      trabajador: ['Trabajador', '#dbeafe', '#1d4ed8'],
+      cliente: ['Cliente', '#ede9fe', '#6d28d9']
+    };
+    var l = labels[role];
+    if (l && chip) {
+      chip.textContent = l[0];
+      chip.style.background = l[1];
+      chip.style.color = l[2];
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  document.querySelectorAll('.role-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { pickRole(btn.getAttribute('data-pick')); });
+  });
+  document.getElementById('change-role').addEventListener('click', function() {
+    localStorage.removeItem('manualRole');
+    document.body.removeAttribute('data-active');
+    window.scrollTo({ top: 0 });
+  });
+  // 1) Priority: ?role= from URL (when opened from the sidebar Ayuda link)
+  var urlRole = new URLSearchParams(window.location.search).get('role');
+  if (urlRole && ['admin','trabajador','cliente'].indexOf(urlRole) >= 0) {
+    pickRole(urlRole);
+    return;
+  }
+  // 2) Fallback: last saved choice
+  var saved = localStorage.getItem('manualRole');
+  if (saved && ['admin','trabajador','cliente'].indexOf(saved) >= 0) {
+    pickRole(saved);
+  }
+})();
+</script>
+</body>
+</html>

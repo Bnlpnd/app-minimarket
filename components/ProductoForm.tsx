@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
+  Almacen,
   Categoria,
   Marca,
   Presentacion,
@@ -37,6 +38,7 @@ export type ProductoFormValues = {
   precio_compra_presentacion: string;
   stock_cantidad_presentaciones: string;
   stock_unidades_sueltas: string;
+  stock_inicial_almacen_id: string;
   precios_mayor: PrecioMayorFormValue[];
   producto_base_id: string;
   unidades_equivalentes: string;
@@ -58,6 +60,7 @@ type ProductoFormProps = {
   preciosMayor?: ProductoPrecioMayor[];
   productoEditando?: Producto | null;
   productosBase?: ProductoBaseOption[];
+  almacenes?: Almacen[];
   isSaving: boolean;
   onSubmit: (values: ProductoFormValues) => Promise<boolean>;
   onCancelEdit?: () => void;
@@ -92,6 +95,7 @@ const emptyValues: ProductoFormValues = {
   precio_compra_presentacion: "",
   stock_cantidad_presentaciones: "0",
   stock_unidades_sueltas: "0",
+  stock_inicial_almacen_id: "",
   precios_mayor: [
     { cantidad_minima: "3", precio_unitario: "", descripcion: "Mayor x3" },
     { cantidad_minima: "6", precio_unitario: "", descripcion: "Mayor x6" },
@@ -153,6 +157,7 @@ function getInitialValues({
     ),
     stock_cantidad_presentaciones: "0",
     stock_unidades_sueltas: "0",
+    stock_inicial_almacen_id: "",
     precios_mayor: preciosMayorValues,
     producto_base_id: producto.producto_base_id ?? "",
     unidades_equivalentes: toInputValue(producto.unidades_equivalentes ?? 1, "1"),
@@ -168,6 +173,7 @@ export function ProductoForm({
   preciosMayor = [],
   productoEditando,
   productosBase = [],
+  almacenes = [],
   isSaving,
   onSubmit,
   onCancelEdit,
@@ -661,13 +667,44 @@ export function ProductoForm({
                   className={inputClassName}
                 />
               </Field>
-              <div className="rounded-md bg-white p-3">
+              <Field label={stockInicialUnidades > 0 ? "Almacen del stock inicial *" : "Almacen del stock inicial (opcional)"}>
+                <select
+                  value={values.stock_inicial_almacen_id}
+                  onChange={(event) =>
+                    updateValue("stock_inicial_almacen_id", event.target.value)
+                  }
+                  className={inputClassName}
+                >
+                  <option value="">{stockInicialUnidades > 0 ? "Elige almacen..." : "Sin stock inicial"}</option>
+                  {almacenes.map((almacen) => (
+                    <option key={almacen.id} value={almacen.id}>
+                      {almacen.nombre}
+                    </option>
+                  ))}
+                </select>
+                {stockInicialUnidades > 0 && !values.stock_inicial_almacen_id ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Si dejas el almacen vacio, el stock no se registrara y arrancara en 0.
+                  </p>
+                ) : null}
+              </Field>
+              <div className="rounded-md bg-white p-3 lg:col-span-3">
                 <p className="text-xs text-slate-500">Stock inicial en unidades</p>
                 <p className="mt-1 text-lg font-semibold text-slate-950">
                   {Number.isFinite(stockInicialUnidades)
                     ? stockInicialUnidades.toFixed(2).replace(/\.00$/, "")
                     : "0"}
                 </p>
+                {stockInicialUnidades > 0 && values.stock_inicial_almacen_id ? (
+                  <p className="mt-1 text-xs text-emerald-700">
+                    Ira al almacen <strong>{almacenes.find((a) => a.id === values.stock_inicial_almacen_id)?.nombre ?? ""}</strong>.
+                  </p>
+                ) : null}
+                {stockInicialUnidades === 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    El stock arranca en 0. Puedes agregarlo despues desde Almacenes &rarr; Agregar stock.
+                  </p>
+                ) : null}
               </div>
             </>
           ) : null}

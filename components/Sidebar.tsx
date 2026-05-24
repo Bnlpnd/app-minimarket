@@ -110,9 +110,38 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         ))}
       </nav>
 
+      <div className="border-t border-slate-200 px-3 py-3">
+        <a
+          href={"/manual.html?role=" + getUserRole()}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={onNavigate}
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-800"
+        >
+          <span aria-hidden="true">?</span>
+          <span>Ayuda</span>
+          <span className="ml-auto text-[10px] text-slate-400">Manual</span>
+        </a>
+      </div>
+
       <div className="border-t border-slate-200 px-5 py-4 text-xs text-slate-500">
         Version inicial
       </div>
     </aside>
   );
+}
+
+function getUserRole(): "admin" | "trabajador" | "cliente" {
+  if (typeof window === "undefined") return "trabajador";
+  try {
+    const raw = window.localStorage.getItem("app_minimarket_user");
+    if (!raw) return "trabajador";
+    const parsed = JSON.parse(raw) as { rol?: string };
+    if (parsed?.rol === "admin" || parsed?.rol === "trabajador" || parsed?.rol === "cliente") {
+      return parsed.rol;
+    }
+    return "trabajador";
+  } catch {
+    return "trabajador";
+  }
 }

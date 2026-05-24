@@ -10,6 +10,7 @@ import type { ProductoBaseOption, ProductoFormValues } from "@/components/Produc
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
+  Almacen,
   Categoria,
   Marca,
   Presentacion,
@@ -77,6 +78,7 @@ function ProductoNuevoContent() {
   >([]);
   const [preciosMayor, setPreciosMayor] = useState<ProductoPrecioMayor[]>([]);
   const [productosBase, setProductosBase] = useState<ProductoBaseOption[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
@@ -161,6 +163,15 @@ function ProductoNuevoContent() {
     setSubcategorias((subcategoriasResult.data ?? []) as Subcategoria[]);
     setMarcas((marcasResult.data ?? []) as Marca[]);
     setPresentaciones((presentacionesResult.data ?? []) as Presentacion[]);
+
+    const almacenesResult = await supabase
+      .from("almacenes")
+      .select("*")
+      .eq("activo", true)
+      .order("nombre");
+    if (!almacenesResult.error) {
+      setAlmacenes((almacenesResult.data ?? []) as Almacen[]);
+    }
   }
 
   async function loadProducto() {
@@ -488,31 +499,35 @@ function ProductoNuevoContent() {
 
     if (!productoEditando) {
       const productoIdCreado = (result.data as { id: string }).id;
-      const tienda = await supabase
-        .from("almacenes")
-        .select("id")
-        .eq("nombre", "Tienda")
-        .maybeSingle();
+      const stockInicialEnPresentacion =
+        Number(stockCantidadPresentaciones ?? 0) * unidadesPorPresentacion +
+        Number(stockUnidadesSueltas ?? 0);
+      const almacenInicialId = values.stock_inicial_almacen_id || null;
 
-      if (tienda.data?.id) {
-        const stockInicial =
-          Number(stockCantidadPresentaciones ?? 0) * unidadesPorPresentacion +
-          Number(stockUnidadesSueltas ?? 0);
+      // Si hay cantidad inicial y se eligio almacen, depositar via ajustar_stock
+      // (respeta el producto base si esta vinculado).
+      if (stockInicialEnPresentacion > 0 && almacenInicialId) {
         const targetProductoId = productoBaseId ?? productoIdCreado;
         const stockEnBase = productoBaseId
-          ? stockInicial * unidadesEquivalentes
-          : stockInicial;
-        if (stockEnBase > 0) {
-          await supabase.rpc("ajustar_stock", {
-            p_producto_id: targetProductoId,
-            p_almacen_id: tienda.data.id,
-            p_stock_contado: stockEnBase,
-            p_observacion: productoBaseId
-              ? "Stock inicial via presentacion " + nombreProducto
-              : "Stock inicial al crear producto",
-            p_usuario_id: null,
-          });
-        } else {
+          ? stockInicialEnPresentacion * unidadesEquivalentes
+          : stockInicialEnPresentacion;
+        await supabase.rpc("ajustar_stock", {
+          p_producto_id: targetProductoId,
+          p_almacen_id: almacenInicialId,
+          p_stock_contado: stockEnBase,
+          p_observacion: productoBaseId
+            ? "Stock inicial via presentacion " + nombreProducto
+            : "Stock inicial al crear producto",
+          p_usuario_id: null,
+        });
+      } else {
+        // Crear fila en Tienda con 0 para que el producto aparezca en listados
+        const tienda = await supabase
+          .from("almacenes")
+          .select("id")
+          .eq("nombre", "Tienda")
+          .maybeSingle();
+        if (tienda.data?.id) {
           await supabase.from("producto_almacen").upsert({
             producto_id: productoIdCreado,
             almacen_id: tienda.data.id,
@@ -654,6 +669,7 @@ function ProductoNuevoContent() {
           preciosMayor={preciosMayor}
           productoEditando={productoEditando}
           productosBase={productosBase}
+          almacenes={almacenes}
           isSaving={isSaving}
           onSubmit={handleSubmit}
           onQuickCreateCategoria={quickCreateCategoria}
