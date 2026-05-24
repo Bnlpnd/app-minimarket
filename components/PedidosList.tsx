@@ -277,6 +277,7 @@ export function PedidosList() {
                 <th className="px-4 py-3 font-medium">Recojo</th>
                 <th className="px-4 py-3 font-medium">Hora</th>
                 <th className="px-4 py-3 font-medium">Total</th>
+                <th className="px-4 py-3 font-medium">Deuda</th>
                 <th className="px-4 py-3 font-medium">Pago</th>
                 <th className="px-4 py-3 font-medium">Estado</th>
                 <th className="px-4 py-3 font-medium">Accion</th>
@@ -285,7 +286,7 @@ export function PedidosList() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     Cargando pedidos...
                   </td>
                 </tr>
@@ -313,6 +314,15 @@ export function PedidosList() {
                       <td className="px-4 py-3 font-medium text-slate-950">
                         {formatMoney(pedido.total)}
                       </td>
+                      <td className="px-4 py-3">
+                        {pedido.estado_pago === "debe" ? (
+                          <span className="inline-flex rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                            {formatMoney(Math.max(0, Number(pedido.total ?? 0) - Number(pedido.monto_a_cuenta ?? 0)))}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">
                         {pago?.metodo ?? pedido.metodo_pago ?? "Sin pago"}
                       </td>
@@ -329,6 +339,14 @@ export function PedidosList() {
                           >
                             Ver detalle
                           </Link>
+                          {pedido.estado === "pendiente" || pedido.estado === "pago_validado" ? (
+                            <Link
+                              href={`/preparacion?pedido=${pedido.id}`}
+                              className="inline-flex h-9 items-center rounded-md bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-700"
+                            >
+                              Preparar
+                            </Link>
+                          ) : null}
                           {pedido.estado === "pago_enviado" ? (
                             rechazoId === pedido.id ? (
                               <div className="flex items-center gap-2">
@@ -382,7 +400,7 @@ export function PedidosList() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                     No hay pedidos para mostrar.
                   </td>
                 </tr>
