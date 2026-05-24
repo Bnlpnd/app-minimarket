@@ -511,7 +511,7 @@ export function PreparacionModule() {
                       Confirmar pago
                     </button>
                   ) : null}
-                  {selectedPedido.estado_pago !== "debe" && (selectedPedido.estado === "pendiente" || selectedPedido.estado === "pago_enviado") ? (
+                  {selectedPedido.estado_pago === "debe" ? (
                     <button
                       type="button"
                       onClick={() => void marcarACredito()}
