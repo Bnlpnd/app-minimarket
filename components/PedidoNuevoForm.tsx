@@ -140,6 +140,14 @@ function stockByName(producto: ProductoSearchRow, name: string) {
 
 export function PedidoNuevoForm() {
   const [step, setStep] = useState(1);
+  const [maxStepVisited, setMaxStepVisited] = useState(1);
+  const [createdPedidoId, setCreatedPedidoId] = useState<string | null>(null);
+  const [createdPedidoEstadoPago, setCreatedPedidoEstadoPago] = useState<"pagado" | "debe">("pagado");
+  const [createdPedidoEstado, setCreatedPedidoEstado] = useState<PedidoEstado | null>(null);
+  const [montoACuenta, setMontoACuenta] = useState("");
+  const [pagoTipo, setPagoTipo] = useState<"total" | "debe">("total");
+  const [observacionPago, setObservacionPago] = useState("");
+  const [isUpdatingPedido, setIsUpdatingPedido] = useState(false);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
@@ -850,7 +858,9 @@ export function PedidoNuevoForm() {
         direccion_entrega: tipoEntrega === "enviar" ? direccionFinal : null,
         referencia_entrega: tipoEntrega === "enviar" ? referenciaFinal || null : null,
         nota_cliente: nota || null,
-        observaciones: nota || null,
+        observaciones: (pagoTipo === "debe" && observacionPago) ? observacionPago : (nota || null),
+        monto_a_cuenta: pagoTipo === "debe" ? Math.max(0, Number(montoACuenta) || 0) : total,
+        estado_pago: pagoTipo === "debe" && (Number(montoACuenta) || 0) < total ? "debe" : "pagado",
         detalle_manual: items
           .map((item) => `${item.cantidad} x ${item.producto.nombre_producto}`)
           .join("; "),
@@ -960,7 +970,14 @@ export function PedidoNuevoForm() {
       window.open(generarLinkWhatsApp(whatsappNegocio, mensaje), "_blank", "noopener,noreferrer");
     }
 
+    setCreatedPedidoId(pedidoId);
+    setCreatedPedidoEstado(pedidoEstado);
+    setCreatedPedidoEstadoPago(pagoTipo === "debe" && (Number(montoACuenta) || 0) < total ? "debe" : "pagado");
+  }
+
+  function resetForNewSale() {
     setStep(1);
+    setMaxStepVisited(1);
     setSelectedCliente(null);
     setClienteSearch("");
     setClienteForm(emptyClienteForm);
@@ -972,20 +989,53 @@ export function PedidoNuevoForm() {
     setReferenciaEntrega("");
     setNotaCliente("");
     setMetodoPago("efectivo");
+    setPagoTipo("total");
+    setMontoACuenta("");
+    setObservacionPago("");
+    setCreatedPedidoId(null);
+    setCreatedPedidoEstado(null);
+    setCreatedPedidoEstadoPago("pagado");
     clearCapture();
+    setMessage(null);
   }
 
-  function handleAnular() {
-    setItems([]);
-    setMetodoPago("efectivo");
-    clearCapture();
-    setStep(1);
+  async function confirmarPagoCreado() {
+    if (!supabase || !createdPedidoId) return;
+    setIsUpdatingPedido(true);
+    setMessage(null);
+    const { error } = await supabase
+      .from("pedidos")
+      .update({ estado_pago: "pagado", monto_a_cuenta: total })
+      .eq("id", createdPedidoId);
+    setIsUpdatingPedido(false);
+    if (error) {
+      setMessage({ type: "error", text: "No se pudo confirmar el pago: " + error.message });
+      return;
+    }
+    setCreatedPedidoEstadoPago("pagado");
+    setMessage({ type: "success", text: "Pago confirmado." });
   }
 
-  function handleEditar() {
-    setMetodoPago("efectivo");
-    clearCapture();
-    setStep(1);
+  async function enviarAPreparacion() {
+    if (!supabase || !createdPedidoId) return;
+    const appUsuario = getStoredAppUser();
+    setIsUpdatingPedido(true);
+    setMessage(null);
+    const { error } = await supabase
+      .from("pedidos")
+      .update({
+        estado: "en_preparacion",
+        app_preparado_por_id: appUsuario?.id ?? null,
+        preparado_at: new Date().toISOString(),
+      })
+      .eq("id", createdPedidoId);
+    setIsUpdatingPedido(false);
+    if (error) {
+      setMessage({ type: "error", text: "No se pudo enviar a preparacion: " + error.message });
+      return;
+    }
+    setCreatedPedidoEstado("en_preparacion");
+    setMessage({ type: "success", text: "Pedido enviado a preparacion." });
   }
 
   const canGoNext = Boolean(
@@ -1013,20 +1063,26 @@ export function PedidoNuevoForm() {
 
       <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <div className="grid gap-2 sm:grid-cols-5">
-          {[1, 2, 3, 4, 5].map((item) => (
+          {[1, 2, 3, 4, 5].map((item) => {
+            const isLocked = item > maxStepVisited || Boolean(createdPedidoId);
+            return (
             <button
               key={item}
               type="button"
-              onClick={() => setStep(item)}
+              onClick={() => { if (isLocked || createdPedidoId) return; if (item < step) { setMaxStepVisited(item); } setStep(item); }}
+              disabled={isLocked}
               className={`h-10 rounded-md px-2 text-xs font-semibold sm:text-sm ${
                 step === item
                   ? "bg-slate-900 text-white"
-                  : "border border-slate-200 text-slate-600"
+                  : isLocked
+                    ? "border border-slate-200 bg-slate-50 text-slate-300"
+                    : "border border-slate-200 text-slate-600"
               }`}
             >
-              {item}. {["Productos", "Cliente", "Entrega", "Pago", "Confirmar"][item - 1]}
+              {item}. {["Productos", "Cliente", "Entrega", "Confirmar", "Pago"][item - 1]}
             </button>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -1117,7 +1173,7 @@ export function PedidoNuevoForm() {
             step={step}
             canNext={canGoNext}
             onBack={() => setStep(Math.max(1, step - 1))}
-            onNext={() => setStep(Math.min(5, step + 1))}
+            onNext={() => { setStep(2); setMaxStepVisited((current) => Math.max(current, 2)); }}
           />
         </Panel>
       ) : null}
@@ -1182,7 +1238,7 @@ export function PedidoNuevoForm() {
               {isSavingCliente ? "Creando..." : "Crear/seleccionar cliente"}
             </button>
           </form>
-          <StepActions step={step} canNext={Boolean(canGoNext)} onBack={() => setStep(1)} onNext={() => setStep(3)} />
+          <StepActions step={step} canNext={Boolean(canGoNext)} onBack={() => setStep(1)} onNext={() => { setStep(3); setMaxStepVisited((current) => Math.max(current, 3)); }} />
         </Panel>
       ) : null}
 
@@ -1241,53 +1297,12 @@ export function PedidoNuevoForm() {
           <Field label="Observaciones">
             <textarea value={notaCliente} onChange={(event) => setNotaCliente(event.target.value)} rows={3} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
           </Field>
-          <StepActions step={step} canNext onBack={() => setStep(2)} onNext={() => setStep(4)} />
+          <StepActions step={step} canNext onBack={() => setStep(2)} onNext={() => { setStep(4); setMaxStepVisited((current) => Math.max(current, 4)); }} />
         </Panel>
       ) : null}
 
       {step === 4 ? (
-        <Panel title="Paso 4: pago">
-          <Field label="Metodo de pago" required>
-            <select
-              value={metodoPago}
-              onChange={(event) => {
-                setMetodoPago(event.target.value as PagoMetodo);
-                if (event.target.value !== "yape") {
-                  clearCapture();
-                }
-              }}
-              className={inputClassName}
-            >
-              <option value="efectivo">Efectivo</option>
-              <option value="yape">Yape</option>
-              <option value="otro">Otro</option>
-            </select>
-          </Field>
-          {metodoPago === "yape" ? (
-            <Field label="Captura Yape">
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={handleCaptureChange}
-                className="block w-full text-sm text-slate-700 file:mr-3 file:h-11 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:text-sm file:font-medium file:text-white hover:file:bg-slate-700"
-              />
-              <p className="mt-1 text-xs text-slate-500">JPG, PNG o WebP. Maximo 1 MB.</p>
-              {captureError ? <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{captureError}</p> : null}
-              {capturePreview ? (
-                <div className="mt-3 flex items-center gap-3 rounded-md bg-slate-50 p-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={capturePreview} alt="Preview captura Yape" className="h-16 w-16 rounded-md border border-slate-200 object-cover" />
-                  <button type="button" onClick={clearCapture} className="text-xs font-medium text-red-700">Quitar captura</button>
-                </div>
-              ) : null}
-            </Field>
-          ) : null}
-          <StepActions step={step} canNext onBack={() => setStep(3)} onNext={() => setStep(5)} />
-        </Panel>
-      ) : null}
-
-      {step === 5 ? (
-        <Panel title="Paso 5: confirmacion">
+        <Panel title="Paso 4: confirmar pedido">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <SummaryItem label="Cliente" value={selectedCliente?.nombres ?? clienteForm.nombres} />
             <SummaryItem label="WhatsApp" value={selectedCliente?.telefono ?? clienteForm.whatsapp} />
@@ -1347,20 +1362,110 @@ export function PedidoNuevoForm() {
               {stockWarnings.join(" ")}
             </p>
           ) : null}
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <button type="button" onClick={() => void handleAnular()} className="h-11 rounded-md border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50">
-              Anular
-            </button>
-            <button type="button" onClick={() => void handleEditar()} className="h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700">
-              Editar
-            </button>
-            <button type="button" onClick={() => void savePedido(false)} disabled={isSavingPedido} className="h-11 rounded-md bg-slate-900 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
-              {isSavingPedido ? "Guardando..." : "Guardar pedido"}
-            </button>
-            <button type="button" onClick={() => void savePedido(true)} disabled={isSavingPedido} className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
-              Guardar y enviar WhatsApp
-            </button>
-          </div>
+          <StepActions step={step} canNext={stockWarnings.length === 0} onBack={() => setStep(3)} onNext={() => { setStep(5); setMaxStepVisited((current) => Math.max(current, 5)); }} />
+        </Panel>
+      ) : null}
+
+      {step === 5 ? (
+        <Panel title="Paso 5: pago">
+          {!createdPedidoId ? (
+            <>
+              <Field label="Metodo de pago" required>
+                <select
+                  value={metodoPago}
+                  onChange={(event) => {
+                    setMetodoPago(event.target.value as PagoMetodo);
+                    if (event.target.value !== "yape") {
+                      clearCapture();
+                    }
+                  }}
+                  className={inputClassName}
+                >
+                  <option value="efectivo">Efectivo</option>
+                  <option value="yape">Yape</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </Field>
+              {metodoPago === "yape" ? (
+                <Field label="Captura Yape">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleCaptureChange}
+                    className="block w-full text-sm text-slate-700 file:mr-3 file:h-11 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:text-sm file:font-medium file:text-white hover:file:bg-slate-700"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">JPG, PNG o WebP. Maximo 1 MB.</p>
+                  {captureError ? <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{captureError}</p> : null}
+                  {capturePreview ? (
+                    <div className="mt-3 flex items-center gap-3 rounded-md bg-slate-50 p-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={capturePreview} alt="Preview captura Yape" className="h-16 w-16 rounded-md border border-slate-200 object-cover" />
+                      <button type="button" onClick={clearCapture} className="text-xs font-medium text-red-700">Quitar captura</button>
+                    </div>
+                  ) : null}
+                </Field>
+              ) : null}
+
+              <div className="rounded-lg border border-slate-200 p-4">
+                <p className="text-sm font-semibold text-slate-950">Estado del pago</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => { setPagoTipo("total"); setMontoACuenta(""); }} className={`h-11 rounded-md border px-3 text-sm font-semibold ${pagoTipo === "total" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-300 text-slate-700"}`}>
+                    Pagado total
+                  </button>
+                  <button type="button" onClick={() => setPagoTipo("debe")} className={`h-11 rounded-md border px-3 text-sm font-semibold ${pagoTipo === "debe" ? "border-amber-500 bg-amber-50 text-amber-800" : "border-slate-300 text-slate-700"}`}>
+                    Debe (credito)
+                  </button>
+                </div>
+                {pagoTipo === "debe" ? (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <Field label="Monto a cuenta (lo que ya pago)">
+                      <input type="number" min="0" step="0.01" value={montoACuenta} onChange={(event) => setMontoACuenta(event.target.value)} placeholder="0.00" className={inputClassName} />
+                    </Field>
+                    <Field label="Observacion (ej. paga al recoger)">
+                      <input value={observacionPago} onChange={(event) => setObservacionPago(event.target.value)} className={inputClassName} />
+                    </Field>
+                  </div>
+                ) : null}
+                {pagoTipo === "debe" ? (
+                  <p className="mt-3 text-xs text-amber-700">
+                    Saldo pendiente: {formatMoney(Math.max(0, total - (Number(montoACuenta) || 0)))}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button type="button" onClick={() => { setStep(4); }} className="h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700">
+                  Atras
+                </button>
+                <button type="button" onClick={() => void savePedido(false)} disabled={isSavingPedido} className="h-11 rounded-md bg-slate-900 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
+                  {isSavingPedido ? "Guardando..." : "Guardar pedido"}
+                </button>
+                <button type="button" onClick={() => void savePedido(true)} disabled={isSavingPedido} className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
+                  Guardar y enviar WhatsApp
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                Pedido <strong>#{createdPedidoId.slice(0,8)}</strong> guardado. Estado: <strong>{createdPedidoEstado ?? "pendiente"}</strong> | Pago: <strong>{createdPedidoEstadoPago === "pagado" ? "Pagado" : "Debe"}</strong>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                {createdPedidoEstadoPago === "debe" ? (
+                  <button type="button" onClick={() => void confirmarPagoCreado()} disabled={isUpdatingPedido} className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+                    {isUpdatingPedido ? "..." : "Confirmar pago"}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => void enviarAPreparacion()} disabled={isUpdatingPedido || createdPedidoEstado === "en_preparacion" || createdPedidoEstado === "listo_para_recoger" || createdPedidoEstado === "entregado"} className="h-11 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+                  {createdPedidoEstado === "en_preparacion" || createdPedidoEstado === "listo_para_recoger" ? "Ya en preparacion" : "Enviar a preparacion"}
+                </button>
+                <button type="button" onClick={resetForNewSale} className="h-11 rounded-md border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700">
+                  Nueva venta
+                </button>
+              </div>
+            </div>
+          )}
         </Panel>
       ) : null}
     </div>

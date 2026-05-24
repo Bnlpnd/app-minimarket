@@ -68,6 +68,7 @@ export function PreparacionModule() {
         "pago_validado",
         "en_preparacion",
         "listo_para_recoger",
+        "entregado",
       ])
       .order("fecha_recojo", { ascending: true });
 
@@ -82,7 +83,9 @@ export function PreparacionModule() {
         if (pedido.estado === "pendiente") {
           return pedido.metodo_pago === "efectivo";
         }
-
+        if (pedido.estado === "entregado") {
+          return pedido.estado_pago === "debe";
+        }
         return true;
       });
       setPedidos(nextPedidos);
@@ -260,6 +263,25 @@ export function PreparacionModule() {
     await loadDetalle({ ...selectedPedido, estado: "listo_para_recoger" });
   }
 
+  async function confirmarPago() {
+    if (!supabase || !selectedPedido) return;
+    setIsUpdating(true);
+    setMessage(null);
+    const { error } = await supabase
+      .from("pedidos")
+      .update({ estado_pago: "pagado", monto_a_cuenta: selectedPedido.total })
+      .eq("id", selectedPedido.id);
+    setIsUpdating(false);
+    if (error) {
+      setMessage({ type: "error", text: "No se pudo confirmar el pago: " + error.message });
+      return;
+    }
+    setMessage({ type: "success", text: "Pago confirmado." });
+    const updated: PedidoPreparacion = { ...selectedPedido, estado_pago: "pagado", monto_a_cuenta: selectedPedido.total };
+    setSelectedPedido(updated);
+    await loadPedidos();
+  }
+
   async function marcarEntregado() {
     if (!supabase || !selectedPedido) {
       return;
@@ -297,10 +319,17 @@ export function PreparacionModule() {
       return;
     }
 
-    setMessage({ type: "success", text: "Pedido marcado como entregado." });
-    setSelectedPedido(null);
-    setDetalles([]);
-    await loadPedidos();
+    if (selectedPedido.estado_pago === "debe") {
+      setMessage({ type: "success", text: "Pedido entregado. El cliente aun debe parte del pago." });
+      const updated: PedidoPreparacion = { ...selectedPedido, estado: "entregado" };
+      setSelectedPedido(updated);
+      await loadPedidos();
+    } else {
+      setMessage({ type: "success", text: "Pedido marcado como entregado." });
+      setSelectedPedido(null);
+      setDetalles([]);
+      await loadPedidos();
+    }
   }
 
   return (
@@ -351,6 +380,9 @@ export function PreparacionModule() {
                   <span className="mt-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-medium capitalize text-slate-700">
                     {formatEstado(pedido.estado)}
                   </span>
+                  <span className={`ml-1 mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${pedido.estado_pago === "pagado" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                    {pedido.estado_pago === "pagado" ? "Pagado" : "Debe"}
+                  </span>
                 </button>
               ))
             ) : (
@@ -376,6 +408,19 @@ export function PreparacionModule() {
                     </p>
                     <p className="mt-1 text-sm text-slate-600">
                       Total: {formatMoney(selectedPedido.total)}
+                      {selectedPedido.estado_pago === "debe" ? (
+                        <span className="ml-2 text-xs text-amber-700">
+                          (a cuenta: {formatMoney(Number(selectedPedido.monto_a_cuenta ?? 0))} | saldo: {formatMoney(Math.max(0, selectedPedido.total - Number(selectedPedido.monto_a_cuenta ?? 0)))})
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="mt-1">
+                      <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${selectedPedido.estado_pago === "pagado" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                        Pago: {selectedPedido.estado_pago === "pagado" ? "Pagado" : "Debe"}
+                      </span>
+                      {selectedPedido.observaciones ? (
+                        <span className="ml-2 text-xs italic text-slate-500">{selectedPedido.observaciones}</span>
+                      ) : null}
                     </p>
                     <p className="mt-1 text-sm text-slate-600 capitalize">
                       Entrega: {selectedPedido.tipo_entrega.replaceAll("_", " ")}
@@ -421,6 +466,16 @@ export function PreparacionModule() {
                   >
                     Marcar entregado
                   </button>
+                  {selectedPedido.estado_pago === "debe" ? (
+                    <button
+                      type="button"
+                      onClick={() => void confirmarPago()}
+                      disabled={isUpdating}
+                      className="h-10 rounded-md bg-amber-600 px-4 text-sm font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      Confirmar pago
+                    </button>
+                  ) : null}
                 </div>
               </section>
 
