@@ -65,6 +65,7 @@ export function PreparacionModule() {
       )
       .in("estado", [
         "pendiente",
+        "pago_enviado",
         "pago_validado",
         "en_preparacion",
         "listo_para_recoger",
@@ -80,12 +81,12 @@ export function PreparacionModule() {
       setPedidos([]);
     } else {
       const nextPedidos = ((pedidosResult.data ?? []) as PedidoPreparacion[]).filter((pedido) => {
-        if (pedido.estado === "pendiente") {
-          return pedido.metodo_pago === "efectivo";
-        }
+        // entregado: solo mantener si aun queda saldo por cobrar
         if (pedido.estado === "entregado") {
           return pedido.estado_pago === "debe";
         }
+        // El resto (pendiente, pago_enviado, pago_validado, en_preparacion,
+        // listo_para_recoger) entra siempre, incluidos los a credito.
         return true;
       });
       setPedidos(nextPedidos);
@@ -263,6 +264,38 @@ export function PreparacionModule() {
     setMessage({ type: "success", text: "Pedido listo para recoger." });
     await loadPedidos();
     await loadDetalle({ ...selectedPedido, estado: "listo_para_recoger" });
+  }
+
+  async function marcarACredito() {
+    if (!supabase || !selectedPedido) return;
+    setIsUpdating(true);
+    setMessage(null);
+    const { error } = await supabase
+      .from("pedidos")
+      .update({
+        estado_pago: "debe",
+        monto_a_cuenta: 0,
+        estado: selectedPedido.estado === "pendiente" || selectedPedido.estado === "pago_enviado"
+          ? "pago_validado"
+          : selectedPedido.estado,
+      })
+      .eq("id", selectedPedido.id);
+    setIsUpdating(false);
+    if (error) {
+      setMessage({ type: "error", text: "No se pudo marcar a credito: " + error.message });
+      return;
+    }
+    setMessage({ type: "success", text: "Pedido marcado a credito. Ya puedes prepararlo." });
+    const updated: PedidoPreparacion = {
+      ...selectedPedido,
+      estado_pago: "debe",
+      monto_a_cuenta: 0,
+      estado: selectedPedido.estado === "pendiente" || selectedPedido.estado === "pago_enviado"
+        ? "pago_validado"
+        : selectedPedido.estado,
+    };
+    setSelectedPedido(updated);
+    await loadPedidos();
   }
 
   async function confirmarPago() {
@@ -476,6 +509,16 @@ export function PreparacionModule() {
                       className="h-10 rounded-md bg-amber-600 px-4 text-sm font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       Confirmar pago
+                    </button>
+                  ) : null}
+                  {selectedPedido.estado_pago !== "debe" && (selectedPedido.estado === "pendiente" || selectedPedido.estado === "pago_enviado") ? (
+                    <button
+                      type="button"
+                      onClick={() => void marcarACredito()}
+                      disabled={isUpdating}
+                      className="h-10 rounded-md border border-amber-400 bg-white px-4 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed"
+                    >
+                      Marcar a credito
                     </button>
                   ) : null}
                 </div>
