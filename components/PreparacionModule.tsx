@@ -144,7 +144,9 @@ export function PreparacionModule() {
   }, [loadPedidos]);
 
   const allPrepared = useMemo(() => {
-    return detalles.length > 0 && detalles.every((detalle) => detalle.preparado);
+    // Pedidos manuales sin items: nada que marcar, considera listo.
+    if (detalles.length === 0) return true;
+    return detalles.every((detalle) => detalle.preparado);
   }, [detalles]);
 
   async function pasarEnPreparacion() {
@@ -485,7 +487,9 @@ export function PreparacionModule() {
                     Checklist
                   </h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Marca cada producto cuando este preparado.
+                    {detalles.length === 0
+                      ? "Pedido manual sin items. Puedes pasar directo a listo y entregado."
+                      : "Marca cada producto cuando este preparado."}
                   </p>
                 </div>
                 <div className="max-h-[70vh] overflow-auto">

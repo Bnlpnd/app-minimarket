@@ -342,6 +342,7 @@ function SalidaForm({
 // tiny local useState that resets when default changes
 function useStateValue(defaultValue: string): [string, (v: string) => void] {
   const [value, setValue] = useState(defaultValue);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setValue(defaultValue); }, [defaultValue]);
   return [value, setValue];
 }
