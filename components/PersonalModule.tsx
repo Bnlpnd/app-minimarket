@@ -4,6 +4,7 @@
 
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getCurrentUserProfile, getStoredAppUser, isAdmin } from "@/lib/authRoles";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
@@ -248,7 +249,13 @@ function getInitialTab(): ActiveTab {
 }
 
 export function PersonalModule() {
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<ActiveTab>(getInitialTab);
+  useEffect(() => {
+    const param = searchParams.get("tab");
+    if (param === "pago") setTab("pagos");
+    else if (param === "listado" || param === "nuevo") setTab("listado");
+  }, [searchParams]);
   const [usuarios, setUsuarios] = useState<UsuarioInterno[]>([]);
   const [asistencias, setAsistencias] = useState<PersonalAsistencia[]>([]);
   const [descuentos, setDescuentos] = useState<PersonalDescuento[]>([]);
@@ -783,17 +790,6 @@ export function PersonalModule() {
           {message.text}
         </div>
       ) : null}
-
-      <section className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <TabButton active={tab === "listado"} onClick={() => setTab("listado")}>
-            Listado interno
-          </TabButton>
-          <TabButton active={tab === "pagos"} onClick={() => setTab("pagos")}>
-            Pago semanal
-          </TabButton>
-        </div>
-      </section>
 
       {tab === "listado" ? (
         <>
