@@ -219,10 +219,10 @@ function AdminDashboard() {
           .select("id,estado,fecha_recojo,hora_recojo,total,metodo_pago,created_at,clientes(nombres, telefono)")
           .order("created_at", { ascending: false })
           .limit(5),
-        fetchAllRows<ProductoStockBajo>(
+        fetchAllRows<ProductoStockBajo & { producto_almacen?: Array<{ stock_actual: number; almacenes?: { nombre: string } | { nombre: string }[] | null }> }>(
           supabase
             .from("productos")
-            .select("id,codigo_interno,nombre_producto,stock_actual,stock_minimo")
+            .select("id,codigo_interno,nombre_producto,stock_actual,stock_minimo,producto_almacen(stock_actual,almacenes(nombre))")
             .eq("activo", true)
             .not("stock_minimo", "is", null),
         ),
@@ -249,7 +249,22 @@ function AdminDashboard() {
         (sum, pedido) => sum + Number(pedido.descuento ?? 0),
         0,
       );
-      const productosStockBajo = (productos.data ?? [])
+      const productosStockBajoRaw = (productos.data ?? []) as Array<
+        ProductoStockBajo & { producto_almacen?: Array<{ stock_actual: number; almacenes?: { nombre: string } | { nombre: string }[] | null }> }
+      >;
+      const tiendaStock = (producto: typeof productosStockBajoRaw[number]) => {
+        const rows = producto.producto_almacen ?? [];
+        for (const row of rows) {
+          const a = row.almacenes;
+          const name = Array.isArray(a) ? a[0]?.nombre : a?.nombre;
+          if ((name ?? "").toLowerCase() === "tienda") {
+            return Number(row.stock_actual ?? 0);
+          }
+        }
+        return Number(producto.stock_actual ?? 0);
+      };
+      const productosStockBajo = productosStockBajoRaw
+        .map((producto) => ({ ...producto, stock_actual: tiendaStock(producto) }))
         .filter((producto) => Number(producto.stock_actual ?? 0) <= Number(producto.stock_minimo ?? 0))
         .sort((a, b) => Number(a.stock_actual ?? 0) - Number(b.stock_actual ?? 0))
         .slice(0, 8);
@@ -311,8 +326,8 @@ function AdminDashboard() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <PedidosPanel pedidos={data.ultimosPedidos} title="Ultimos 5 pedidos" />
-        <Panel title="Productos con stock bajo">
+        <PedidosPanel pedidos={data.ultimosPedidos} title="Ultimos 5 pedidos" action={<Link href="/pedidos" className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Lista de pedidos</Link>} />
+        <Panel title="Productos con stock bajo" action={<Link href="/almacen/transferencias" className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Transferencias</Link>}>
           <div className="space-y-2">
             {data.productosStockBajo.length > 0 ? (
               data.productosStockBajo.map((producto) => (
@@ -462,7 +477,7 @@ function WorkerDashboard() {
         <ActionLink href="/almacen">Almacen</ActionLink>
       </section>
 
-      <Panel title="Ultimos 10 pedidos del negocio">
+      <Panel title="Ultimos 10 pedidos del negocio" action={<Link href="/pedidos" className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Lista de pedidos</Link>}>
         <div className="space-y-2">
           {data.ultimosPedidos.length > 0 ? (
             data.ultimosPedidos.map((pedido) => {
@@ -524,9 +539,9 @@ function WorkerDashboard() {
   );
 }
 
-function PedidosPanel({ pedidos, title }: { pedidos: PedidoResumen[]; title: string }) {
+function PedidosPanel({ pedidos, title, action }: { pedidos: PedidoResumen[]; title: string; action?: React.ReactNode }) {
   return (
-    <Panel title={title}>
+    <Panel title={title} action={action}>
       <div className="max-h-[70vh] overflow-auto">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
@@ -640,15 +655,18 @@ function MetricCard({
 
 function Panel({
   title,
+  action,
   children,
 }: {
   title: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-5 py-4">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <h2 className="text-base font-semibold text-slate-950">{title}</h2>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       <div className="p-5">{children}</div>
     </section>
