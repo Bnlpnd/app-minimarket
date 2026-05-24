@@ -219,7 +219,38 @@ export default function ProductosPage() {
       return;
     }
 
-    const allRows = data.filter((producto) => {
+    const baseIds = Array.from(
+      new Set(
+        data
+          .map((producto) => producto.producto_base_id)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+    const baseInfo = new Map<string, { id: string; nombre_producto: string }>();
+    if (baseIds.length > 0) {
+      const baseResult = await supabase
+        .from("productos")
+        .select("id,nombre_producto")
+        .in("id", baseIds);
+      ((baseResult.data ?? []) as Array<{ id: string; nombre_producto: string }>).forEach(
+        (row) => baseInfo.set(row.id, row),
+      );
+    }
+    const enriched = data.map((producto) => {
+      if (!producto.producto_base_id) {
+        return producto;
+      }
+      const info = baseInfo.get(producto.producto_base_id);
+      if (!info) {
+        return producto;
+      }
+      return {
+        ...producto,
+        producto_base: { id: info.id, nombre_producto: info.nombre_producto },
+      };
+    });
+
+    const allRows = enriched.filter((producto) => {
       if (
         !matchesSearch(search, [
           producto.codigo_interno,

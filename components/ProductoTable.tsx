@@ -19,6 +19,11 @@ export type ProductoConRelaciones = Producto & {
   subcategorias: Pick<Subcategoria, "nombre"> | null;
   marcas: Pick<Marca, "nombre"> | null;
   producto_almacen?: ProductoStock[];
+  producto_base?: {
+    id: string;
+    nombre_producto?: string | null;
+    producto_almacen?: ProductoStock[];
+  } | null;
 };
 
 type QuickValues = Record<
@@ -157,6 +162,11 @@ export function ProductoTable({
                         <p className="text-xs text-slate-500">
                           {producto.presentacion || "Sin presentacion"}
                         </p>
+                        {producto.producto_base_id ? (
+                          <p className="mt-1 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                            = {formatStock(Number(producto.unidades_equivalentes ?? 1))} de &quot;{producto.producto_base?.nombre_producto ?? "base"}&quot;
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   </td>

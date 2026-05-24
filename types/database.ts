@@ -54,6 +54,8 @@ export interface Marca {
 export interface Producto {
   id: string;
   codigo_interno: string;
+  producto_base_id: string | null;
+  unidades_equivalentes: number;
   categoria_id: string;
   subcategoria_id: string;
   nombre_producto: string;
@@ -141,6 +143,8 @@ export interface ProductoPrecioMayor {
   producto_id: string;
   cantidad_minima: number;
   precio_unitario: number;
+  precio_total: number | null;
+  tipo_precio: "paquete" | "unitario";
   descripcion: string | null;
   activo: boolean;
   created_at: string;
@@ -270,7 +274,9 @@ export interface DetallePedido {
   id: string;
   pedido_id: string;
   producto_id: string;
+  producto_stock_id: string | null;
   cantidad: number;
+  cantidad_base: number | null;
   precio_unitario: number;
   subtotal: number;
   almacen_id: string | null;

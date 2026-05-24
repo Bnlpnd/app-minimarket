@@ -4,6 +4,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  getBaseStockByAlmacen,
+  getStockProductId,
+  getUnitsPerSale,
+} from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
@@ -20,8 +25,16 @@ type ProductoStockRow = Producto & {
   categorias: Pick<Categoria, "nombre"> | null;
   subcategorias: Pick<Subcategoria, "nombre"> | null;
   producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual">>;
+  producto_base?: {
+    id: string;
+    nombre_producto?: string | null;
+    producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual">>;
+  } | null;
   producto_presentaciones_compra: Array<
-    Pick<ProductoPresentacionCompra, "nombre_presentacion" | "unidades_por_presentacion" | "es_principal">
+    Pick<
+      ProductoPresentacionCompra,
+      "nombre_presentacion" | "unidades_por_presentacion" | "es_principal"
+    >
   >;
 };
 
@@ -47,9 +60,7 @@ function parsePresentationUnits(value: string | null | undefined) {
 }
 
 function stockForAlmacen(producto: ProductoStockRow | null, almacenId: string) {
-  return Number(
-    producto?.producto_almacen.find((stock) => stock.almacen_id === almacenId)?.stock_actual ?? 0,
-  );
+  return producto ? getBaseStockByAlmacen(producto, almacenId) : 0;
 }
 
 export function AlmacenAgregarStock() {
@@ -76,10 +87,25 @@ export function AlmacenAgregarStock() {
   );
 
   const unidadesPorPresentacion = useMemo(() => {
+    if (!productoIngreso) {
+      return 1;
+    }
+
+    const desdeProducto = Number(productoIngreso.unidades_equivalentes ?? 1);
+    if (Number.isFinite(desdeProducto) && desdeProducto > 1) {
+      return desdeProducto;
+    }
+
     const principal =
-      productoIngreso?.producto_presentaciones_compra.find((item) => item.es_principal) ??
-      productoIngreso?.producto_presentaciones_compra[0];
-    return Number(principal?.unidades_por_presentacion ?? parsePresentationUnits(productoIngreso?.presentacion));
+      productoIngreso.producto_presentaciones_compra.find((item) => item.es_principal) ??
+      productoIngreso.producto_presentaciones_compra[0];
+    const desdeCompra = Number(principal?.unidades_por_presentacion ?? 0);
+    if (Number.isFinite(desdeCompra) && desdeCompra > 0) {
+      return desdeCompra;
+    }
+
+    const desdeTexto = parsePresentationUnits(productoIngreso.presentacion);
+    return desdeTexto || getUnitsPerSale(productoIngreso) || 1;
   }, [productoIngreso]);
 
   const totalIngreso = useMemo(() => {
@@ -130,13 +156,7 @@ export function AlmacenAgregarStock() {
     let query = supabase
       .from("productos")
       .select(
-        `
-          *,
-          categorias(nombre),
-          subcategorias(nombre),
-          producto_almacen(almacen_id,stock_actual),
-          producto_presentaciones_compra(nombre_presentacion,unidades_por_presentacion,es_principal)
-        `,
+        `*,categorias(nombre),subcategorias(nombre),producto_almacen(almacen_id,stock_actual),producto_presentaciones_compra(nombre_presentacion,unidades_por_presentacion,es_principal)`,
       )
       .eq("activo", true)
       .order("nombre_producto");
@@ -149,15 +169,70 @@ export function AlmacenAgregarStock() {
     }
 
     const { data, error } = await fetchAllRows<ProductoStockRow>(query);
-    setIsLoading(false);
 
     if (error) {
+      setIsLoading(false);
       setMessage({ type: "error", text: `No se cargo el stock: ${error.message}` });
       setProductos([]);
       return;
     }
 
-    const rows = data.filter((producto) =>
+    const baseIds = Array.from(
+      new Set(
+        data
+          .map((producto) => producto.producto_base_id)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    const baseStockByProducto = new Map<
+      string,
+      {
+        id: string;
+        nombre_producto: string | null;
+        producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual">>;
+      }
+    >();
+
+    if (baseIds.length > 0) {
+      const { data: baseRows, error: baseError } = await supabase
+        .from("productos")
+        .select("id,nombre_producto,producto_almacen(almacen_id,stock_actual)")
+        .in("id", baseIds);
+
+      if (baseError) {
+        setIsLoading(false);
+        setMessage({
+          type: "error",
+          text: `No se cargo el stock base: ${baseError.message}`,
+        });
+        setProductos([]);
+        return;
+      }
+
+      (baseRows ?? []).forEach((row) => {
+        const typed = row as {
+          id: string;
+          nombre_producto: string | null;
+          producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual">>;
+        };
+        baseStockByProducto.set(typed.id, typed);
+      });
+    }
+
+    const merged = data.map((producto) => {
+      if (!producto.producto_base_id) {
+        return producto;
+      }
+      const base = baseStockByProducto.get(producto.producto_base_id);
+      if (!base) {
+        return producto;
+      }
+      return { ...producto, producto_base: base };
+    });
+
+    setIsLoading(false);
+    const rows = merged.filter((producto) =>
       matchesSearch(search, [
         producto.codigo_interno,
         producto.nombre_producto,
@@ -168,7 +243,9 @@ export function AlmacenAgregarStock() {
     );
     setProductos(rows);
     setStockEdit(
-      Object.fromEntries(rows.map((producto) => [producto.id, String(stockForAlmacen(producto, almacenId))])),
+      Object.fromEntries(
+        rows.map((producto) => [producto.id, String(stockForAlmacen(producto, almacenId))]),
+      ),
     );
   }
 
@@ -197,18 +274,30 @@ export function AlmacenAgregarStock() {
     }
 
     setIsSaving(true);
-    const { error } = await supabase.rpc("ajustar_stock", {
-      p_producto_id: producto.id,
-      p_almacen_id: almacenId,
-      p_stock_contado: value,
-      p_observacion: "Edicion directa desde Agregar stock",
-      p_usuario_id: null,
-    });
-    setIsSaving(false);
-
-    if (error) {
-      setMessage({ type: "error", text: `No se guardo stock: ${error.message}` });
+    setMessage(null);
+    try {
+      const { error } = await supabase.rpc("ajustar_stock", {
+        p_producto_id: getStockProductId(producto),
+        p_almacen_id: almacenId,
+        p_stock_contado: value,
+        p_observacion: producto.producto_base_id
+          ? `Edicion directa Agregar stock (vinculo a base ${producto.producto_base?.nombre_producto ?? ""})`
+          : "Edicion directa Agregar stock",
+        p_usuario_id: null,
+      });
+      if (error) {
+        setMessage({ type: "error", text: `No se guardo stock: ${error.message}` });
+        return;
+      }
+    } catch (rpcError) {
+      const text = rpcError instanceof Error ? rpcError.message : String(rpcError);
+      setMessage({
+        type: "error",
+        text: `No se guardo stock: ${text}. Revisa la conexion con Supabase.`,
+      });
       return;
+    } finally {
+      setIsSaving(false);
     }
 
     setMessage({ type: "success", text: "Stock actualizado." });
@@ -228,23 +317,36 @@ export function AlmacenAgregarStock() {
 
     const actual = stockForAlmacen(productoIngreso, almacenIngresoId);
     setIsSaving(true);
-    const { error } = await supabase.rpc("ajustar_stock", {
-      p_producto_id: productoIngreso.id,
-      p_almacen_id: almacenIngresoId,
-      p_stock_contado: actual + totalIngreso,
-      p_observacion: `Ingreso rapido: ${cantidadPresentaciones} presentacion(es) x ${unidadesPorPresentacion} + ${unidadesSueltas} unidad(es)`,
-      p_usuario_id: null,
-    });
-    setIsSaving(false);
-
-    if (error) {
-      setMessage({ type: "error", text: `No se agrego stock: ${error.message}` });
+    setMessage(null);
+    try {
+      const { error } = await supabase.rpc("ajustar_stock", {
+        p_producto_id: getStockProductId(productoIngreso),
+        p_almacen_id: almacenIngresoId,
+        p_stock_contado: actual + totalIngreso,
+        p_observacion: `Ingreso rapido: ${cantidadPresentaciones} presentacion(es) x ${unidadesPorPresentacion} + ${unidadesSueltas} unidad(es)`,
+        p_usuario_id: null,
+      });
+      if (error) {
+        setMessage({ type: "error", text: `No se agrego stock: ${error.message}` });
+        return;
+      }
+    } catch (rpcError) {
+      const text = rpcError instanceof Error ? rpcError.message : String(rpcError);
+      setMessage({
+        type: "error",
+        text: `No se agrego stock: ${text}. Revisa la conexion con Supabase.`,
+      });
       return;
+    } finally {
+      setIsSaving(false);
     }
 
     setCantidadPresentaciones("1");
     setUnidadesSueltas("0");
-    setMessage({ type: "success", text: `Se agregaron ${formatStock(totalIngreso)} unidades.` });
+    setMessage({
+      type: "success",
+      text: `Se agregaron ${formatStock(totalIngreso)} unidades base.`,
+    });
     await loadProductos();
   }
 
@@ -281,8 +383,13 @@ export function AlmacenAgregarStock() {
           </button>
         </div>
         <p className="mt-3 text-sm text-slate-500">
-          Presentacion: {productoIngreso?.presentacion ?? "sin producto"} | unidades por presentacion: {formatStock(unidadesPorPresentacion)} | se agregaran {formatStock(totalIngreso)} unidades.
+          Presentacion: {productoIngreso?.presentacion ?? "sin producto"} | unidades por presentacion: {formatStock(unidadesPorPresentacion)} | se agregaran {formatStock(totalIngreso)} unidades base.
         </p>
+        {productoIngreso?.producto_base_id && productoIngreso.producto_base ? (
+          <p className="mt-2 text-sm text-emerald-700">
+            Stock se suma al producto base &quot;{productoIngreso.producto_base.nombre_producto ?? "(base)"}&quot;.
+          </p>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -319,7 +426,9 @@ export function AlmacenAgregarStock() {
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3">
           <h2 className="text-base font-semibold text-slate-950">Stock por almacen</h2>
-          <p className="mt-1 text-sm text-slate-500">Edita el stock contado del almacen seleccionado.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Edita el stock contado en unidades base. Los productos vinculados a un producto base comparten stock con el.
+          </p>
         </div>
         <div className="hidden max-h-[70vh] overflow-auto lg:block">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -327,43 +436,94 @@ export function AlmacenAgregarStock() {
               <tr>
                 <th className="px-4 py-3">Nombre</th>
                 <th className="px-4 py-3">Presentacion</th>
+                <th className="px-4 py-3">Vinculo</th>
                 <th className="px-4 py-3">Almacen</th>
-                <th className="px-4 py-3">Stock actual</th>
+                <th className="px-4 py-3">Stock base actual</th>
                 <th className="px-4 py-3">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {productos.map((producto) => (
-                <tr key={producto.id}>
-                  <td className="px-4 py-3 font-medium text-slate-950">{producto.nombre_producto}</td>
-                  <td className="px-4 py-3 text-slate-600">{producto.presentacion ?? "Sin presentacion"}</td>
-                  <td className="px-4 py-3 text-slate-600">{almacenes.find((almacen) => almacen.id === almacenId)?.nombre ?? "Almacen"}</td>
-                  <td className="px-4 py-3">
-                    <input type="number" min="0" step="0.01" value={stockEdit[producto.id] ?? "0"} onChange={(event) => setStockEdit((current) => ({ ...current, [producto.id]: event.target.value }))} className="h-10 w-28 rounded-md border border-slate-300 px-2 text-sm" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button type="button" disabled={isSaving} onClick={() => void guardarStock(producto)} className="h-10 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white disabled:bg-slate-300">Guardar</button>
-                      <Link href={`/productos/nuevo?id=${producto.id}`} className="inline-flex h-10 items-center rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700">Editar</Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {productos.map((producto) => {
+                const units = getUnitsPerSale(producto);
+                const inputValue = Number(stockEdit[producto.id] ?? 0);
+                const presentacionesEq = units > 1 ? Math.floor(inputValue / units) : 0;
+                const remainder = units > 1 ? inputValue % units : 0;
+                return (
+                  <tr key={producto.id}>
+                    <td className="px-4 py-3 font-medium text-slate-950">{producto.nombre_producto}</td>
+                    <td className="px-4 py-3 text-slate-600">{producto.presentacion ?? "Sin presentacion"}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {producto.producto_base_id && producto.producto_base ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                          1 = {formatStock(units)} de &quot;{producto.producto_base.nombre_producto ?? "base"}&quot;
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">Producto base</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{almacenes.find((almacen) => almacen.id === almacenId)?.nombre ?? "Almacen"}</td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={stockEdit[producto.id] ?? "0"}
+                        onChange={(event) => setStockEdit((current) => ({ ...current, [producto.id]: event.target.value }))}
+                        className="h-10 w-28 rounded-md border border-slate-300 px-2 text-sm"
+                      />
+                      {units > 1 ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          = {presentacionesEq} presentacion(es) + {formatStock(remainder)} sueltas
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button type="button" disabled={isSaving} onClick={() => void guardarStock(producto)} className="h-10 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white disabled:bg-slate-300">Guardar</button>
+                        <Link href={`/productos/nuevo?id=${producto.id}`} className="inline-flex h-10 items-center rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700">Editar</Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         <div className="divide-y divide-slate-100 lg:hidden">
-          {productos.map((producto) => (
-            <article key={producto.id} className="p-4">
-              <p className="font-semibold text-slate-950">{producto.nombre_producto}</p>
-              <p className="mt-1 text-sm text-slate-500">{producto.presentacion ?? "Sin presentacion"} | {almacenes.find((almacen) => almacen.id === almacenId)?.nombre ?? "Almacen"}</p>
-              <input type="number" min="0" step="0.01" value={stockEdit[producto.id] ?? "0"} onChange={(event) => setStockEdit((current) => ({ ...current, [producto.id]: event.target.value }))} className="mt-3 h-11 w-full rounded-md border border-slate-300 px-3 text-sm" />
-              <div className="mt-3 flex gap-2">
-                <button type="button" disabled={isSaving} onClick={() => void guardarStock(producto)} className="h-10 flex-1 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white disabled:bg-slate-300">Guardar</button>
-                <Link href={`/productos/nuevo?id=${producto.id}`} className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700">Editar</Link>
-              </div>
-            </article>
-          ))}
+          {productos.map((producto) => {
+            const units = getUnitsPerSale(producto);
+            const inputValue = Number(stockEdit[producto.id] ?? 0);
+            const presentacionesEq = units > 1 ? Math.floor(inputValue / units) : 0;
+            const remainder = units > 1 ? inputValue % units : 0;
+            return (
+              <article key={producto.id} className="p-4">
+                <p className="font-semibold text-slate-950">{producto.nombre_producto}</p>
+                <p className="mt-1 text-sm text-slate-500">{producto.presentacion ?? "Sin presentacion"} | {almacenes.find((almacen) => almacen.id === almacenId)?.nombre ?? "Almacen"}</p>
+                {producto.producto_base_id && producto.producto_base ? (
+                  <p className="mt-1 text-xs text-emerald-700">
+                    1 presentacion = {formatStock(units)} unidades base de &quot;{producto.producto_base.nombre_producto ?? "base"}&quot;
+                  </p>
+                ) : null}
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={stockEdit[producto.id] ?? "0"}
+                  onChange={(event) => setStockEdit((current) => ({ ...current, [producto.id]: event.target.value }))}
+                  className="mt-3 h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                />
+                {units > 1 ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    = {presentacionesEq} presentacion(es) + {formatStock(remainder)} sueltas
+                  </p>
+                ) : null}
+                <div className="mt-3 flex gap-2">
+                  <button type="button" disabled={isSaving} onClick={() => void guardarStock(producto)} className="h-10 flex-1 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white disabled:bg-slate-300">Guardar</button>
+                  <Link href={`/productos/nuevo?id=${producto.id}`} className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700">Editar</Link>
+                </div>
+              </article>
+            );
+          })}
         </div>
         {isLoading ? <p className="p-4 text-sm text-slate-500">Cargando productos...</p> : null}
         {!isLoading && productos.length === 0 ? <p className="p-4 text-sm text-slate-500">Busca o filtra productos para editar stock.</p> : null}

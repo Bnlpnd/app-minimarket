@@ -4,6 +4,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getStoredAppUser } from "@/lib/authRoles";
+import {
+  getBaseStockByAlmacen,
+  getBaseStockByName,
+  getStockProductId,
+  toBaseQuantity,
+  toPresentationStock,
+} from "@/lib/inventoryUtils";
+import { calcularPrecioPorCantidad } from "@/lib/pricing";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
@@ -19,6 +27,7 @@ import type {
   PedidoEstado,
   Producto,
   ProductoAlmacen,
+  ProductoPrecioMayor,
   Subcategoria,
   TipoEntrega,
 } from "@/types/database";
@@ -32,6 +41,20 @@ type ProductoSearchRow = Producto & {
       almacenes: Pick<Almacen, "id" | "nombre"> | null;
     }
   >;
+  producto_base?: {
+    id: string;
+    producto_almacen: Array<
+      Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
+        almacenes: Pick<Almacen, "id" | "nombre"> | null;
+      }
+    >;
+  } | null;
+  producto_precios_mayor?: ProductoPrecioMayor[];
+};
+
+type StockWithAlmacen = Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
+  producto_id?: string;
+  almacenes: Pick<Almacen, "id" | "nombre"> | null;
 };
 
 type PedidoItem = {
@@ -87,8 +110,16 @@ function formatMoney(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
 }
 
-function getPrecio(producto: ProductoSearchRow) {
+function getPrecioBase(producto: ProductoSearchRow) {
   return Number(producto.precio_venta ?? 1);
+}
+
+function getItemPricing(item: PedidoItem) {
+  return calcularPrecioPorCantidad(
+    item.cantidad,
+    getPrecioBase(item.producto),
+    item.producto.producto_precios_mayor ?? [],
+  );
 }
 
 function getTodayDate() {
@@ -100,18 +131,11 @@ function getCurrentTime() {
 }
 
 function stockIn(producto: ProductoSearchRow, almacenId: string) {
-  return Number(
-    producto.producto_almacen.find((stock) => stock.almacen_id === almacenId)
-      ?.stock_actual ?? 0,
-  );
+  return toPresentationStock(producto, getBaseStockByAlmacen(producto, almacenId));
 }
 
 function stockByName(producto: ProductoSearchRow, name: string) {
-  return Number(
-    producto.producto_almacen.find(
-      (stock) => stock.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
-    )?.stock_actual ?? 0,
-  );
+  return toPresentationStock(producto, getBaseStockByName(producto, name));
 }
 
 export function PedidoNuevoForm() {
@@ -161,28 +185,29 @@ export function PedidoNuevoForm() {
     [categoriaId, subcategorias],
   );
   const total = useMemo(() => {
-    return items.reduce(
-      (sum, item) => sum + item.cantidad * getPrecio(item.producto),
-      0,
-    );
+    return items.reduce((sum, item) => sum + getItemPricing(item).subtotal, 0);
   }, [items]);
   const stockWarnings = useMemo(() => {
     return items.flatMap((item) => {
-      const selectedStock = stockIn(item.producto, item.almacen_id);
-      const casaStock = casa ? stockIn(item.producto, casa.id) : 0;
+      const selectedStockBase = getBaseStockByAlmacen(
+        item.producto,
+        item.almacen_id,
+      );
+      const casaStockBase = casa ? getBaseStockByAlmacen(item.producto, casa.id) : 0;
+      const requiredBase = toBaseQuantity(item.producto, item.cantidad);
 
-      if (item.cantidad <= selectedStock) {
+      if (requiredBase <= selectedStockBase) {
         return [];
       }
 
-      if (item.almacen_id === tienda?.id && casaStock >= item.cantidad) {
+      if (item.almacen_id === tienda?.id && casaStockBase >= requiredBase) {
         return [
           `${item.producto.nombre_producto}: No hay stock suficiente en Tienda. Hay stock disponible en Casa.`,
         ];
       }
 
       return [
-        `${item.producto.nombre_producto}: stock insuficiente en el almacen seleccionado (${selectedStock}).`,
+        `${item.producto.nombre_producto}: stock insuficiente en el almacen seleccionado (${stockIn(item.producto, item.almacen_id)}).`,
       ];
     });
   }, [casa, items, tienda]);
@@ -230,7 +255,8 @@ export function PedidoNuevoForm() {
           marcas(nombre),
           categorias(nombre),
           subcategorias(nombre),
-          producto_almacen(almacen_id,stock_actual,almacenes(id,nombre))
+          producto_almacen(almacen_id,stock_actual,almacenes(id,nombre)),
+          producto_precios_mayor(*)
         `,
       )
       .eq("activo", true)
@@ -250,7 +276,9 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    data
+    const rows = await attachBaseStocks(data);
+
+    rows
       .filter((producto) =>
         matchesSearch(productoSearch, [
           producto.codigo_interno,
@@ -308,6 +336,57 @@ export function PedidoNuevoForm() {
     );
   }
 
+  async function attachBaseStocks(rows: ProductoSearchRow[]) {
+    if (!supabase) {
+      return rows;
+    }
+
+    const baseIds = [
+      ...new Set(
+        rows
+          .map((producto) => producto.producto_base_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    if (baseIds.length === 0) {
+      return rows;
+    }
+
+    const { data, error } = await supabase
+      .from("producto_almacen")
+      .select("producto_id,almacen_id,stock_actual,almacenes(id,nombre)")
+      .in("producto_id", baseIds);
+
+    if (error) {
+      return rows;
+    }
+
+    const stockByProduct = new Map<string, StockWithAlmacen[]>();
+    ((data ?? []) as StockWithAlmacen[]).forEach((stock) => {
+      if (!stock.producto_id) {
+        return;
+      }
+      const current = stockByProduct.get(stock.producto_id) ?? [];
+      current.push(stock);
+      stockByProduct.set(stock.producto_id, current);
+    });
+
+    return rows.map((producto) => {
+      if (!producto.producto_base_id) {
+        return producto;
+      }
+
+      return {
+        ...producto,
+        producto_base: {
+          id: producto.producto_base_id,
+          producto_almacen: stockByProduct.get(producto.producto_base_id) ?? [],
+        },
+      };
+    });
+  }
+
   async function loadClienteFromQuery(clienteId: string) {
     if (!supabase) {
       return;
@@ -359,7 +438,8 @@ export function PedidoNuevoForm() {
               marcas(nombre),
               categorias(nombre),
               subcategorias(nombre),
-              producto_almacen(almacen_id,stock_actual,almacenes(id,nombre))
+              producto_almacen(almacen_id,stock_actual,almacenes(id,nombre)),
+              producto_precios_mayor(*)
             )
           )
         `,
@@ -390,10 +470,20 @@ export function PedidoNuevoForm() {
     }
 
     const defaultAlmacenId = tienda?.id ?? almacenes[0]?.id ?? "";
+    const duplicatedProducts = await attachBaseStocks(
+      (pedido.detalle_pedido ?? [])
+        .filter((detalle) => detalle.productos)
+        .map((detalle) => detalle.productos as ProductoSearchRow),
+    );
+    const productosById = new Map(
+      duplicatedProducts.map((producto) => [producto.id, producto]),
+    );
     const duplicatedItems = (pedido.detalle_pedido ?? [])
       .filter((detalle) => detalle.productos)
       .map((detalle) => ({
-        producto: detalle.productos as ProductoSearchRow,
+        producto:
+          productosById.get((detalle.productos as ProductoSearchRow).id) ??
+          (detalle.productos as ProductoSearchRow),
         cantidad: Number(detalle.cantidad ?? 1),
         almacen_id: detalle.almacen_id ?? defaultAlmacenId,
       }));
@@ -778,14 +868,19 @@ export function PedidoNuevoForm() {
     }
 
     const pedidoId = pedidoData.id as string;
-    const detallePayload = items.map((item) => ({
-      pedido_id: pedidoId,
-      producto_id: item.producto.id,
-      cantidad: item.cantidad,
-      precio_unitario: getPrecio(item.producto),
-      preparado: false,
-      almacen_id: item.almacen_id,
-    }));
+    const detallePayload = items.map((item) => {
+      const pricing = getItemPricing(item);
+      return {
+        pedido_id: pedidoId,
+        producto_id: item.producto.id,
+        producto_stock_id: getStockProductId(item.producto),
+        cantidad: item.cantidad,
+        cantidad_base: toBaseQuantity(item.producto, item.cantidad),
+        precio_unitario: pricing.precioUnitarioPromedio,
+        preparado: false,
+        almacen_id: item.almacen_id,
+      };
+    });
     const { error: detalleError } = await supabase
       .from("detalle_pedido")
       .insert(detallePayload);
@@ -845,8 +940,8 @@ export function PedidoNuevoForm() {
     >;
     const detallesWhatsapp = items.map((item) => ({
       cantidad: item.cantidad,
-      precio_unitario: getPrecio(item.producto),
-      subtotal: item.cantidad * getPrecio(item.producto),
+      precio_unitario: getItemPricing(item).precioUnitarioPromedio,
+      subtotal: getItemPricing(item).subtotal,
       productos: { nombre_producto: item.producto.nombre_producto },
     }));
 
@@ -1000,7 +1095,7 @@ export function PedidoNuevoForm() {
                       <span className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-600">
                         <span>Tienda {stockByName(producto, "Tienda")}</span>
                         <span>Casa {stockByName(producto, "Casa")}</span>
-                        <span>{formatMoney(getPrecio(producto))}</span>
+                        <span>{formatMoney(getPrecioBase(producto))}</span>
                       </span>
                     </span>
                   </button>
@@ -1212,13 +1307,13 @@ export function PedidoNuevoForm() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {items.map((item) => {
-                    const precio = getPrecio(item.producto);
+                    const pricing = getItemPricing(item);
                     return (
                       <tr key={item.producto.id}>
                         <td className="px-3 py-3 text-slate-700">{item.cantidad}</td>
                         <td className="px-3 py-3 font-medium text-slate-950">{item.producto.nombre_producto}</td>
-                        <td className="px-3 py-3 text-slate-600">{formatMoney(precio)}</td>
-                        <td className="px-3 py-3 font-semibold text-slate-950">{formatMoney(item.cantidad * precio)}</td>
+                        <td className="px-3 py-3 text-slate-600">{formatMoney(pricing.precioUnitarioPromedio)}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-950">{formatMoney(pricing.subtotal)}</td>
                       </tr>
                     );
                   })}
@@ -1233,11 +1328,11 @@ export function PedidoNuevoForm() {
             </div>
             <div className="space-y-3 p-3 lg:hidden">
               {items.map((item) => {
-                const precio = getPrecio(item.producto);
+                const pricing = getItemPricing(item);
                 return (
                   <div key={item.producto.id} className="flex justify-between rounded-md border border-slate-200 p-3 text-sm">
                     <span className="text-slate-700">{item.cantidad}x {item.producto.nombre_producto}</span>
-                    <span className="font-semibold text-slate-950">{formatMoney(item.cantidad * precio)}</span>
+                    <span className="font-semibold text-slate-950">{formatMoney(pricing.subtotal)}</span>
                   </div>
                 );
               })}
@@ -1307,8 +1402,10 @@ function Cart({
             {items.length > 0 ? (
               items.map((item) => {
                 const stock = stockIn(item.producto, item.almacen_id);
-                const precio = getPrecio(item.producto);
-                const hasStockIssue = item.cantidad > stock;
+                const stockBase = getBaseStockByAlmacen(item.producto, item.almacen_id);
+                const requiredBase = toBaseQuantity(item.producto, item.cantidad);
+                const pricing = getItemPricing(item);
+                const hasStockIssue = requiredBase > stockBase;
                 return (
                   <tr
                     key={item.producto.id}
@@ -1349,8 +1446,8 @@ function Cart({
                         className="h-9 w-24 rounded-md border border-slate-300 px-2 text-sm"
                       />
                     </td>
-                    <td className="px-3 py-3 text-slate-600">{formatMoney(precio)}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-950">{formatMoney(item.cantidad * precio)}</td>
+                    <td className="px-3 py-3 text-slate-600">{formatMoney(pricing.precioUnitarioPromedio)}</td>
+                    <td className="px-3 py-3 font-semibold text-slate-950">{formatMoney(pricing.subtotal)}</td>
                     <td className="px-3 py-3">
                       {!readonly ? (
                         <button type="button" onClick={() => onRemove(item.producto.id)} className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700">
@@ -1372,7 +1469,7 @@ function Cart({
               <tr>
                 <td colSpan={5} className="px-3 py-3 text-right text-sm font-semibold text-slate-700">Total</td>
                 <td className="px-3 py-3 text-sm font-bold text-slate-950">
-                  {formatMoney(items.reduce((sum, item) => sum + item.cantidad * getPrecio(item.producto), 0))}
+                  {formatMoney(items.reduce((sum, item) => sum + getItemPricing(item).subtotal, 0))}
                 </td>
                 <td className="px-3 py-3" />
               </tr>
@@ -1382,9 +1479,11 @@ function Cart({
       </div>
       <div className="space-y-3 p-3 lg:hidden">
         {items.map((item) => {
-          const precio = getPrecio(item.producto);
+          const pricing = getItemPricing(item);
           const stock = stockIn(item.producto, item.almacen_id);
-          const hasStockIssue = item.cantidad > stock;
+          const stockBase = getBaseStockByAlmacen(item.producto, item.almacen_id);
+          const requiredBase = toBaseQuantity(item.producto, item.cantidad);
+          const hasStockIssue = requiredBase > stockBase;
           return (
             <article
               key={item.producto.id}
@@ -1407,8 +1506,8 @@ function Cart({
                 </select>
                 <input type="number" min="0.01" step="0.01" value={item.cantidad} disabled={readonly} onChange={(event) => onUpdate(item.producto.id, { cantidad: Number(event.target.value) || 0 })} className={inputClassName} />
                 <div className="flex justify-between text-sm">
-                  <span>{formatMoney(precio)}</span>
-                  <strong>{formatMoney(item.cantidad * precio)}</strong>
+                  <span>{formatMoney(pricing.precioUnitarioPromedio)}</span>
+                  <strong>{formatMoney(pricing.subtotal)}</strong>
                 </div>
               </div>
               {!readonly ? (
@@ -1422,7 +1521,7 @@ function Cart({
         {items.length > 0 ? (
           <div className="flex justify-between rounded-md bg-slate-50 px-3 py-3 text-sm font-bold text-slate-950">
             <span>Total</span>
-            <span>{formatMoney(items.reduce((sum, item) => sum + item.cantidad * getPrecio(item.producto), 0))}</span>
+            <span>{formatMoney(items.reduce((sum, item) => sum + getItemPricing(item).subtotal, 0))}</span>
           </div>
         ) : null}
       </div>

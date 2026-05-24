@@ -6,7 +6,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Layout } from "@/components/Layout";
 import { ProductoForm } from "@/components/ProductoForm";
-import type { ProductoFormValues } from "@/components/ProductoForm";
+import type { ProductoBaseOption, ProductoFormValues } from "@/components/ProductoForm";
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
@@ -76,6 +76,7 @@ function ProductoNuevoContent() {
     ProductoPresentacionCompra[]
   >([]);
   const [preciosMayor, setPreciosMayor] = useState<ProductoPrecioMayor[]>([]);
+  const [productosBase, setProductosBase] = useState<ProductoBaseOption[]>([]);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
@@ -98,6 +99,22 @@ function ProductoNuevoContent() {
     if (allowed) {
       void loadCatalogos();
       void loadProducto();
+      void loadProductosBase();
+    }
+  }
+
+  async function loadProductosBase() {
+    if (!supabase) {
+      return;
+    }
+    const { data, error } = await supabase
+      .from("productos")
+      .select("id,codigo_interno,nombre_producto,presentacion")
+      .eq("activo", true)
+      .is("producto_base_id", null)
+      .order("nombre_producto");
+    if (!error) {
+      setProductosBase((data ?? []) as ProductoBaseOption[]);
     }
   }
 
@@ -386,6 +403,25 @@ function ProductoNuevoContent() {
       return false;
     }
 
+    const unidadesEquivalentes =
+      parsePositiveNumber(values.unidades_equivalentes, 1) ?? 1;
+    const productoBaseId = values.producto_base_id || null;
+    if (productoBaseId && unidadesEquivalentes <= 0) {
+      setMessage({
+        type: "error",
+        text:
+          "Unidades equivalentes debe ser mayor a cero cuando se vincula un producto base.",
+      });
+      return false;
+    }
+    if (productoBaseId && productoEditando?.id === productoBaseId) {
+      setMessage({
+        type: "error",
+        text: "Un producto no puede ser su propio producto base.",
+      });
+      return false;
+    }
+
     const payload = {
       categoria_id: values.categoria_id,
       subcategoria_id: values.subcategoria_id,
@@ -398,6 +434,8 @@ function ProductoNuevoContent() {
       precio_venta: parseNumber(values.precio_venta, 1),
       imagen_url: emptyToNull(values.imagen_url),
       activo: values.activo,
+      producto_base_id: productoBaseId,
+      unidades_equivalentes: productoBaseId ? unidadesEquivalentes : 1,
     };
     const unidadesPorPresentacion = parsePositiveNumber(
       values.unidades_por_presentacion,
@@ -460,11 +498,27 @@ function ProductoNuevoContent() {
         const stockInicial =
           Number(stockCantidadPresentaciones ?? 0) * unidadesPorPresentacion +
           Number(stockUnidadesSueltas ?? 0);
-        await supabase.from("producto_almacen").upsert({
-          producto_id: productoIdCreado,
-          almacen_id: tienda.data.id,
-          stock_actual: stockInicial,
-        });
+        const targetProductoId = productoBaseId ?? productoIdCreado;
+        const stockEnBase = productoBaseId
+          ? stockInicial * unidadesEquivalentes
+          : stockInicial;
+        if (stockEnBase > 0) {
+          await supabase.rpc("ajustar_stock", {
+            p_producto_id: targetProductoId,
+            p_almacen_id: tienda.data.id,
+            p_stock_contado: stockEnBase,
+            p_observacion: productoBaseId
+              ? "Stock inicial via presentacion " + nombreProducto
+              : "Stock inicial al crear producto",
+            p_usuario_id: null,
+          });
+        } else {
+          await supabase.from("producto_almacen").upsert({
+            producto_id: productoIdCreado,
+            almacen_id: tienda.data.id,
+            stock_actual: 0,
+          });
+        }
       }
     }
 
@@ -599,6 +653,7 @@ function ProductoNuevoContent() {
           presentacionesCompra={presentacionesCompra}
           preciosMayor={preciosMayor}
           productoEditando={productoEditando}
+          productosBase={productosBase}
           isSaving={isSaving}
           onSubmit={handleSubmit}
           onQuickCreateCategoria={quickCreateCategoria}

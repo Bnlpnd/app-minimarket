@@ -38,6 +38,15 @@ export type ProductoFormValues = {
   stock_cantidad_presentaciones: string;
   stock_unidades_sueltas: string;
   precios_mayor: PrecioMayorFormValue[];
+  producto_base_id: string;
+  unidades_equivalentes: string;
+};
+
+export type ProductoBaseOption = {
+  id: string;
+  nombre_producto: string;
+  presentacion: string | null;
+  codigo_interno: string | null;
 };
 
 type ProductoFormProps = {
@@ -48,6 +57,7 @@ type ProductoFormProps = {
   presentacionesCompra?: ProductoPresentacionCompra[];
   preciosMayor?: ProductoPrecioMayor[];
   productoEditando?: Producto | null;
+  productosBase?: ProductoBaseOption[];
   isSaving: boolean;
   onSubmit: (values: ProductoFormValues) => Promise<boolean>;
   onCancelEdit?: () => void;
@@ -87,6 +97,8 @@ const emptyValues: ProductoFormValues = {
     { cantidad_minima: "6", precio_unitario: "", descripcion: "Mayor x6" },
     { cantidad_minima: "12", precio_unitario: "", descripcion: "Mayor x12" },
   ],
+  producto_base_id: "",
+  unidades_equivalentes: "1",
 };
 
 function toInputValue(value: string | number | null, fallback = "") {
@@ -142,6 +154,8 @@ function getInitialValues({
     stock_cantidad_presentaciones: "0",
     stock_unidades_sueltas: "0",
     precios_mayor: preciosMayorValues,
+    producto_base_id: producto.producto_base_id ?? "",
+    unidades_equivalentes: toInputValue(producto.unidades_equivalentes ?? 1, "1"),
   };
 }
 
@@ -153,6 +167,7 @@ export function ProductoForm({
   presentacionesCompra = [],
   preciosMayor = [],
   productoEditando,
+  productosBase = [],
   isSaving,
   onSubmit,
   onCancelEdit,
@@ -757,6 +772,60 @@ export function ProductoForm({
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-950">Vinculo a producto base</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Si este producto es una presentacion de otro (ej. plancha x6 de papel),
+              elige el producto base y cuantas unidades base equivale 1 de este. El stock
+              se descontara y mostrara unificado en el producto base.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Producto base (opcional)</span>
+            <span className="mt-1 block">
+              <select
+                value={values.producto_base_id}
+                onChange={(event) => updateValue("producto_base_id", event.target.value)}
+                className={inputClassName}
+              >
+                <option value="">Sin vinculo (este ES el producto base)</option>
+                {productosBase
+                  .filter((option) => option.id !== productoEditando?.id)
+                  .map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.nombre_producto}{option.presentacion ? " - " + option.presentacion : ""}
+                    </option>
+                  ))}
+              </select>
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Unidades base equivalentes a 1 presentacion</span>
+            <span className="mt-1 block">
+              <input
+                type="number"
+                step="0.01"
+                min="1"
+                value={values.unidades_equivalentes}
+                onChange={(event) => updateValue("unidades_equivalentes", event.target.value)}
+                disabled={!values.producto_base_id}
+                className={inputClassName + (values.producto_base_id ? "" : " bg-slate-50 text-slate-400") }
+              />
+            </span>
+          </label>
+        </div>
+        {values.producto_base_id ? (
+          <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+            Al registrar o vender 1 unidad de este producto se afectaran{" "}
+            <strong>{Number(values.unidades_equivalentes || 1)}</strong> unidades del producto base seleccionado.
+          </p>
+        ) : null}
       </section>
 
       {imagePreview || values.imagen_url ? (
