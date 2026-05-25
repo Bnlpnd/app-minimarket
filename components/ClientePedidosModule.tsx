@@ -38,6 +38,9 @@ type Message = {
 const inputClassName =
   "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
+
 function todayInput() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -96,13 +99,82 @@ function getPedidoResumen(pedido: PedidoCliente) {
     .join(", ");
 }
 
+/**
+ * Distribuye un monto entre cards deudoras en orden de antiguedad.
+ * Retorna una lista de allocations (id, monto a aplicar) y el remanente
+ * que sobra si el monto excede el saldo total.
+ */
+type Allocation = {
+  pedidoId: string;
+  saldoPrevio: number;
+  totalPedido: number;
+  montoActual: number;
+  nuevoACuenta: number;
+  nuevoEstadoPago: "pagado" | "debe";
+};
+
+function allocateAmountFifo(
+  amount: number,
+  cards: PedidoCliente[],
+  priorityIds: string[],
+): { allocations: Allocation[]; sobrante: number } {
+  const ordered: PedidoCliente[] = [];
+  // Cards explicitamente seleccionadas primero (en su orden), luego el resto
+  // ordenado por fecha ascendente (mas antigua primero).
+  const seen = new Set<string>();
+  for (const id of priorityIds) {
+    const card = cards.find((c) => c.id === id);
+    if (card && getSaldo(card) > 0 && !seen.has(card.id)) {
+      ordered.push(card);
+      seen.add(card.id);
+    }
+  }
+  const fifo = cards
+    .filter((c) => !seen.has(c.id) && getSaldo(c) > 0)
+    .sort(
+      (a, b) =>
+        new Date(a.fecha_pedido).getTime() - new Date(b.fecha_pedido).getTime(),
+    );
+  for (const card of fifo) {
+    ordered.push(card);
+    seen.add(card.id);
+  }
+
+  const allocations: Allocation[] = [];
+  let remaining = amount;
+  for (const card of ordered) {
+    if (remaining <= 0) break;
+    const saldo = getSaldo(card);
+    const aplicar = Math.min(remaining, saldo);
+    const nuevoACuenta = Math.min(
+      Number(card.total ?? 0),
+      Number(card.monto_a_cuenta ?? 0) + aplicar,
+    );
+    const nuevoEstadoPago =
+      nuevoACuenta >= Number(card.total ?? 0) ? "pagado" : "debe";
+    allocations.push({
+      pedidoId: card.id,
+      saldoPrevio: saldo,
+      totalPedido: Number(card.total ?? 0),
+      montoActual: Number(card.monto_a_cuenta ?? 0),
+      nuevoACuenta,
+      nuevoEstadoPago,
+    });
+    remaining -= aplicar;
+  }
+  return { allocations, sobrante: Math.max(0, remaining) };
+}
+
 export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [pedidos, setPedidos] = useState<PedidoCliente[]>([]);
   const [fechaFiltro, setFechaFiltro] = useState("");
   const [debeOnly, setDebeOnly] = useState(false);
-  const [selectedPedido, setSelectedPedido] = useState<PedidoCliente | null>(null);
+  const [selectedPedidoIds, setSelectedPedidoIds] = useState<string[]>([]);
   const [manualForm, setManualForm] = useState<ManualPedidoForm>(emptyManualPedido);
+  const [manualImagenFile, setManualImagenFile] = useState<File | null>(null);
+  const [manualImagenPreview, setManualImagenPreview] = useState<string>("");
+  const [manualImagenError, setManualImagenError] = useState<string>("");
   const [pagoForm, setPagoForm] = useState<PagoForm>(emptyPagoForm);
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -169,6 +241,53 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
     [pedidos],
   );
 
+  // Preview de allocations basado en el monto ingresado.
+  const allocationPreview = useMemo(() => {
+    const monto = parseMoney(pagoForm.monto);
+    if (!Number.isFinite(monto) || monto <= 0) {
+      return { allocations: [], sobrante: 0 };
+    }
+    return allocateAmountFifo(monto, pedidos, selectedPedidoIds);
+  }, [pagoForm.monto, pedidos, selectedPedidoIds]);
+
+  function handleManualImagenChange(file: File | null) {
+    setManualImagenError("");
+    if (!file) {
+      setManualImagenFile(null);
+      setManualImagenPreview("");
+      return;
+    }
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setManualImagenError("Formato no permitido. Usa JPG, PNG o WEBP.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      setManualImagenError("La imagen supera 2 MB.");
+      return;
+    }
+    setManualImagenFile(file);
+    setManualImagenPreview(URL.createObjectURL(file));
+  }
+
+  async function uploadManualImagen(): Promise<string | null> {
+    if (!manualImagenFile || !supabase) return null;
+    const ext = manualImagenFile.name.split(".").pop() ?? "jpg";
+    const safeClienteId = (cliente?.id ?? "anon").slice(0, 8);
+    const path = `pedidos_manuales/${safeClienteId}-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from("pedidos_manuales")
+      .upload(path, manualImagenFile, {
+        contentType: manualImagenFile.type,
+        upsert: false,
+      });
+    if (error) {
+      setManualImagenError(`No se pudo subir imagen: ${error.message}`);
+      return null;
+    }
+    const { data } = supabase.storage.from("pedidos_manuales").getPublicUrl(path);
+    return data.publicUrl;
+  }
+
   async function saveManualPedido(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -195,6 +314,15 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
     const fecha = new Date(`${manualForm.fecha_pedido}T00:00:00`).toISOString();
 
     setIsSavingPedido(true);
+    let imagenUrl: string | null = null;
+    if (manualImagenFile) {
+      imagenUrl = await uploadManualImagen();
+      if (!imagenUrl) {
+        setIsSavingPedido(false);
+        return;
+      }
+    }
+
     const { error } = await supabase.from("pedidos").insert({
       cliente_id: cliente.id,
       fecha_pedido: fecha,
@@ -208,6 +336,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
       estado: "pendiente",
       metodo_pago: estadoPago === "pagado" ? "efectivo" : "otro",
       observaciones: estadoPago === "pagado" ? "Pedido pagado" : "Pedido con saldo pendiente",
+      imagen_papel_url: imagenUrl,
     });
     setIsSavingPedido(false);
 
@@ -218,85 +347,110 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
 
     setMessage({ type: "success", text: "Pedido manual registrado." });
     setManualForm(emptyManualPedido);
+    setManualImagenFile(null);
+    setManualImagenPreview("");
     await loadData();
   }
 
   async function registerPayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!supabase || !selectedPedido) {
-      setMessage({ type: "error", text: "Selecciona primero el pedido que esta debiendo." });
+    if (!supabase || !cliente) {
       return;
     }
 
     const monto = parseMoney(pagoForm.monto);
-    const saldoActual = getSaldo(selectedPedido);
-
-    if (selectedPedido.estado_pago === "pagado" || saldoActual <= 0) {
-      setMessage({ type: "error", text: "Ese pedido ya esta pagado." });
-      return;
-    }
-
     if (Number.isNaN(monto) || monto <= 0) {
       setMessage({ type: "error", text: "Ingresa un monto de pago valido." });
       return;
     }
 
-    const nuevoACuenta = Math.min(
-      Number(selectedPedido.total ?? 0),
-      Number(selectedPedido.monto_a_cuenta ?? 0) + monto,
-    );
-    const nextEstadoPago = nuevoACuenta >= Number(selectedPedido.total ?? 0) ? "pagado" : "debe";
-
-    setIsSavingPago(true);
-    const pedidoUpdate = await supabase
-      .from("pedidos")
-      .update({
-        monto_a_cuenta: nuevoACuenta,
-        estado_pago: nextEstadoPago,
-        metodo_pago: pagoForm.metodo,
-        observaciones:
-          nextEstadoPago === "pagado"
-            ? "Deuda cancelada desde modulo de cliente"
-            : "Abono registrado desde modulo de cliente",
-      })
-      .eq("id", selectedPedido.id);
-
-    if (pedidoUpdate.error) {
-      setIsSavingPago(false);
-      setMessage({ type: "error", text: `No se pudo registrar pago: ${pedidoUpdate.error.message}` });
+    if (totalDebt <= 0) {
+      setMessage({ type: "error", text: "Este cliente no tiene deuda pendiente." });
       return;
     }
 
-    const pagoUpdate = await supabase.from("pagos").upsert(
-      {
-        pedido_id: selectedPedido.id,
-        metodo: pagoForm.metodo,
-        estado: nextEstadoPago === "pagado" ? "validado" : "pendiente",
-        monto: nuevoACuenta,
-      },
-      { onConflict: "pedido_id" },
-    );
-    setIsSavingPago(false);
-
-    if (pagoUpdate.error) {
+    const { allocations, sobrante } = allocationPreview;
+    if (allocations.length === 0) {
       setMessage({
         type: "error",
-        text: `El pedido se actualizo, pero fallo el registro de pago: ${pagoUpdate.error.message}`,
+        text: "No hay cards con saldo para aplicar el pago.",
+      });
+      return;
+    }
+    if (sobrante > 0) {
+      setMessage({
+        type: "error",
+        text: `El monto excede el saldo total en S/ ${sobrante.toFixed(2)}. Reduce el monto.`,
       });
       return;
     }
 
+    setIsSavingPago(true);
+    // Aplicar allocations en secuencia.
+    for (const alloc of allocations) {
+      const pedidoUpdate = await supabase
+        .from("pedidos")
+        .update({
+          monto_a_cuenta: alloc.nuevoACuenta,
+          estado_pago: alloc.nuevoEstadoPago,
+          metodo_pago: pagoForm.metodo,
+          observaciones:
+            alloc.nuevoEstadoPago === "pagado"
+              ? "Deuda cancelada desde modulo de cliente"
+              : "Abono registrado desde modulo de cliente",
+        })
+        .eq("id", alloc.pedidoId);
+
+      if (pedidoUpdate.error) {
+        setIsSavingPago(false);
+        setMessage({
+          type: "error",
+          text: `Pago parcial fallo en card ${alloc.pedidoId.slice(0, 8)}: ${pedidoUpdate.error.message}`,
+        });
+        await loadData();
+        return;
+      }
+
+      const pagoUpdate = await supabase.from("pagos").upsert(
+        {
+          pedido_id: alloc.pedidoId,
+          metodo: pagoForm.metodo,
+          estado: alloc.nuevoEstadoPago === "pagado" ? "validado" : "pendiente",
+          monto: alloc.nuevoACuenta,
+        },
+        { onConflict: "pedido_id" },
+      );
+
+      if (pagoUpdate.error) {
+        setIsSavingPago(false);
+        setMessage({
+          type: "error",
+          text: `Card ${alloc.pedidoId.slice(0, 8)} actualizada pero el registro de pago fallo: ${pagoUpdate.error.message}`,
+        });
+        await loadData();
+        return;
+      }
+    }
+    setIsSavingPago(false);
+
+    const cardsPagadas = allocations.filter((a) => a.nuevoEstadoPago === "pagado").length;
+    const cardsAbono = allocations.length - cardsPagadas;
     setMessage({
       type: "success",
-      text:
-        nextEstadoPago === "pagado"
-          ? "Pago registrado. El pedido quedo pagado."
-          : "Abono registrado. El pedido aun mantiene saldo.",
+      text: `Pago aplicado: ${cardsPagadas} card(s) pagada(s)${cardsAbono > 0 ? `, ${cardsAbono} card(s) con abono parcial` : ""}.`,
     });
-    setSelectedPedido(null);
+    setSelectedPedidoIds([]);
     setPagoForm(emptyPagoForm);
     await loadData();
+  }
+
+  function toggleSelected(pedidoId: string) {
+    setSelectedPedidoIds((current) =>
+      current.includes(pedidoId)
+        ? current.filter((id) => id !== pedidoId)
+        : [...current, pedidoId],
+    );
   }
 
   return (
@@ -367,7 +521,9 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
             <div className="grid gap-4 md:grid-cols-2">
               {filteredPedidos.map((pedido) => {
                 const saldo = getSaldo(pedido);
-                const isSelected = selectedPedido?.id === pedido.id;
+                const isSelected = selectedPedidoIds.includes(pedido.id);
+                const isEntregado = pedido.estado === "entregado";
+                const tieneSaldo = saldo > 0;
 
                 return (
                   <article
@@ -381,7 +537,14 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                         <p className="text-sm font-semibold text-slate-950">
                           {formatDate(pedido.fecha_pedido)}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">Pedido #{pedido.id.slice(0, 8)}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Pedido #{pedido.id.slice(0, 8)}
+                          {isEntregado ? (
+                            <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                              ENTREGADO
+                            </span>
+                          ) : null}
+                        </p>
                       </div>
                       <span
                         className={`rounded-md px-2 py-1 text-xs font-semibold ${
@@ -394,6 +557,21 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                       </span>
                     </div>
                     <p className="mt-3 text-sm text-slate-600">{getPedidoResumen(pedido)}</p>
+                    {pedido.imagen_papel_url ? (
+                      <a
+                        href={pedido.imagen_papel_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-block"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={pedido.imagen_papel_url}
+                          alt="Pedido en papel"
+                          className="h-20 w-20 rounded border border-slate-200 object-cover"
+                        />
+                      </a>
+                    ) : null}
                     <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
                       <Metric label="Total" value={formatMoney(Number(pedido.total))} />
                       <Metric label="A cuenta" value={formatMoney(Number(pedido.monto_a_cuenta))} />
@@ -406,25 +584,34 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                       >
                         Ver detalle
                       </Link>
-                      <Link
-                        href={`/pedidos/nuevo?duplicar=${pedido.id}`}
-                        className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        Duplicar pedido
-                      </Link>
-                      {saldo > 0 ? (
+                      {!isEntregado ? (
+                        <Link
+                          href={`/pedidos/nuevo?duplicar=${pedido.id}`}
+                          className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Duplicar pedido
+                        </Link>
+                      ) : null}
+                      {tieneSaldo ? (
                         <button
                           type="button"
-                          onClick={() => {
-                            setSelectedPedido(pedido);
-                            setPagoForm({ ...emptyPagoForm, monto: saldo.toFixed(2) });
-                          }}
-                          className="h-9 rounded-md bg-slate-900 px-3 text-xs font-medium text-white hover:bg-slate-700"
+                          onClick={() => toggleSelected(pedido.id)}
+                          className={`h-9 rounded-md px-3 text-xs font-medium ${
+                            isSelected
+                              ? "bg-emerald-700 text-white hover:bg-emerald-800"
+                              : "border border-slate-300 text-slate-700 hover:bg-slate-50"
+                          }`}
                         >
-                          Registrar pago
+                          {isSelected ? "Quitar de pago" : "Aplicar pago aqui"}
                         </button>
                       ) : null}
                     </div>
+                    {isEntregado ? (
+                      <p className="mt-2 text-[11px] uppercase tracking-wide text-slate-400">
+                        Pedido entregado: no se puede editar ni duplicar como antes.
+                        {tieneSaldo ? " Solo se puede registrar el pago pendiente." : ""}
+                      </p>
+                    ) : null}
                   </article>
                 );
               })}
@@ -455,6 +642,34 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                   rows={3}
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
                 />
+              </Field>
+              <Field label="Foto del pedido en papel (opcional)">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(event) => handleManualImagenChange(event.target.files?.[0] ?? null)}
+                  className="block w-full text-sm text-slate-600"
+                />
+                {manualImagenPreview ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={manualImagenPreview}
+                      alt="Vista previa"
+                      className="h-16 w-16 rounded border border-slate-200 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleManualImagenChange(null)}
+                      className="text-xs text-red-700 hover:underline"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ) : null}
+                {manualImagenError ? (
+                  <p className="mt-1 text-xs text-red-700">{manualImagenError}</p>
+                ) : null}
               </Field>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                 <Field label="Monto a pagar" required>
@@ -495,9 +710,9 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-base font-semibold text-slate-950">Registrar pago</h2>
             <p className="mt-1 text-sm text-slate-500">
-              {selectedPedido
-                ? `Pedido #${selectedPedido.id.slice(0, 8)} - saldo ${formatMoney(getSaldo(selectedPedido))}`
-                : "Selecciona una card que este debiendo."}
+              {selectedPedidoIds.length > 0
+                ? `Aplicando primero a ${selectedPedidoIds.length} card(s) seleccionada(s); el resto a las mas antiguas.`
+                : "Se aplicara a las cards mas antiguas primero. Tambien puedes marcar cards especificas en la lista."}
             </p>
             <form onSubmit={registerPayment} className="mt-4 space-y-3">
               <Field label="Metodo">
@@ -525,10 +740,47 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                   onChange={(event) => setPagoForm((current) => ({ ...current, monto: event.target.value }))}
                   className={inputClassName}
                 />
+                <p className="mt-1 text-xs text-slate-500">
+                  Saldo total: {formatMoney(totalDebt)}
+                </p>
               </Field>
+              {allocationPreview.allocations.length > 0 ? (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                  <p className="font-semibold text-slate-900">Distribucion del pago:</p>
+                  <ul className="mt-1 space-y-1">
+                    {allocationPreview.allocations.map((alloc) => {
+                      const aplicado = alloc.nuevoACuenta - alloc.montoActual;
+                      return (
+                        <li key={alloc.pedidoId} className="flex justify-between">
+                          <span>
+                            Card #{alloc.pedidoId.slice(0, 8)}{" "}
+                            {alloc.nuevoEstadoPago === "pagado" ? (
+                              <span className="text-emerald-700">(pagada)</span>
+                            ) : (
+                              <span className="text-amber-700">(a cuenta)</span>
+                            )}
+                          </span>
+                          <span className="font-semibold">{formatMoney(aplicado)}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {allocationPreview.sobrante > 0 ? (
+                    <p className="mt-2 text-red-700">
+                      Sobrante no aplicable: {formatMoney(allocationPreview.sobrante)} (excede el
+                      saldo del cliente)
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <button
                 type="submit"
-                disabled={isSavingPago || !selectedPedido}
+                disabled={
+                  isSavingPago ||
+                  totalDebt <= 0 ||
+                  allocationPreview.allocations.length === 0 ||
+                  allocationPreview.sobrante > 0
+                }
                 className="h-11 w-full rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
               >
                 {isSavingPago ? "Guardando..." : "Registrar pago"}

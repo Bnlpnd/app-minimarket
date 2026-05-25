@@ -266,6 +266,7 @@ export interface Pedido {
   stock_descontado: boolean;
   preparado_at: string | null;
   entregado_at: string | null;
+  imagen_papel_url: string | null;
   created_at: string;
   updated_at: string;
 }
