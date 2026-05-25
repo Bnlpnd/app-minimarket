@@ -106,12 +106,22 @@ function getPedidoResumen(pedido: PedidoCliente) {
  */
 type Allocation = {
   pedidoId: string;
+  fechaPedido: string;
   saldoPrevio: number;
   totalPedido: number;
   montoActual: number;
   nuevoACuenta: number;
   nuevoEstadoPago: "pagado" | "debe";
 };
+
+/**
+ * Pedido manual = creado en el modulo de cliente solo con detalle escrito,
+ * sin items reales del catalogo. Esos no se pueden duplicar.
+ */
+function esPedidoManual(pedido: PedidoCliente) {
+  const items = pedido.detalle_pedido ?? [];
+  return items.length === 0;
+}
 
 function allocateAmountFifo(
   amount: number,
@@ -154,6 +164,7 @@ function allocateAmountFifo(
       nuevoACuenta >= Number(card.total ?? 0) ? "pagado" : "debe";
     allocations.push({
       pedidoId: card.id,
+      fechaPedido: card.fecha_pedido,
       saldoPrevio: saldo,
       totalPedido: Number(card.total ?? 0),
       montoActual: Number(card.monto_a_cuenta ?? 0),
@@ -406,7 +417,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
         setIsSavingPago(false);
         setMessage({
           type: "error",
-          text: `Pago parcial fallo en card ${alloc.pedidoId.slice(0, 8)}: ${pedidoUpdate.error.message}`,
+          text: `Pago parcial fallo en pedido del ${formatDate(alloc.fechaPedido)}: ${pedidoUpdate.error.message}`,
         });
         await loadData();
         return;
@@ -426,7 +437,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
         setIsSavingPago(false);
         setMessage({
           type: "error",
-          text: `Card ${alloc.pedidoId.slice(0, 8)} actualizada pero el registro de pago fallo: ${pagoUpdate.error.message}`,
+          text: `Pedido del ${formatDate(alloc.fechaPedido)} actualizado pero el registro de pago fallo: ${pagoUpdate.error.message}`,
         });
         await loadData();
         return;
@@ -524,6 +535,8 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                 const isSelected = selectedPedidoIds.includes(pedido.id);
                 const isEntregado = pedido.estado === "entregado";
                 const tieneSaldo = saldo > 0;
+                const isManual = esPedidoManual(pedido);
+                const puedeDuplicar = !isManual;
 
                 return (
                   <article
@@ -584,7 +597,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                       >
                         Ver detalle
                       </Link>
-                      {!isEntregado ? (
+                      {puedeDuplicar ? (
                         <Link
                           href={`/pedidos/nuevo?duplicar=${pedido.id}`}
                           className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
@@ -608,7 +621,10 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                     </div>
                     {isEntregado ? (
                       <p className="mt-2 text-[11px] uppercase tracking-wide text-slate-400">
-                        Pedido entregado: no se puede editar ni duplicar como antes.
+                        Pedido entregado: no se puede editar.
+                        {puedeDuplicar
+                          ? " Puedes duplicarlo como pedido nuevo."
+                          : " Pedido manual, no se puede duplicar."}
                         {tieneSaldo ? " Solo se puede registrar el pago pendiente." : ""}
                       </p>
                     ) : null}
@@ -753,7 +769,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                       return (
                         <li key={alloc.pedidoId} className="flex justify-between">
                           <span>
-                            Card #{alloc.pedidoId.slice(0, 8)}{" "}
+                            {formatDate(alloc.fechaPedido)}{" "}
                             {alloc.nuevoEstadoPago === "pagado" ? (
                               <span className="text-emerald-700">(pagada)</span>
                             ) : (
