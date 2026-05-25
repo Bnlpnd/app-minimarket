@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { getBaseStockByName, getStockProductId } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
@@ -25,6 +26,11 @@ type ProductoRow = Producto & {
   subcategorias: Pick<Subcategoria, "nombre"> | null;
   marcas: Pick<Marca, "nombre"> | null;
   producto_almacen: ProductoAlmacenRow[];
+  producto_base?: {
+    id: string;
+    nombre_producto?: string | null;
+    producto_almacen: ProductoAlmacenRow[];
+  } | null;
 };
 
 type QuickStock = Record<
@@ -54,19 +60,10 @@ function formatStock(value: number | null) {
   return Number(value ?? 0).toFixed(2).replace(/\.00$/, "");
 }
 
-function stockByName(producto: ProductoRow, name: string) {
-  return Number(
-    producto.producto_almacen.find(
-      (stock) => stock.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
-    )?.stock_actual ?? 0,
-  );
-}
-
 function stockTotal(producto: ProductoRow) {
-  return producto.producto_almacen.reduce(
-    (sum, stock) => sum + Number(stock.stock_actual ?? 0),
-    0,
-  );
+  // Suma del producto base si la presentacion lo tiene; si no, suma propio.
+  const rows = producto.producto_base?.producto_almacen ?? producto.producto_almacen;
+  return rows.reduce((sum, stock) => sum + Number(stock.stock_actual ?? 0), 0);
 }
 
 function quickFromRows(productos: ProductoRow[]) {
@@ -80,8 +77,8 @@ function quickFromRows(productos: ProductoRow[]) {
           producto.precio_compra_referencial === null
             ? ""
             : Number(producto.precio_compra_referencial).toFixed(2),
-        tienda: String(stockByName(producto, "Tienda")),
-        casa: String(stockByName(producto, "Casa")),
+        tienda: String(getBaseStockByName(producto, "Tienda")),
+        casa: String(getBaseStockByName(producto, "Casa")),
       },
     ]),
   );
@@ -153,15 +150,47 @@ export function AlmacenDashboard() {
     }
 
     const { data, error } = await fetchAllRows<ProductoRow>(query);
-    setIsLoading(false);
 
     if (error) {
+      setIsLoading(false);
       setMessage({ type: "error", text: `No se pudo cargar stock: ${error.message}` });
       setProductos([]);
       return;
     }
 
-    let rows = data.filter((producto) =>
+    // Prefetch del producto base para resolver stock real de presentaciones.
+    const baseIds = Array.from(
+      new Set(
+        data
+          .map((p) => p.producto_base_id)
+          .filter((v): v is string => Boolean(v)),
+      ),
+    );
+    const baseMap = new Map<string, NonNullable<ProductoRow["producto_base"]>>();
+    if (baseIds.length > 0) {
+      const { data: baseRows, error: baseError } = await supabase
+        .from("productos")
+        .select("id,nombre_producto,producto_almacen(*,almacenes(id,nombre))")
+        .in("id", baseIds);
+      if (baseError) {
+        setIsLoading(false);
+        setMessage({ type: "error", text: `No se cargo base: ${baseError.message}` });
+        return;
+      }
+      for (const row of baseRows ?? []) {
+        const baseRow = row as unknown as NonNullable<ProductoRow["producto_base"]>;
+        baseMap.set(baseRow.id, baseRow);
+      }
+    }
+
+    const merged = data.map((p) => {
+      if (!p.producto_base_id) return p;
+      const base = baseMap.get(p.producto_base_id);
+      return base ? { ...p, producto_base: base } : p;
+    });
+
+    setIsLoading(false);
+    let rows = merged.filter((producto) =>
       matchesSearch(search, [
         producto.codigo_interno,
         producto.nombre_producto,
@@ -275,10 +304,12 @@ export function AlmacenDashboard() {
     }
 
     const { error } = await supabase.rpc("ajustar_stock", {
-      p_producto_id: producto.id,
+      p_producto_id: getStockProductId(producto),
       p_almacen_id: almacen.id,
       p_stock_contado: stockContado,
-      p_observacion: `Ajuste rapido desde almacen (${almacen.nombre})`,
+      p_observacion: producto.producto_base_id
+        ? `Ajuste rapido desde almacen (${almacen.nombre}) - vinculado a base`
+        : `Ajuste rapido desde almacen (${almacen.nombre})`,
       p_usuario_id: null,
     });
 
@@ -521,8 +552,8 @@ export function AlmacenDashboard() {
                   {producto.codigo_interno} · {producto.marcas?.nombre ?? "Sin marca"}
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <Info label="Stock Tienda" value={formatStock(stockByName(producto, "Tienda"))} />
-                  <Info label="Stock Casa" value={formatStock(stockByName(producto, "Casa"))} />
+                  <Info label="Stock Tienda" value={formatStock(getBaseStockByName(producto, "Tienda"))} />
+                  <Info label="Stock Casa" value={formatStock(getBaseStockByName(producto, "Casa"))} />
                   <Info label="Stock total" value={formatStock(stockTotal(producto))} />
                   <Info label="Stock minimo" value={formatStock(producto.stock_minimo)} />
                   <Info label="Precio venta" value={formatMoney(producto.precio_venta)} />

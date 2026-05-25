@@ -4,6 +4,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import {
+  combineValidations,
+  validatePrice,
+  validateUnits,
+} from "@/lib/validators";
 import type {
   Almacen,
   Categoria,
@@ -340,6 +345,26 @@ export function ProductoForm({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setImageError("");
+
+    // Validaciones obligatorias antes de subir imagen y guardar.
+    const validations = combineValidations(
+      validatePrice(values.precio_venta, { label: "Precio de venta" }),
+      validateUnits(values.unidades_por_presentacion),
+    );
+    if (values.precio_compra_presentacion !== "") {
+      const precioCompra = validatePrice(values.precio_compra_presentacion, {
+        label: "Precio de compra de la presentacion",
+        allowZero: true,
+      });
+      if (!precioCompra.ok) {
+        setImageError(precioCompra.error);
+        return;
+      }
+    }
+    if (!validations.ok) {
+      setImageError(validations.error);
+      return;
+    }
 
     const uploadedUrl = await uploadSelectedImage();
 

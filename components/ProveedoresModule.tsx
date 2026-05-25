@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
+import { normalizePhonePe, validatePhonePe } from "@/lib/validators";
 import type { Proveedor } from "@/types/database";
 
 type FormValues = {
@@ -154,17 +155,26 @@ export function ProveedoresModule() {
 
     const nombre = normalizeSpaces(form.nombre);
     const ruc = normalizeRuc(form.ruc);
+    const telefono = normalizePhonePe(form.telefono);
 
     if (!nombre) {
       setMessage({ type: "error", text: "El nombre del proveedor es obligatorio." });
       return;
     }
 
+    if (telefono) {
+      const phoneCheck = validatePhonePe(telefono);
+      if (!phoneCheck.ok) {
+        setMessage({ type: "error", text: phoneCheck.error });
+        return;
+      }
+    }
+
     const payload = {
       nombre,
       ruc: ruc || null,
       contacto: emptyToNull(form.contacto),
-      telefono: emptyToNull(form.telefono),
+      telefono: telefono || null,
       email: emptyToNull(form.email),
       direccion: emptyToNull(form.direccion),
       observacion: emptyToNull(form.observacion),

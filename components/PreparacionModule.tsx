@@ -13,10 +13,18 @@ type PedidoPreparacion = Pedido & {
 };
 
 type DetallePreparacion = DetallePedido & {
-  productos: Pick<
-    Producto,
-    "codigo_interno" | "nombre_producto" | "presentacion" | "stock_actual"
-  > | null;
+  productos:
+    | (Pick<
+        Producto,
+        "codigo_interno" | "nombre_producto" | "presentacion" | "producto_base_id"
+      > & {
+        producto_almacen?: Array<{ almacen_id: string; stock_actual: number }>;
+        producto_base?: {
+          id: string;
+          producto_almacen: Array<{ almacen_id: string; stock_actual: number }>;
+        } | null;
+      })
+    | null;
   almacenes: Pick<Almacen, "nombre"> | null;
 };
 
@@ -111,12 +119,24 @@ export function PreparacionModule() {
     setIsLoadingDetalle(true);
     setMessage(null);
 
+    // El stock real vive en producto_base.producto_almacen filtrado por almacen.
+    // No usamos productos.stock_actual (agregado obsoleto).
     const { data, error } = await supabase
       .from("detalle_pedido")
       .select(
         `
           *,
-          productos!producto_id(codigo_interno,nombre_producto,presentacion,stock_actual),
+          productos!producto_id(
+            codigo_interno,
+            nombre_producto,
+            presentacion,
+            producto_base_id,
+            producto_almacen(almacen_id, stock_actual),
+            producto_base:producto_base_id(
+              id,
+              producto_almacen(almacen_id, stock_actual)
+            )
+          ),
           almacenes(nombre)
         `,
       )
@@ -168,6 +188,30 @@ export function PreparacionModule() {
     setIsUpdating(true);
     setMessage(null);
 
+    // Re-leer el pedido para detectar si otro trabajador ya lo paso a preparacion
+    // (race condition). Si ya tiene stock_descontado=true, no aplicamos el cambio.
+    const fresh = await supabase
+      .from("pedidos")
+      .select("estado, stock_descontado")
+      .eq("id", selectedPedido.id)
+      .maybeSingle();
+
+    if (fresh.error) {
+      setIsUpdating(false);
+      setMessage({ type: "error", text: `No se pudo leer pedido: ${fresh.error.message}` });
+      return;
+    }
+
+    if (fresh.data?.stock_descontado || fresh.data?.estado === "en_preparacion") {
+      setIsUpdating(false);
+      setMessage({
+        type: "error",
+        text: "Otro trabajador ya tomo este pedido. Refrescando...",
+      });
+      await loadPedidos();
+      return;
+    }
+
     const { error } = await supabase
       .from("pedidos")
       .update({
@@ -180,10 +224,12 @@ export function PreparacionModule() {
     setIsUpdating(false);
 
     if (error) {
-      setMessage({
-        type: "error",
-        text: `No se pudo pasar a preparacion: ${error.message}`,
-      });
+      // El trigger de DB lanza "Stock insuficiente" si lo es. Diferenciamos del race.
+      const msg = String(error.message).includes("Stock insuficiente")
+        ? "Stock insuficiente para descontar el pedido. Revisa inventario."
+        : `No se pudo pasar a preparacion: ${error.message}`;
+      setMessage({ type: "error", text: msg });
+      await loadPedidos();
       return;
     }
 
@@ -574,6 +620,27 @@ export function PreparacionModule() {
                                 {detalle.productos?.codigo_interno ?? "Sin codigo"} -{" "}
                                 {detalle.productos?.presentacion ?? "Sin presentacion"}
                               </p>
+                              {(() => {
+                                const rows =
+                                  detalle.productos?.producto_base?.producto_almacen ??
+                                  detalle.productos?.producto_almacen ??
+                                  [];
+                                const targetAlmacenId = detalle.almacen_id;
+                                const stock = targetAlmacenId
+                                  ? Number(
+                                      rows.find((r) => r.almacen_id === targetAlmacenId)
+                                        ?.stock_actual ?? 0,
+                                    )
+                                  : rows.reduce(
+                                      (s, r) => s + Number(r.stock_actual ?? 0),
+                                      0,
+                                    );
+                                return (
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    Stock disponible: {stock}
+                                  </p>
+                                );
+                              })()}
                             </td>
                             <td className="px-4 py-3 text-slate-600">
                               {Number(detalle.cantidad)}

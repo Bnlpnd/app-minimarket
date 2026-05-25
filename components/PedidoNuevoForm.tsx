@@ -2,15 +2,18 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getStoredAppUser } from "@/lib/authRoles";
 import {
+  STOCK_BAJO_DEFAULT,
+  buildReservadoMap,
   getBaseStockByAlmacen,
-  getBaseStockByName,
   getStockProductId,
+  getStockReservado,
   toBaseQuantity,
   toPresentationStock,
+  type StockReservadoMap,
 } from "@/lib/inventoryUtils";
 import { calcularPrecioPorCantidad } from "@/lib/pricing";
 import { matchesSearch } from "@/lib/searchUtils";
@@ -62,6 +65,7 @@ type PedidoItem = {
   producto: ProductoSearchRow;
   cantidad: number;
   almacen_id: string;
+  reservaId?: string | null;
 };
 
 type DuplicatedPedidoRow = Pedido & {
@@ -135,10 +139,6 @@ function stockIn(producto: ProductoSearchRow, almacenId: string) {
   return toPresentationStock(producto, getBaseStockByAlmacen(producto, almacenId));
 }
 
-function stockByName(producto: ProductoSearchRow, name: string) {
-  return toPresentationStock(producto, getBaseStockByName(producto, name));
-}
-
 export function PedidoNuevoForm() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -178,6 +178,10 @@ export function PedidoNuevoForm() {
   const [isSavingCliente, setIsSavingCliente] = useState(false);
   const [isSavingPedido, setIsSavingPedido] = useState(false);
   const [queryLoaded, setQueryLoaded] = useState(false);
+  const [reservadoMap, setReservadoMap] = useState<StockReservadoMap | null>(null);
+  const sesionIdRef = useRef<string>(
+    `carrito-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   const tienda = useMemo(
     () => almacenes.find((almacen) => almacen.nombre.toLowerCase() === "tienda"),
@@ -516,6 +520,17 @@ export function PedidoNuevoForm() {
 
   useEffect(() => {
     void loadCatalogos();
+    void loadReservadoMap();
+
+    const sesionId = sesionIdRef.current;
+    // Al desmontar, liberar las reservas del carrito que no se asociaron a pedido.
+    return () => {
+      if (!supabase) return;
+      void supabase.rpc("liberar_reservas_carrito", {
+        p_usuario_id: getStoredAppUser()?.id ?? null,
+        p_sesion_id: sesionId,
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -542,6 +557,7 @@ export function PedidoNuevoForm() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void searchProductos();
+      void loadReservadoMap();
     }, 350);
 
     return () => window.clearTimeout(timeoutId);
@@ -599,38 +615,170 @@ export function PedidoNuevoForm() {
     setCapturePreview(URL.createObjectURL(file));
   }
 
-  function addProducto(producto: ProductoSearchRow) {
-    const defaultAlmacenId = tienda?.id ?? almacenes[0]?.id ?? "";
-
-    setItems((current) => {
-      const existingItem = current.find(
-        (item) => item.producto.id === producto.id,
-      );
-
-      if (existingItem) {
-        return current.map((item) =>
-          item.producto.id === producto.id
-            ? { ...item, cantidad: item.cantidad + 1 }
-            : item,
-        );
-      }
-
-      return [...current, { producto, cantidad: 1, almacen_id: defaultAlmacenId }];
-    });
-  }
-
-  function updateItem(productoId: string, patch: Partial<PedidoItem>) {
-    setItems((current) =>
-      current.map((item) =>
-        item.producto.id === productoId ? { ...item, ...patch } : item,
+  async function loadReservadoMap() {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("vista_stock_reservado")
+      .select("producto_id, almacen_id, total_reservado");
+    if (error) return;
+    setReservadoMap(
+      buildReservadoMap(
+        (data ?? []) as Array<{
+          producto_id: string;
+          almacen_id: string;
+          total_reservado: number | string;
+        }>,
       ),
     );
   }
 
-  function removeProducto(productoId: string) {
-    setItems((current) =>
-      current.filter((item) => item.producto.id !== productoId),
+  async function addProducto(producto: ProductoSearchRow) {
+    const defaultAlmacenId = tienda?.id ?? almacenes[0]?.id ?? "";
+    if (!defaultAlmacenId || !supabase) return;
+
+    const existing = items.find((item) => item.producto.id === producto.id);
+
+    if (existing) {
+      const nuevaCantidad = existing.cantidad + 1;
+      if (existing.reservaId) {
+        const cantidadBase = toBaseQuantity(producto, nuevaCantidad);
+        const { error } = await supabase.rpc("actualizar_reserva_carrito", {
+          p_reserva_id: existing.reservaId,
+          p_cantidad_base: cantidadBase,
+        });
+        if (error) {
+          setMessage({
+            type: "error",
+            text: `No se pudo aumentar reserva: ${error.message}`,
+          });
+          return;
+        }
+      }
+      setItems((current) =>
+        current.map((item) =>
+          item.producto.id === producto.id
+            ? { ...item, cantidad: nuevaCantidad }
+            : item,
+        ),
+      );
+      await loadReservadoMap();
+      return;
+    }
+
+    const productoStockId = getStockProductId(producto);
+    const cantidadBase = toBaseQuantity(producto, 1);
+    const usuarioId = getStoredAppUser()?.id ?? null;
+    const { data, error } = await supabase.rpc("reservar_stock_carrito", {
+      p_producto_id: productoStockId,
+      p_almacen_id: defaultAlmacenId,
+      p_cantidad_base: cantidadBase,
+      p_usuario_id: usuarioId,
+      p_sesion_id: sesionIdRef.current,
+    });
+    if (error) {
+      setMessage({ type: "error", text: `No se pudo reservar: ${error.message}` });
+      return;
+    }
+    const reservaId = (data as string | null) ?? null;
+    setItems((current) => [
+      ...current,
+      { producto, cantidad: 1, almacen_id: defaultAlmacenId, reservaId },
+    ]);
+    await loadReservadoMap();
+  }
+
+  async function updateItem(productoId: string, patch: Partial<PedidoItem>) {
+    const current = items.find((item) => item.producto.id === productoId);
+    if (!current || !supabase) {
+      setItems((curr) =>
+        curr.map((item) => (item.producto.id === productoId ? { ...item, ...patch } : item)),
+      );
+      return;
+    }
+
+    const nuevaCantidad = patch.cantidad ?? current.cantidad;
+    const nuevoAlmacenId = patch.almacen_id ?? current.almacen_id;
+    const productoStockId = getStockProductId(current.producto);
+    const usuarioId = getStoredAppUser()?.id ?? null;
+
+    // Cambio de almacen: liberar reserva vieja, crear nueva en el destino.
+    if (patch.almacen_id && patch.almacen_id !== current.almacen_id) {
+      if (current.reservaId) {
+        await supabase.rpc("liberar_reserva", { p_reserva_id: current.reservaId });
+      }
+      const cantidadBase = toBaseQuantity(current.producto, nuevaCantidad);
+      const { data, error } = await supabase.rpc("reservar_stock_carrito", {
+        p_producto_id: productoStockId,
+        p_almacen_id: nuevoAlmacenId,
+        p_cantidad_base: cantidadBase,
+        p_usuario_id: usuarioId,
+        p_sesion_id: sesionIdRef.current,
+      });
+      if (error) {
+        setMessage({
+          type: "error",
+          text: `No hay stock en el almacen elegido: ${error.message}`,
+        });
+        // Re-crear la reserva original para no perderla.
+        const restore = await supabase.rpc("reservar_stock_carrito", {
+          p_producto_id: productoStockId,
+          p_almacen_id: current.almacen_id,
+          p_cantidad_base: toBaseQuantity(current.producto, current.cantidad),
+          p_usuario_id: usuarioId,
+          p_sesion_id: sesionIdRef.current,
+        });
+        setItems((curr) =>
+          curr.map((item) =>
+            item.producto.id === productoId
+              ? { ...item, reservaId: (restore.data as string | null) ?? null }
+              : item,
+          ),
+        );
+        await loadReservadoMap();
+        return;
+      }
+      setItems((curr) =>
+        curr.map((item) =>
+          item.producto.id === productoId
+            ? { ...item, ...patch, reservaId: (data as string | null) ?? null }
+            : item,
+        ),
+      );
+      await loadReservadoMap();
+      return;
+    }
+
+    // Solo cambio cantidad.
+    if (patch.cantidad !== undefined && patch.cantidad !== current.cantidad && current.reservaId) {
+      const cantidadBase = toBaseQuantity(current.producto, nuevaCantidad);
+      const { error } = await supabase.rpc("actualizar_reserva_carrito", {
+        p_reserva_id: current.reservaId,
+        p_cantidad_base: cantidadBase,
+      });
+      if (error) {
+        setMessage({
+          type: "error",
+          text: `No se pudo ajustar reserva: ${error.message}`,
+        });
+        return;
+      }
+    }
+
+    setItems((curr) =>
+      curr.map((item) =>
+        item.producto.id === productoId ? { ...item, ...patch } : item,
+      ),
     );
+    await loadReservadoMap();
+  }
+
+  async function removeProducto(productoId: string) {
+    const current = items.find((item) => item.producto.id === productoId);
+    if (current?.reservaId && supabase) {
+      await supabase.rpc("liberar_reserva", { p_reserva_id: current.reservaId });
+    }
+    setItems((curr) => curr.filter((item) => item.producto.id !== productoId));
+    await loadReservadoMap();
   }
 
   async function createQuickCliente(event?: React.FormEvent<HTMLFormElement>) {
@@ -906,6 +1054,18 @@ export function PedidoNuevoForm() {
       return;
     }
 
+    // Asociar las reservas del carrito al pedido para que persistan
+    // hasta que se procese (en_preparacion libera, cancelado libera).
+    const reservaIds = items
+      .map((item) => item.reservaId)
+      .filter((id): id is string => Boolean(id));
+    if (reservaIds.length > 0) {
+      await supabase.rpc("asociar_reservas_a_pedido", {
+        p_reserva_ids: reservaIds,
+        p_pedido_id: pedidoId,
+      });
+    }
+
     const { error: pagoError } = await supabase.from("pagos").insert({
       pedido_id: pedidoId,
       metodo: metodoPago,
@@ -978,6 +1138,14 @@ export function PedidoNuevoForm() {
   }
 
   function resetForNewSale() {
+    // Liberar reservas del carrito anterior (no asociadas a pedido).
+    if (supabase) {
+      void supabase.rpc("liberar_reservas_carrito", {
+        p_usuario_id: getStoredAppUser()?.id ?? null,
+        p_sesion_id: sesionIdRef.current,
+      });
+    }
+    sesionIdRef.current = `carrito-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setStep(1);
     setMaxStepVisited(1);
     setSelectedCliente(null);
@@ -1132,33 +1300,69 @@ export function PedidoNuevoForm() {
               {isSearchingProducts ? (
                 <p className="text-sm text-slate-500">Buscando productos...</p>
               ) : productos.length > 0 ? (
-                productos.map((producto) => (
-                  <button
-                    key={producto.id}
-                    type="button"
-                    onClick={() => addProducto(producto)}
-                    className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-left text-sm hover:bg-slate-50"
-                  >
-                    {producto.imagen_url ? (
-                      <img src={producto.imagen_url} alt="" className="h-14 w-14 shrink-0 rounded-md border border-slate-100 object-cover" />
-                    ) : (
-                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-400">IMG</span>
-                    )}
-                    <span className="min-w-0">
-                      <span className="block font-semibold text-slate-950">
-                        {producto.nombre_producto}
+                productos.map((producto) => {
+                  const stockId = getStockProductId(producto);
+                  const reservadoTienda = tienda
+                    ? getStockReservado(reservadoMap, stockId, tienda.id)
+                    : 0;
+                  const reservadoCasa = casa
+                    ? getStockReservado(reservadoMap, stockId, casa.id)
+                    : 0;
+                  const stockTiendaBase = tienda
+                    ? Math.max(0, getBaseStockByAlmacen(producto, tienda.id) - reservadoTienda)
+                    : 0;
+                  const stockCasaBase = casa
+                    ? Math.max(0, getBaseStockByAlmacen(producto, casa.id) - reservadoCasa)
+                    : 0;
+                  const dispTienda = toPresentationStock(producto, stockTiendaBase);
+                  const dispCasa = toPresentationStock(producto, stockCasaBase);
+                  const umbral = Number(producto.stock_minimo ?? STOCK_BAJO_DEFAULT);
+                  const totalDisp = dispTienda + dispCasa;
+                  const stockClass =
+                    totalDisp <= 0
+                      ? "text-red-700 font-semibold"
+                      : totalDisp <= umbral
+                        ? "text-orange-600 font-semibold"
+                        : "text-slate-600";
+                  return (
+                    <button
+                      key={producto.id}
+                      type="button"
+                      onClick={() => void addProducto(producto)}
+                      className={`flex items-start gap-3 rounded-md border p-3 text-left text-sm hover:bg-slate-50 ${
+                        totalDisp <= 0
+                          ? "border-red-200 bg-red-50/40"
+                          : totalDisp <= umbral
+                            ? "border-orange-200 bg-orange-50/40"
+                            : "border-slate-200"
+                      }`}
+                    >
+                      {producto.imagen_url ? (
+                        <img src={producto.imagen_url} alt="" className="h-14 w-14 shrink-0 rounded-md border border-slate-100 object-cover" />
+                      ) : (
+                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-400">IMG</span>
+                      )}
+                      <span className="min-w-0">
+                        <span className="block font-semibold text-slate-950">
+                          {producto.nombre_producto}
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-500">
+                          {producto.codigo_interno} · {producto.marcas?.nombre ?? "Sin marca"}
+                        </span>
+                        <span className={`mt-2 grid grid-cols-3 gap-2 text-xs ${stockClass}`}>
+                          <span>Tienda {dispTienda}</span>
+                          <span>Casa {dispCasa}</span>
+                          <span>{formatMoney(getPrecioBase(producto))}</span>
+                        </span>
+                        {totalDisp <= umbral ? (
+                          <span className="mt-1 block text-[10px] uppercase tracking-wide text-orange-600">
+                            {totalDisp <= 0 ? "Sin stock" : `Stock bajo (<= ${umbral})`}
+                          </span>
+                        ) : null}
                       </span>
-                      <span className="mt-1 block text-xs text-slate-500">
-                        {producto.codigo_interno} · {producto.marcas?.nombre ?? "Sin marca"}
-                      </span>
-                      <span className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-600">
-                        <span>Tienda {stockByName(producto, "Tienda")}</span>
-                        <span>Casa {stockByName(producto, "Casa")}</span>
-                        <span>{formatMoney(getPrecioBase(producto))}</span>
-                      </span>
-                    </span>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               ) : (
                 <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
                   No hay productos con ese criterio.

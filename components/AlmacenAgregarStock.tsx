@@ -77,6 +77,7 @@ export function AlmacenAgregarStock() {
   const [almacenIngresoId, setAlmacenIngresoId] = useState("");
   const [cantidadPresentaciones, setCantidadPresentaciones] = useState("1");
   const [unidadesSueltas, setUnidadesSueltas] = useState("0");
+  const [presentacionCompraIndex, setPresentacionCompraIndex] = useState(0);
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -86,9 +87,42 @@ export function AlmacenAgregarStock() {
     [productoIngresoId, productos],
   );
 
+  // Reset del selector de presentacion cuando cambia el producto.
+  useEffect(() => {
+    setPresentacionCompraIndex(0);
+  }, [productoIngresoId]);
+
+  // Lista de presentaciones de compra ordenada (principal primero, luego por
+  // mayor cantidad).
+  const presentacionesCompraOrdenadas = useMemo(() => {
+    if (!productoIngreso) return [];
+    const items = [...productoIngreso.producto_presentaciones_compra];
+    items.sort((a, b) => {
+      if (a.es_principal && !b.es_principal) return -1;
+      if (!a.es_principal && b.es_principal) return 1;
+      return Number(b.unidades_por_presentacion ?? 0) - Number(a.unidades_por_presentacion ?? 0);
+    });
+    return items;
+  }, [productoIngreso]);
+
+  // Jerarquia explicita para definir cuantas unidades trae cada presentacion:
+  //   1) Si el usuario eligio una presentacion de compra, usa esa.
+  //   2) Si el producto declara `unidades_equivalentes > 1` (presentacion
+  //      vinculada a base), usa esa.
+  //   3) Si hay alguna presentacion_compra (incluso unica), usa su `unidades_por_presentacion`.
+  //   4) Si la presentacion textual tiene "x N" (ej. "Pack x4"), parsea N.
+  //   5) Fallback a 1.
   const unidadesPorPresentacion = useMemo(() => {
     if (!productoIngreso) {
       return 1;
+    }
+
+    const elegida = presentacionesCompraOrdenadas[presentacionCompraIndex];
+    if (elegida) {
+      const valor = Number(elegida.unidades_por_presentacion ?? 0);
+      if (Number.isFinite(valor) && valor > 0) {
+        return valor;
+      }
     }
 
     const desdeProducto = Number(productoIngreso.unidades_equivalentes ?? 1);
@@ -96,17 +130,9 @@ export function AlmacenAgregarStock() {
       return desdeProducto;
     }
 
-    const principal =
-      productoIngreso.producto_presentaciones_compra.find((item) => item.es_principal) ??
-      productoIngreso.producto_presentaciones_compra[0];
-    const desdeCompra = Number(principal?.unidades_por_presentacion ?? 0);
-    if (Number.isFinite(desdeCompra) && desdeCompra > 0) {
-      return desdeCompra;
-    }
-
     const desdeTexto = parsePresentationUnits(productoIngreso.presentacion);
     return desdeTexto || getUnitsPerSale(productoIngreso) || 1;
-  }, [productoIngreso]);
+  }, [presentacionCompraIndex, presentacionesCompraOrdenadas, productoIngreso]);
 
   const totalIngreso = useMemo(() => {
     const presentaciones = Number(cantidadPresentaciones);
@@ -376,6 +402,19 @@ export function AlmacenAgregarStock() {
               </option>
             ))}
           </select>
+          {presentacionesCompraOrdenadas.length > 1 ? (
+            <select
+              value={presentacionCompraIndex}
+              onChange={(event) => setPresentacionCompraIndex(Number(event.target.value))}
+              className={inputClassName}
+            >
+              {presentacionesCompraOrdenadas.map((pres, index) => (
+                <option key={`${pres.nombre_presentacion}-${index}`} value={index}>
+                  {pres.nombre_presentacion} (x{pres.unidades_por_presentacion})
+                </option>
+              ))}
+            </select>
+          ) : null}
           <input type="number" min="0" step="1" value={cantidadPresentaciones} onChange={(event) => setCantidadPresentaciones(event.target.value)} placeholder="Presentaciones" className={inputClassName} />
           <input type="number" min="0" step="1" value={unidadesSueltas} onChange={(event) => setUnidadesSueltas(event.target.value)} placeholder="Unidades sueltas" className={inputClassName} />
           <button type="button" disabled={isSaving} onClick={() => void agregarCantidad()} className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">

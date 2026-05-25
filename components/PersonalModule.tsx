@@ -9,6 +9,7 @@ import { getCurrentUserProfile, getStoredAppUser, isAdmin } from "@/lib/authRole
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
+import { validateHorarioLaboral, validatePhonePe } from "@/lib/validators";
 import type {
   AppUsuario,
   PersonalAsistencia,
@@ -128,47 +129,11 @@ function getWeekRange(referenceDate = new Date()) {
   };
 }
 
-function getWeekRangeFromStart(startStr: string) {
-  // startStr is yyyy-mm-dd (Monday). Build range from it.
-  const [y, m, d] = startStr.split("-").map(Number);
-  const start = new Date(y, (m || 1) - 1, d || 1);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return {
-    start: toInputDate(start),
-    end: toInputDate(end),
-    label: `${formatDateText(toInputDate(start))} - ${formatDateText(toInputDate(end))}`,
-  };
-}
-
-function getWeekDays(startStr: string): Array<{ date: string; label: string; full: string }> {
-  const [y, m, d] = startStr.split("-").map(Number);
-  const start = new Date(y, (m || 1) - 1, d || 1);
-  start.setHours(0, 0, 0, 0);
-  const labels = ["L", "M", "Mi", "J", "V", "S", "D"];
-  const fullNames = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"];
-  return Array.from({ length: 7 }, (_, i) => {
-    const next = new Date(start);
-    next.setDate(start.getDate() + i);
-    return {
-      date: toInputDate(next),
-      label: labels[i],
-      full: fullNames[i],
-    };
-  });
-}
-
 function shiftWeek(startStr: string, deltaWeeks: number): string {
   const [y, m, d] = startStr.split("-").map(Number);
   const start = new Date(y, (m || 1) - 1, d || 1);
   start.setDate(start.getDate() + deltaWeeks * 7);
   return toInputDate(start);
-}
-
-function isFutureWeek(startStr: string): boolean {
-  const currentStart = getWeekRange().start;
-  return startStr > currentStart;
 }
 
 function toInputDate(date: Date) {
@@ -184,10 +149,6 @@ function formatDateText(value: string | null | undefined) {
 
   const [year, month, day] = value.slice(0, 10).split("-");
   return year && month && day ? `${day}-${month}-${year}` : value;
-}
-
-function formatTimeText(value: string | null | undefined) {
-  return value ? value.slice(0, 5) : "-";
 }
 
 function numberValue(value: number | null | undefined) {
@@ -262,7 +223,7 @@ export function PersonalModule() {
   const [pagos, setPagos] = useState<PersonalPago[]>([]);
   const [form, setForm] = useState<UserForm>(emptyForm);
   const [detailForm, setDetailForm] = useState<DetailForm | null>(null);
-  const [attendanceForm, setAttendanceForm] = useState<AttendanceForm>(emptyAttendanceForm);
+  const [, setAttendanceForm] = useState<AttendanceForm>(emptyAttendanceForm);
   const [discountForm, setDiscountForm] = useState<DiscountForm>(emptyDiscountForm);
   const [editingDiscountId, setEditingDiscountId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -469,6 +430,15 @@ export function PersonalModule() {
       return;
     }
 
+    const telefonoNormalizado = form.telefono ? normalizeSpaces(form.telefono) : "";
+    if (telefonoNormalizado) {
+      const phoneCheck = validatePhonePe(telefonoNormalizado);
+      if (!phoneCheck.ok) {
+        setMessage({ type: "error", text: phoneCheck.error });
+        return;
+      }
+    }
+
     setIsSaving(true);
     setMessage(null);
 
@@ -479,7 +449,7 @@ export function PersonalModule() {
       p_rol: form.rol,
       p_nombres: nombres,
       p_apellidos: normalizeSpaces(form.apellidos) || null,
-      p_telefono: normalizeSpaces(form.telefono) || null,
+      p_telefono: telefonoNormalizado || null,
       p_pago_hora: pagoHora,
       p_horas_semana: horasSemana,
       p_gastos_semana: 0,
@@ -520,6 +490,15 @@ export function PersonalModule() {
       return;
     }
 
+    const telefonoNormalizado = detailForm.telefono ? normalizeSpaces(detailForm.telefono) : "";
+    if (telefonoNormalizado) {
+      const phoneCheck = validatePhonePe(telefonoNormalizado);
+      if (!phoneCheck.ok) {
+        setMessage({ type: "error", text: phoneCheck.error });
+        return;
+      }
+    }
+
     setIsSaving(true);
     const { error } = await supabase
       .from("app_usuarios")
@@ -527,7 +506,7 @@ export function PersonalModule() {
         rol: detailForm.rol,
         nombres,
         apellidos: normalizeSpaces(detailForm.apellidos) || null,
-        telefono: normalizeSpaces(detailForm.telefono) || null,
+        telefono: telefonoNormalizado || null,
         pago_hora: pagoHora,
         horas_semana: horasSemana,
         horario_laboral: normalizeSpaces(detailForm.horario_laboral) || null,
@@ -586,36 +565,6 @@ export function PersonalModule() {
     );
   }
 
-  async function saveAttendance(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!supabase || !selectedWorker) {
-      return;
-    }
-
-    setIsSaving(true);
-    const { error } = await supabase.from("personal_asistencias").upsert(
-      {
-        usuario_id: selectedWorker.id,
-        fecha: attendanceForm.fecha,
-        hora_ingreso: attendanceForm.hora_ingreso || null,
-        hora_salida: attendanceForm.hora_salida || null,
-        productividad: Number(attendanceForm.productividad),
-        observacion: normalizeSpaces(attendanceForm.observacion) || null,
-      },
-      { onConflict: "usuario_id,fecha" },
-    );
-    setIsSaving(false);
-
-    if (error) {
-      setMessage({ type: "error", text: `No se pudo guardar asistencia: ${error.message}` });
-      return;
-    }
-
-    setMessage({ type: "success", text: "Asistencia registrada." });
-    await loadData();
-  }
-
   async function saveDiscount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -656,12 +605,20 @@ export function PersonalModule() {
 
   async function saveIngreso(fecha: string, hora: string, observacion: string) {
     if (!supabase || !selectedWorker) return;
-    setIsSaving(true);
     setMessage(null);
     // Try to preserve hora_salida + productividad if existing record exists
     const existing = historyAsistencias.find(
       (item) => item.usuario_id === selectedWorker.id && item.fecha === fecha,
     );
+    // Si ya hay salida registrada, validar que ingreso sea anterior.
+    if (hora && existing?.hora_salida) {
+      const check = validateHorarioLaboral(hora, existing.hora_salida);
+      if (!check.ok) {
+        setMessage({ type: "error", text: check.error });
+        return;
+      }
+    }
+    setIsSaving(true);
     const { error } = await supabase.from("personal_asistencias").upsert(
       {
         usuario_id: selectedWorker.id,
@@ -685,11 +642,19 @@ export function PersonalModule() {
 
   async function saveSalida(fecha: string, hora: string, productividad: number) {
     if (!supabase || !selectedWorker) return;
-    setIsSaving(true);
     setMessage(null);
     const existing = historyAsistencias.find(
       (item) => item.usuario_id === selectedWorker.id && item.fecha === fecha,
     );
+    // Validar que salida sea mayor que el ingreso del dia (no overnight).
+    if (hora && existing?.hora_ingreso) {
+      const check = validateHorarioLaboral(existing.hora_ingreso, hora);
+      if (!check.ok) {
+        setMessage({ type: "error", text: check.error });
+        return;
+      }
+    }
+    setIsSaving(true);
     const { error } = await supabase.from("personal_asistencias").upsert(
       {
         usuario_id: selectedWorker.id,
@@ -1178,7 +1143,6 @@ export function PersonalModule() {
           descuentos={descuentos}
           pagos={pagos}
           week={week}
-          attendanceForm={attendanceForm}
           discountForm={discountForm}
           editingDiscountId={editingDiscountId}
           isSaving={isSaving}
@@ -1192,13 +1156,9 @@ export function PersonalModule() {
           historyPagos={historyPagos}
           paymentFilter={paymentFilter}
           onSelectAction={selectWorkerAction}
-          onAttendanceChange={(key, value) =>
-            setAttendanceForm((current) => ({ ...current, [key]: value }))
-          }
           onDiscountChange={(key, value) =>
             setDiscountForm((current) => ({ ...current, [key]: value }))
           }
-          onSaveAttendance={saveAttendance}
           onSaveDiscount={saveDiscount}
           onEditDiscount={(item) => {
             setEditingDiscountId(item.id);
@@ -1232,7 +1192,6 @@ function WeeklyPaySection({
   descuentos,
   pagos,
   week,
-  attendanceForm,
   discountForm,
   editingDiscountId,
   isSaving,
@@ -1246,9 +1205,7 @@ function WeeklyPaySection({
   historyPagos,
   paymentFilter,
   onSelectAction,
-  onAttendanceChange,
   onDiscountChange,
-  onSaveAttendance,
   onSaveDiscount,
   onEditDiscount,
   onRegisterPayment,
@@ -1268,7 +1225,6 @@ function WeeklyPaySection({
   descuentos: PersonalDescuento[];
   pagos: PersonalPago[];
   week: ReturnType<typeof getWeekRange>;
-  attendanceForm: AttendanceForm;
   discountForm: DiscountForm;
   editingDiscountId: string | null;
   isSaving: boolean;
@@ -1282,9 +1238,7 @@ function WeeklyPaySection({
   historyPagos: PersonalPago[];
   paymentFilter: "semana" | "mes";
   onSelectAction: (worker: UsuarioInterno, action: WorkerAction) => void;
-  onAttendanceChange: (key: keyof AttendanceForm, value: string) => void;
   onDiscountChange: (key: keyof DiscountForm, value: string) => void;
-  onSaveAttendance: (event: FormEvent<HTMLFormElement>) => void;
   onSaveDiscount: (event: FormEvent<HTMLFormElement>) => void;
   onEditDiscount: (item: PersonalDescuento) => void;
   onRegisterPayment: () => void;
@@ -1452,251 +1406,6 @@ function WeeklyPaySection({
   );
 }
 
-function AttendanceBlock({
-  form,
-  asistencias,
-  isSaving,
-  onChange,
-  onSubmit,
-}: {
-  worker: UsuarioInterno;
-  form: AttendanceForm;
-  asistencias: PersonalAsistencia[];
-  isSaving: boolean;
-  onChange: (key: keyof AttendanceForm, value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  return (
-    <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,420px)_1fr]">
-      <form onSubmit={onSubmit} className="space-y-4 rounded-lg border border-slate-200 p-4">
-        <Field label="Fecha">
-          <input
-            type="date"
-            value={form.fecha}
-            onChange={(event) => onChange("fecha", event.target.value)}
-            className={inputClassName}
-          />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Ingreso">
-            <input
-              type="time"
-              value={form.hora_ingreso}
-              onChange={(event) => onChange("hora_ingreso", event.target.value)}
-              className={inputClassName}
-            />
-          </Field>
-          <Field label="Salida">
-            <input
-              type="time"
-              value={form.hora_salida}
-              onChange={(event) => onChange("hora_salida", event.target.value)}
-              className={inputClassName}
-            />
-          </Field>
-        </div>
-        <Field label="Productividad">
-          <select
-            value={form.productividad}
-            onChange={(event) => onChange("productividad", event.target.value)}
-            className={inputClassName}
-          >
-            <option value="1">1 - No la dio</option>
-            <option value="2">2 - Normal</option>
-            <option value="3">3 - Extra</option>
-          </select>
-        </Field>
-        <Field label="Observacion">
-          <textarea
-            value={form.observacion}
-            onChange={(event) => onChange("observacion", event.target.value)}
-            className="min-h-24 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
-          />
-        </Field>
-        <button
-          type="submit"
-          disabled={isSaving}
-          className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
-        >
-          {isSaving ? "Guardando..." : "Registrar"}
-        </button>
-      </form>
-
-      <HistoryList title="Asistencia de la semana">
-        {asistencias.length === 0 ? (
-          <p className="text-sm text-slate-500">Sin registros esta semana.</p>
-        ) : (
-          asistencias.map((item) => (
-            <div key={item.id} className="grid gap-1 border-b border-slate-100 py-3 text-sm last:border-0 sm:grid-cols-4">
-              <span className="font-medium text-slate-950">{formatDateText(item.fecha)}</span>
-              <span className="text-slate-600">
-                {formatTimeText(item.hora_ingreso)} - {formatTimeText(item.hora_salida)}
-              </span>
-              <span className="text-slate-600">Prod. {item.productividad}</span>
-              <span className="text-slate-500">{item.observacion || "-"}</span>
-            </div>
-          ))
-        )}
-      </HistoryList>
-    </div>
-  );
-}
-
-function DiscountBlock({
-  form,
-  descuentos,
-  editingDiscountId,
-  isSaving,
-  onChange,
-  onSubmit,
-  onEdit,
-}: {
-  form: DiscountForm;
-  descuentos: PersonalDescuento[];
-  editingDiscountId: string | null;
-  isSaving: boolean;
-  onChange: (key: keyof DiscountForm, value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onEdit: (item: PersonalDescuento) => void;
-}) {
-  return (
-    <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,420px)_1fr]">
-      <form onSubmit={onSubmit} className="space-y-4 rounded-lg border border-slate-200 p-4">
-        <Field label="Fecha">
-          <input
-            type="date"
-            value={form.fecha}
-            onChange={(event) => onChange("fecha", event.target.value)}
-            className={inputClassName}
-          />
-        </Field>
-        <Field label="Detalle">
-          <input
-            value={form.detalle}
-            onChange={(event) => onChange("detalle", event.target.value)}
-            className={inputClassName}
-          />
-        </Field>
-        <Field label="Monto">
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.monto}
-            onChange={(event) => onChange("monto", event.target.value)}
-            className={inputClassName}
-          />
-        </Field>
-        <button
-          type="submit"
-          disabled={isSaving}
-          className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
-        >
-          {isSaving ? "Guardando..." : editingDiscountId ? "Actualizar" : "Guardar"}
-        </button>
-      </form>
-
-      <HistoryList title="Lista de descuentos">
-        {descuentos.length === 0 ? (
-          <p className="text-sm text-slate-500">Sin descuentos esta semana.</p>
-        ) : (
-          descuentos.map((item) => (
-            <div
-              key={item.id}
-              className="grid gap-2 border-b border-slate-100 py-3 text-sm last:border-0 sm:grid-cols-[120px_1fr_100px_90px] sm:items-center"
-            >
-              <span className="font-medium text-slate-950">{formatDateText(item.fecha)}</span>
-              <span className="text-slate-600">{item.detalle}</span>
-              <span className="font-semibold text-slate-950">S/ {numberValue(item.monto).toFixed(2)}</span>
-              <button
-                type="button"
-                onClick={() => onEdit(item)}
-                className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700"
-              >
-                Editar
-              </button>
-            </div>
-          ))
-        )}
-      </HistoryList>
-    </div>
-  );
-}
-
-function PaymentBlock({
-  worker,
-  asistencias,
-  descuentos,
-  pagos,
-  week,
-  isSaving,
-  onRegisterPayment,
-}: {
-  worker: UsuarioInterno;
-  asistencias: PersonalAsistencia[];
-  descuentos: PersonalDescuento[];
-  pagos: PersonalPago[];
-  week: ReturnType<typeof getWeekRange>;
-  isSaving: boolean;
-  onRegisterPayment: () => void;
-}) {
-  const summary = getPaySummary(worker, asistencias, descuentos);
-  const payment = pagos.find((item) => item.usuario_id === worker.id && item.semana_inicio === week.start);
-
-  return (
-    <div className="mt-4 grid gap-4 lg:grid-cols-5">
-      <Metric label="Semana" value={week.label} />
-      <Metric label="Pago x hora" value={`S/ ${numberValue(worker.pago_hora).toFixed(2)}`} />
-      <Metric label="Horas trabajadas" value={summary.hoursForPay.toFixed(2)} />
-      <Metric label="Descuentos semana" value={`S/ ${summary.discountTotal.toFixed(2)}`} />
-      <Metric label="Monto a pagar" value={`S/ ${summary.amount.toFixed(2)}`} strong />
-      <div className="lg:col-span-5">
-        <button
-          type="button"
-          disabled={isSaving}
-          onClick={onRegisterPayment}
-          className="h-11 rounded-md bg-slate-900 px-5 text-sm font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
-        >
-          {isSaving ? "Guardando..." : payment ? "Actualizar pago" : "Registrar pago"}
-        </button>
-        {payment ? (
-          <p className="mt-2 text-sm text-emerald-700">
-            Pago registrado: S/ {numberValue(payment.monto_pagado).toFixed(2)}.
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function AccessBox({ title, text }: { title: string; text: string }) {
-  return (
-    <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
-      <h2 className="text-base font-semibold text-amber-950">{title}</h2>
-      <p className="mt-2">{text}</p>
-      <a
-        href="/login"
-        className="mt-4 inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
-      >
-        Ir al login
-      </a>
-    </section>
-  );
-}
-
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`h-12 rounded-md px-4 text-sm font-semibold ${
-        active ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-700 hover:bg-slate-100"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
 
 function ActionButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
@@ -1734,22 +1443,17 @@ function StatusPill({ active }: { active: boolean }) {
   );
 }
 
-function HistoryList({ title, children }: { title: string; children: ReactNode }) {
+function AccessBox({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 p-4">
-      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-      <div className="mt-2">{children}</div>
-    </div>
-  );
-}
-
-function Metric({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs font-medium uppercase text-slate-500">{label}</p>
-      <p className={`mt-2 text-lg ${strong ? "font-bold text-slate-950" : "font-semibold text-slate-800"}`}>
-        {value}
-      </p>
-    </div>
+    <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+      <h2 className="text-base font-semibold text-amber-950">{title}</h2>
+      <p className="mt-2">{text}</p>
+      <a
+        href="/login"
+        className="mt-4 inline-flex h-10 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
+      >
+        Ir al login
+      </a>
+    </section>
   );
 }

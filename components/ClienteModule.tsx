@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
+import { normalizePhonePe, validatePhonePe } from "@/lib/validators";
 import type { Cliente } from "@/types/database";
 
 type ClienteFormValues = {
@@ -49,7 +50,7 @@ function normalizeSpaces(value: string) {
 }
 
 function normalizeWhatsapp(value: string) {
-  return value.trim().replace(/\s+/g, "");
+  return normalizePhonePe(value);
 }
 
 function formatMoney(value: number) {
@@ -187,8 +188,9 @@ export function ClienteModule() {
       return;
     }
 
-    if (!whatsapp) {
-      setMessage({ type: "error", text: "El WhatsApp es obligatorio." });
+    const phoneCheck = validatePhonePe(whatsapp);
+    if (!phoneCheck.ok) {
+      setMessage({ type: "error", text: phoneCheck.error });
       return;
     }
 

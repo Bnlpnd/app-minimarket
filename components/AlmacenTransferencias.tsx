@@ -4,6 +4,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  getBaseStockByName,
+  getStockProductId,
+  resolveCasaTiendaIds,
+} from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
@@ -26,6 +31,13 @@ type ProductoStockRow = Producto & {
   producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
     almacenes: Pick<Almacen, "id" | "nombre"> | null;
   }>;
+  producto_base?: {
+    id: string;
+    nombre_producto?: string | null;
+    producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
+      almacenes: Pick<Almacen, "id" | "nombre"> | null;
+    }>;
+  } | null;
   producto_presentaciones_compra: Array<
     Pick<ProductoPresentacionCompra, "proveedor_id"> & {
       proveedores: Pick<Proveedor, "id" | "nombre" | "telefono"> | null;
@@ -48,7 +60,7 @@ type TransferenciaGuardada = AlmacenTransferenciaSolicitud & {
     cantidad_recibida: number | null;
     almacen_origen_id: string | null;
     almacen_destino_id: string | null;
-    productos: Pick<Producto, "id" | "nombre_producto" | "presentacion"> | null;
+    productos: Pick<Producto, "id" | "nombre_producto" | "presentacion" | "producto_base_id"> | null;
     almacen_origen: Pick<Almacen, "id" | "nombre"> | null;
     almacen_destino: Pick<Almacen, "id" | "nombre"> | null;
   }>;
@@ -77,16 +89,8 @@ function formatStock(value: number | null | undefined) {
   return Number(value ?? 0).toFixed(2).replace(/\.00$/, "");
 }
 
-function stockByName(producto: ProductoStockRow, name: string) {
-  return Number(
-    producto.producto_almacen.find(
-      (row) => row.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
-    )?.stock_actual ?? 0,
-  );
-}
-
 function getStockLevel(producto: ProductoStockRow) {
-  const negocio = stockByName(producto, "Tienda");
+  const negocio = getBaseStockByName(producto, "Tienda");
   const minimo = Number(producto.stock_minimo ?? 10);
 
   if (negocio <= 0) {
@@ -191,16 +195,50 @@ export function AlmacenTransferencias() {
     }
 
     const { data, error } = await fetchAllRows<ProductoStockRow>(query);
-    setIsLoading(false);
 
     if (error) {
+      setIsLoading(false);
       setMessage({ type: "error", text: `No se pudo cargar stock: ${error.message}` });
       setProductos([]);
       return;
     }
 
+    // Prefetch del stock del producto base para presentaciones (resolver via base).
+    const baseIds = Array.from(
+      new Set(
+        data
+          .map((p) => p.producto_base_id)
+          .filter((v): v is string => Boolean(v)),
+      ),
+    );
+
+    const baseMap = new Map<string, NonNullable<ProductoStockRow["producto_base"]>>();
+    if (baseIds.length > 0) {
+      const { data: baseRows, error: baseError } = await supabase
+        .from("productos")
+        .select("id,nombre_producto,producto_almacen(almacen_id,stock_actual,almacenes(id,nombre))")
+        .in("id", baseIds);
+      if (baseError) {
+        setIsLoading(false);
+        setMessage({ type: "error", text: `No se pudo cargar producto base: ${baseError.message}` });
+        setProductos([]);
+        return;
+      }
+      for (const row of baseRows ?? []) {
+        const baseRow = row as unknown as NonNullable<ProductoStockRow["producto_base"]>;
+        baseMap.set(baseRow.id, baseRow);
+      }
+    }
+
+    const merged = data.map((producto) => {
+      if (!producto.producto_base_id) return producto;
+      const base = baseMap.get(producto.producto_base_id);
+      return base ? { ...producto, producto_base: base } : producto;
+    });
+
+    setIsLoading(false);
     setProductos(
-      data.filter((producto) =>
+      merged.filter((producto) =>
         matchesSearch(search, [
           producto.codigo_interno,
           producto.nombre_producto,
@@ -229,7 +267,7 @@ export function AlmacenTransferencias() {
             cantidad_recibida,
             almacen_origen_id,
             almacen_destino_id,
-            productos(id,nombre_producto,presentacion),
+            productos(id,nombre_producto,presentacion,producto_base_id),
             almacen_origen:almacenes!almacen_transferencias_items_almacen_origen_id_fkey(id,nombre),
             almacen_destino:almacenes!almacen_transferencias_items_almacen_destino_id_fkey(id,nombre)
           )
@@ -308,11 +346,7 @@ export function AlmacenTransferencias() {
       return;
     }
 
-    const casaId = almacenes.find((item) => item.nombre.toLowerCase() === "casa")?.id ?? null;
-    const tiendaId =
-      almacenes.find((item) => item.nombre.toLowerCase() === "tienda")?.id ??
-      almacenes.find((item) => item.nombre.toLowerCase() === "negocio")?.id ??
-      null;
+    const { casaId, tiendaId } = resolveCasaTiendaIds(almacenes);
 
     if (!casaId || !tiendaId) {
       setMessage({ type: "error", text: "No se encontraron almacenes Casa y Tienda." });
@@ -440,11 +474,7 @@ export function AlmacenTransferencias() {
       return;
     }
 
-    const casaId = almacenes.find((item) => item.nombre.toLowerCase() === "casa")?.id ?? null;
-    const tiendaId =
-      almacenes.find((item) => item.nombre.toLowerCase() === "tienda")?.id ??
-      almacenes.find((item) => item.nombre.toLowerCase() === "negocio")?.id ??
-      null;
+    const { casaId, tiendaId } = resolveCasaTiendaIds(almacenes);
 
     setIsSaving(true);
     for (const item of solicitud.almacen_transferencias_items) {
@@ -459,8 +489,13 @@ export function AlmacenTransferencias() {
         setMessage({ type: "error", text: "Faltan almacenes Casa y Tienda para confirmar." });
         return;
       }
+      // Resolver al producto base: el stock real vive ahi, no en la presentacion.
+      const productoStockId = getStockProductId({
+        id: item.productos.id,
+        producto_base_id: item.productos.producto_base_id ?? null,
+      });
       const result = await supabase.rpc("transferir_stock", {
-        p_producto_id: item.productos.id,
+        p_producto_id: productoStockId,
         p_almacen_origen_id: origenId,
         p_almacen_destino_id: destinoId,
         p_cantidad: cantidad,
@@ -617,8 +652,8 @@ function ProductRows({ productos, side, onTransfer, onPedido, isLoading }: { pro
   return (
     <div className="divide-y divide-slate-100">
       {productos.map((producto) => {
-        const negocio = stockByName(producto, "Tienda");
-        const casa = stockByName(producto, "Casa");
+        const negocio = getBaseStockByName(producto, "Tienda");
+        const casa = getBaseStockByName(producto, "Casa");
         const principal = proveedorPrincipal(producto);
         return (
           <article key={`${side}-${producto.id}`} className="grid gap-3 p-4 md:grid-cols-[1fr_110px_180px] md:items-center">

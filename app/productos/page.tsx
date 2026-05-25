@@ -8,6 +8,7 @@ import { Layout } from "@/components/Layout";
 import { ProductoTable } from "@/components/ProductoTable";
 import type { ProductoConRelaciones } from "@/components/ProductoTable";
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
+import { getBaseStockByName } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
@@ -41,18 +42,11 @@ function buildQuickValues(productos: ProductoConRelaciones[]) {
       {
         precio_venta: String(Number(producto.precio_venta ?? 1).toFixed(2)),
         stock_minimo: String(Number(producto.stock_minimo ?? 10)),
-        stock_tienda: String(getStockByName(producto, "Tienda")),
-        stock_casa: String(getStockByName(producto, "Casa")),
+        stock_tienda: String(getBaseStockByName(producto, "Tienda")),
+        stock_casa: String(getBaseStockByName(producto, "Casa")),
       },
     ]),
   );
-}
-
-function getStockByName(producto: ProductoConRelaciones, name: string) {
-  const row = producto.producto_almacen?.find(
-    (stock) => stock.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
-  );
-  return Number(row?.stock_actual ?? 0);
 }
 
 function getAlmacenIdByName(
@@ -263,9 +257,9 @@ export default function ProductosPage() {
       ) {
         return false;
       }
-      if (showStockTienda && getStockByName(producto, "Tienda") <= 0) return false;
-      if (showStockCasa && getStockByName(producto, "Casa") <= 0) return false;
-      if (showStockBajo && producto.stock_minimo != null && getStockByName(producto, "Tienda") > producto.stock_minimo) return false;
+      if (showStockTienda && getBaseStockByName(producto, "Tienda") <= 0) return false;
+      if (showStockCasa && getBaseStockByName(producto, "Casa") <= 0) return false;
+      if (showStockBajo && producto.stock_minimo != null && getBaseStockByName(producto, "Tienda") > producto.stock_minimo) return false;
       return true;
     });
     const from = (nextPage - 1) * PAGE_SIZE;

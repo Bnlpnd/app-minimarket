@@ -3,13 +3,22 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import { getBaseStockByAlmacen, getStockProductId } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Almacen, Producto, ProductoAlmacen } from "@/types/database";
 
-type ProductoRow = Pick<Producto, "id" | "codigo_interno" | "nombre_producto"> & {
+type ProductoRow = Pick<
+  Producto,
+  "id" | "codigo_interno" | "nombre_producto" | "producto_base_id"
+> & {
   producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual">>;
+  producto_base?: {
+    id: string;
+    nombre_producto?: string | null;
+    producto_almacen: Array<Pick<ProductoAlmacen, "almacen_id" | "stock_actual">>;
+  } | null;
 };
 
 type Message = {
@@ -73,19 +82,54 @@ export function AlmacenAjustes() {
     const { data, error } = await fetchAllRows<ProductoRow>(
       supabase
       .from("productos")
-      .select("id,codigo_interno,nombre_producto,producto_almacen(almacen_id,stock_actual)")
+      .select("id,codigo_interno,nombre_producto,producto_base_id,producto_almacen(almacen_id,stock_actual)")
       .eq("activo", true)
       .order("nombre_producto")
     );
-    setIsLoading(false);
 
     if (error) {
+      setIsLoading(false);
       setMessage({ type: "error", text: `No se buscaron productos: ${error.message}` });
       return;
     }
 
+    // Prefetch del producto base para resolver stock real al ajustar presentaciones.
+    const baseIds = Array.from(
+      new Set(
+        data
+          .map((p) => p.producto_base_id)
+          .filter((v): v is string => Boolean(v)),
+      ),
+    );
+    const baseMap = new Map<string, NonNullable<ProductoRow["producto_base"]>>();
+    if (baseIds.length > 0) {
+      const { data: baseRows, error: baseError } = await supabase
+        .from("productos")
+        .select("id,nombre_producto,producto_almacen(almacen_id,stock_actual)")
+        .in("id", baseIds);
+      if (baseError) {
+        setIsLoading(false);
+        setMessage({
+          type: "error",
+          text: `No se cargo producto base: ${baseError.message}`,
+        });
+        return;
+      }
+      for (const row of baseRows ?? []) {
+        const baseRow = row as unknown as NonNullable<ProductoRow["producto_base"]>;
+        baseMap.set(baseRow.id, baseRow);
+      }
+    }
+
+    const merged = data.map((p) => {
+      if (!p.producto_base_id) return p;
+      const base = baseMap.get(p.producto_base_id);
+      return base ? { ...p, producto_base: base } : p;
+    });
+
+    setIsLoading(false);
     setProductos(
-      data
+      merged
         .filter((producto) =>
           matchesSearch(search, [producto.codigo_interno, producto.nombre_producto]),
         )
@@ -112,10 +156,8 @@ export function AlmacenAjustes() {
   );
 
   const stockActual = useMemo(() => {
-    return Number(
-      producto?.producto_almacen.find((stock) => stock.almacen_id === almacenId)
-        ?.stock_actual ?? 0,
-    );
+    if (!producto) return 0;
+    return getBaseStockByAlmacen(producto, almacenId);
   }, [almacenId, producto]);
 
   const diferencia = useMemo(() => {
@@ -145,8 +187,9 @@ export function AlmacenAjustes() {
 
     setIsSaving(true);
     setMessage(null);
+    const productoStockId = producto ? getStockProductId(producto) : productoId;
     const { error } = await supabase.rpc("ajustar_stock", {
-      p_producto_id: productoId,
+      p_producto_id: productoStockId,
       p_almacen_id: almacenId,
       p_stock_contado: parsedStock,
       p_observacion: obs || null,

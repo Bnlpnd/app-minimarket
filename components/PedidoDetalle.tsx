@@ -78,32 +78,49 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
       return;
     }
 
-    const ids = [
+    // Las columnas `app_*_por_id` son las que se llenan por el flujo actual.
+    // Las legacy `*_por_id` apuntan a usuarios_perfil (FK a auth.users) y suelen
+    // estar vacias. Si existen las usamos como fallback.
+    const appIds = [
+      pedidoData.app_registrado_por_id,
+      pedidoData.app_preparado_por_id,
+      pedidoData.app_entregado_por_id,
+    ].filter(Boolean) as string[];
+    const legacyIds = [
       pedidoData.registrado_por_id,
       pedidoData.preparado_por_id,
       pedidoData.entregado_por_id,
     ].filter(Boolean) as string[];
 
-    if (ids.length === 0) {
+    const all = Array.from(new Set([...appIds, ...legacyIds]));
+    if (all.length === 0) {
       setUsuarios({});
       return;
     }
 
-    const { data, error } = await supabase
-      .from("usuarios_perfil")
-      .select("id, nombres, apellidos")
-      .in("id", ids);
+    const merged: Record<string, UsuarioPerfil> = {};
 
-    if (error) {
-      setUsuarios({});
-      return;
+    if (appIds.length > 0) {
+      const { data } = await supabase
+        .from("app_usuarios")
+        .select("id, nombres, apellidos")
+        .in("id", appIds);
+      for (const u of (data ?? []) as UsuarioPerfil[]) {
+        merged[u.id] = u;
+      }
     }
 
-    setUsuarios(
-      Object.fromEntries(
-        ((data ?? []) as UsuarioPerfil[]).map((usuario) => [usuario.id, usuario]),
-      ),
-    );
+    if (legacyIds.length > 0) {
+      const { data } = await supabase
+        .from("usuarios_perfil")
+        .select("id, nombres, apellidos")
+        .in("id", legacyIds);
+      for (const u of (data ?? []) as UsuarioPerfil[]) {
+        if (!merged[u.id]) merged[u.id] = u;
+      }
+    }
+
+    setUsuarios(merged);
   }, []);
 
   const loadPedido = useCallback(async () => {
@@ -478,25 +495,25 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
             <Info
               label="Registrado por"
               value={getUserName(
-                pedido.registrado_por_id
-                  ? usuarios[pedido.registrado_por_id]
-                  : undefined,
+                usuarios[
+                  pedido.app_registrado_por_id ?? pedido.registrado_por_id ?? ""
+                ],
               )}
             />
             <Info
               label="Preparado por"
               value={getUserName(
-                pedido.preparado_por_id
-                  ? usuarios[pedido.preparado_por_id]
-                  : undefined,
+                usuarios[
+                  pedido.app_preparado_por_id ?? pedido.preparado_por_id ?? ""
+                ],
               )}
             />
             <Info
               label="Entregado por"
               value={getUserName(
-                pedido.entregado_por_id
-                  ? usuarios[pedido.entregado_por_id]
-                  : undefined,
+                usuarios[
+                  pedido.app_entregado_por_id ?? pedido.entregado_por_id ?? ""
+                ],
               )}
             />
           </Panel>
