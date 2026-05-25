@@ -338,6 +338,8 @@ export interface AlmacenTransferenciaItem {
   producto_id: string;
   cantidad_solicitada: number;
   cantidad_recibida: number | null;
+  almacen_origen_id: string | null;
+  almacen_destino_id: string | null;
   created_at: string;
   updated_at: string;
 }

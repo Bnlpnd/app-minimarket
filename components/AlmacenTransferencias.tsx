@@ -33,9 +33,12 @@ type ProductoStockRow = Producto & {
   >;
 };
 
+type TransferDireccion = "casa_a_negocio" | "negocio_a_casa";
+
 type CartItem = {
   producto: ProductoStockRow;
   cantidad: string;
+  direccion?: TransferDireccion;
 };
 
 type TransferenciaGuardada = AlmacenTransferenciaSolicitud & {
@@ -43,9 +46,21 @@ type TransferenciaGuardada = AlmacenTransferenciaSolicitud & {
     id: string;
     cantidad_solicitada: number;
     cantidad_recibida: number | null;
+    almacen_origen_id: string | null;
+    almacen_destino_id: string | null;
     productos: Pick<Producto, "id" | "nombre_producto" | "presentacion"> | null;
+    almacen_origen: Pick<Almacen, "id" | "nombre"> | null;
+    almacen_destino: Pick<Almacen, "id" | "nombre"> | null;
   }>;
 };
+
+function directionLabel(direccion: TransferDireccion) {
+  return direccion === "casa_a_negocio" ? "Casa -> Negocio" : "Negocio -> Casa";
+}
+
+function defaultDireccionForSide(side: "negocio" | "casa"): TransferDireccion {
+  return side === "casa" ? "casa_a_negocio" : "negocio_a_casa";
+}
 
 type Message = {
   type: "success" | "error";
@@ -212,7 +227,11 @@ export function AlmacenTransferencias() {
             id,
             cantidad_solicitada,
             cantidad_recibida,
-            productos(id,nombre_producto,presentacion)
+            almacen_origen_id,
+            almacen_destino_id,
+            productos(id,nombre_producto,presentacion),
+            almacen_origen:almacenes!almacen_transferencias_items_almacen_origen_id_fkey(id,nombre),
+            almacen_destino:almacenes!almacen_transferencias_items_almacen_destino_id_fkey(id,nombre)
           )
         `,
       )
@@ -240,14 +259,23 @@ export function AlmacenTransferencias() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, categoriaId, subcategoriaId]);
 
-  function addToCart(type: "transfer" | "pedido", producto: ProductoStockRow) {
+  function addToCart(
+    type: "transfer" | "pedido",
+    producto: ProductoStockRow,
+    direccion?: TransferDireccion,
+  ) {
     const setter = type === "transfer" ? setTransferCart : setPedidoCart;
     setter((current) => {
       const exists = current.find((item) => item.producto.id === producto.id);
       if (exists) {
+        if (type === "transfer" && direccion && exists.direccion !== direccion) {
+          return current.map((item) =>
+            item.producto.id === producto.id ? { ...item, direccion } : item,
+          );
+        }
         return current;
       }
-      return [...current, { producto, cantidad: "1" }];
+      return [...current, { producto, cantidad: "1", direccion: type === "transfer" ? direccion ?? "casa_a_negocio" : undefined }];
     });
   }
 
@@ -255,6 +283,12 @@ export function AlmacenTransferencias() {
     const setter = type === "transfer" ? setTransferCart : setPedidoCart;
     setter((current) =>
       current.map((item) => (item.producto.id === productoId ? { ...item, cantidad } : item)),
+    );
+  }
+
+  function setCartDireccion(productoId: string, direccion: TransferDireccion) {
+    setTransferCart((current) =>
+      current.map((item) => (item.producto.id === productoId ? { ...item, direccion } : item)),
     );
   }
 
@@ -274,6 +308,17 @@ export function AlmacenTransferencias() {
       return;
     }
 
+    const casaId = almacenes.find((item) => item.nombre.toLowerCase() === "casa")?.id ?? null;
+    const tiendaId =
+      almacenes.find((item) => item.nombre.toLowerCase() === "tienda")?.id ??
+      almacenes.find((item) => item.nombre.toLowerCase() === "negocio")?.id ??
+      null;
+
+    if (!casaId || !tiendaId) {
+      setMessage({ type: "error", text: "No se encontraron almacenes Casa y Tienda." });
+      return;
+    }
+
     setIsSaving(true);
     const solicitud = await supabase
       .from("almacen_transferencias_solicitudes")
@@ -288,11 +333,18 @@ export function AlmacenTransferencias() {
     }
 
     const solicitudId = solicitud.data.id as string;
-    const items = transferCart.map((item) => ({
-      solicitud_id: solicitudId,
-      producto_id: item.producto.id,
-      cantidad_solicitada: Number(item.cantidad),
-    }));
+    const items = transferCart.map((item) => {
+      const direccion = item.direccion ?? "casa_a_negocio";
+      const origenId = direccion === "casa_a_negocio" ? casaId : tiendaId;
+      const destinoId = direccion === "casa_a_negocio" ? tiendaId : casaId;
+      return {
+        solicitud_id: solicitudId,
+        producto_id: item.producto.id,
+        cantidad_solicitada: Number(item.cantidad),
+        almacen_origen_id: origenId,
+        almacen_destino_id: destinoId,
+      };
+    });
     const result = await supabase.from("almacen_transferencias_items").insert(items);
     setIsSaving(false);
 
@@ -301,13 +353,24 @@ export function AlmacenTransferencias() {
       return;
     }
 
-    const mensaje = [
-      "Solicitud de transferencia Casa -> Negocio",
-      "",
-      ...transferCart.map((item) => `- ${item.cantidad} ${item.producto.presentacion ?? ""} ${item.producto.nombre_producto}`),
-    ].join("\n");
+    const grupos = new Map<TransferDireccion, CartItem[]>();
+    for (const item of transferCart) {
+      const direccion = item.direccion ?? "casa_a_negocio";
+      const lista = grupos.get(direccion) ?? [];
+      lista.push(item);
+      grupos.set(direccion, lista);
+    }
 
-    window.open(buildWhatsAppUrl(almacenWhatsapp, mensaje), "_blank", "noopener,noreferrer");
+    const partes: string[] = ["Solicitud de transferencia entre almacenes", ""];
+    for (const [direccion, lista] of grupos) {
+      partes.push(directionLabel(direccion));
+      for (const item of lista) {
+        partes.push(`- ${item.cantidad} ${item.producto.presentacion ?? ""} ${item.producto.nombre_producto}`);
+      }
+      partes.push("");
+    }
+
+    window.open(buildWhatsAppUrl(almacenWhatsapp, partes.join("\n")), "_blank", "noopener,noreferrer");
     setTransferCart([]);
     setMessage({ type: "success", text: "Solicitud de transferencia guardada y WhatsApp generado." });
     await loadSolicitudes();
@@ -377,14 +440,11 @@ export function AlmacenTransferencias() {
       return;
     }
 
-    const casaId = almacenes.find((item) => item.nombre.toLowerCase() === "casa")?.id;
+    const casaId = almacenes.find((item) => item.nombre.toLowerCase() === "casa")?.id ?? null;
     const tiendaId =
       almacenes.find((item) => item.nombre.toLowerCase() === "tienda")?.id ??
-      almacenes.find((item) => item.nombre.toLowerCase() === "negocio")?.id;
-    if (!casaId || !tiendaId) {
-      setMessage({ type: "error", text: "No se encontraron almacenes Casa y Tienda." });
-      return;
-    }
+      almacenes.find((item) => item.nombre.toLowerCase() === "negocio")?.id ??
+      null;
 
     setIsSaving(true);
     for (const item of solicitud.almacen_transferencias_items) {
@@ -392,10 +452,17 @@ export function AlmacenTransferencias() {
       if (!item.productos?.id || cantidad <= 0) {
         continue;
       }
+      const origenId = item.almacen_origen_id ?? casaId;
+      const destinoId = item.almacen_destino_id ?? tiendaId;
+      if (!origenId || !destinoId) {
+        setIsSaving(false);
+        setMessage({ type: "error", text: "Faltan almacenes Casa y Tienda para confirmar." });
+        return;
+      }
       const result = await supabase.rpc("transferir_stock", {
         p_producto_id: item.productos.id,
-        p_almacen_origen_id: casaId,
-        p_almacen_destino_id: tiendaId,
+        p_almacen_origen_id: origenId,
+        p_almacen_destino_id: destinoId,
         p_cantidad: cantidad,
         p_observacion: `Confirmacion solicitud ${solicitud.id.slice(0, 8)}`,
         p_usuario_id: null,
@@ -461,17 +528,17 @@ export function AlmacenTransferencias() {
 
       <section className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <Header title="Negocio" description="Stock en tienda y minimo del producto." />
+          <Header title="Negocio" description="Stock en tienda. Transferir manda a Casa." />
           <ProductRows productos={filteredProductos} side="negocio" onTransfer={addToCart} onPedido={addToCart} isLoading={isLoading} />
         </div>
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <Header title="Casa" description="Stock disponible para enviar al negocio." />
+          <Header title="Casa" description="Stock en deposito. Transferir manda al Negocio." />
           <ProductRows productos={filteredProductos} side="casa" onTransfer={addToCart} onPedido={addToCart} isLoading={isLoading} />
         </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <CartPanel title="Lista para transferir" items={transferCart} type="transfer" onChange={updateCart} onRemove={removeCart} onSave={saveTransferRequest} isSaving={isSaving} button="Enviar WhatsApp a almacen" />
+        <CartPanel title="Lista para transferir" items={transferCart} type="transfer" onChange={updateCart} onRemove={removeCart} onSave={saveTransferRequest} isSaving={isSaving} button="Enviar WhatsApp a almacen" onChangeDireccion={setCartDireccion} />
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid gap-3 md:grid-cols-2">
             <select value={pedidoProveedorId} onChange={(event) => setPedidoProveedorId(event.target.value)} className={inputClassName}>
@@ -505,20 +572,25 @@ export function AlmacenTransferencias() {
                 ) : null}
               </div>
               <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {solicitud.almacen_transferencias_items.map((item) => (
-                  <div key={item.id} className="rounded-md border border-slate-200 p-3 text-sm">
-                    <p className="font-medium text-slate-950">{item.productos?.nombre_producto}</p>
-                    <p className="text-xs text-slate-500">Solicitado: {formatStock(item.cantidad_solicitada)}</p>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      defaultValue={item.cantidad_recibida ?? item.cantidad_solicitada}
-                      onBlur={(event) => void updateReceived(item.id, event.target.value)}
-                      className="mt-2 h-9 w-full rounded-md border border-slate-300 px-2 text-sm"
-                    />
-                  </div>
-                ))}
+                {solicitud.almacen_transferencias_items.map((item) => {
+                  const origen = item.almacen_origen?.nombre ?? "?";
+                  const destino = item.almacen_destino?.nombre ?? "?";
+                  return (
+                    <div key={item.id} className="rounded-md border border-slate-200 p-3 text-sm">
+                      <p className="font-medium text-slate-950">{item.productos?.nombre_producto}</p>
+                      <p className="text-xs text-slate-500">{origen} -&gt; {destino}</p>
+                      <p className="text-xs text-slate-500">Solicitado: {formatStock(item.cantidad_solicitada)}</p>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue={item.cantidad_recibida ?? item.cantidad_solicitada}
+                        onBlur={(event) => void updateReceived(item.id, event.target.value)}
+                        className="mt-2 h-9 w-full rounded-md border border-slate-300 px-2 text-sm"
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </article>
           ))}
@@ -537,10 +609,11 @@ function Header({ title, description }: { title: string; description: string }) 
   );
 }
 
-function ProductRows({ productos, side, onTransfer, onPedido, isLoading }: { productos: ProductoStockRow[]; side: "negocio" | "casa"; onTransfer: (type: "transfer" | "pedido", producto: ProductoStockRow) => void; onPedido: (type: "transfer" | "pedido", producto: ProductoStockRow) => void; isLoading: boolean }) {
+function ProductRows({ productos, side, onTransfer, onPedido, isLoading }: { productos: ProductoStockRow[]; side: "negocio" | "casa"; onTransfer: (type: "transfer" | "pedido", producto: ProductoStockRow, direccion?: TransferDireccion) => void; onPedido: (type: "transfer" | "pedido", producto: ProductoStockRow) => void; isLoading: boolean }) {
   if (isLoading) {
     return <p className="p-4 text-sm text-slate-500">Cargando productos...</p>;
   }
+  const direccionDefault = defaultDireccionForSide(side);
   return (
     <div className="divide-y divide-slate-100">
       {productos.map((producto) => {
@@ -560,7 +633,7 @@ function ProductRows({ productos, side, onTransfer, onPedido, isLoading }: { pro
               {side === "negocio" ? <p className="text-xs text-slate-500">Min {formatStock(producto.stock_minimo)}</p> : null}
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => onTransfer("transfer", producto)} className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700">Transferir</button>
+              <button type="button" onClick={() => onTransfer("transfer", producto, direccionDefault)} className="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700" title={`Enviar ${directionLabel(direccionDefault)}`}>Transferir</button>
               <button type="button" onClick={() => onPedido("pedido", producto)} className="h-9 rounded-md bg-slate-900 px-3 text-xs font-medium text-white">Hacer pedido</button>
             </div>
           </article>
@@ -571,14 +644,26 @@ function ProductRows({ productos, side, onTransfer, onPedido, isLoading }: { pro
   );
 }
 
-function CartPanel({ title, items, type, onChange, onRemove, onSave, isSaving, button, embedded }: { title: string; items: CartItem[]; type: "transfer" | "pedido"; onChange: (type: "transfer" | "pedido", productoId: string, cantidad: string) => void; onRemove: (type: "transfer" | "pedido", productoId: string) => void; onSave: () => void; isSaving: boolean; button: string; embedded?: boolean }) {
+function CartPanel({ title, items, type, onChange, onRemove, onSave, isSaving, button, embedded, onChangeDireccion }: { title: string; items: CartItem[]; type: "transfer" | "pedido"; onChange: (type: "transfer" | "pedido", productoId: string, cantidad: string) => void; onRemove: (type: "transfer" | "pedido", productoId: string) => void; onSave: () => void; isSaving: boolean; button: string; embedded?: boolean; onChangeDireccion?: (productoId: string, direccion: TransferDireccion) => void }) {
+  const isTransfer = type === "transfer";
   return (
     <section className={embedded ? "mt-4" : "rounded-lg border border-slate-200 bg-white p-4 shadow-sm"}>
       <h2 className="text-base font-semibold text-slate-950">{title}</h2>
       <div className="mt-3 space-y-2">
         {items.map((item) => (
-          <div key={item.producto.id} className="grid gap-2 rounded-md border border-slate-200 p-3 text-sm md:grid-cols-[1fr_110px_80px] md:items-center">
+          <div key={item.producto.id} className={`grid gap-2 rounded-md border border-slate-200 p-3 text-sm md:items-center ${isTransfer ? "md:grid-cols-[1fr_180px_110px_80px]" : "md:grid-cols-[1fr_110px_80px]"}`}>
             <span className="font-medium text-slate-950">{item.producto.nombre_producto}</span>
+            {isTransfer ? (
+              <select
+                value={item.direccion ?? "casa_a_negocio"}
+                onChange={(event) => onChangeDireccion?.(item.producto.id, event.target.value as TransferDireccion)}
+                className="h-9 rounded-md border border-slate-300 px-2 text-xs"
+                title="Direccion de la transferencia"
+              >
+                <option value="casa_a_negocio">Casa -&gt; Negocio</option>
+                <option value="negocio_a_casa">Negocio -&gt; Casa</option>
+              </select>
+            ) : null}
             <input type="number" min="0.01" step="0.01" value={item.cantidad} onChange={(event) => onChange(type, item.producto.id, event.target.value)} className="h-9 rounded-md border border-slate-300 px-2 text-sm" />
             <button type="button" onClick={() => onRemove(type, item.producto.id)} className="h-9 rounded-md border border-red-200 px-2 text-xs font-medium text-red-700">Quitar</button>
           </div>
