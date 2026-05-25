@@ -63,6 +63,9 @@ export function PreparacionModule() {
     }
 
     setIsLoading(true);
+    // Solo cargamos pedidos en estados activos. Los entregados salen de la
+    // cola y, si quedaron a credito, su cobro se gestiona desde el modulo
+    // de cliente (no aqui).
     const pedidosResult = await supabase
       .from("pedidos")
       .select(
@@ -77,7 +80,6 @@ export function PreparacionModule() {
         "pago_validado",
         "en_preparacion",
         "listo_para_recoger",
-        "entregado",
       ])
       .order("fecha_recojo", { ascending: true });
 
@@ -88,15 +90,7 @@ export function PreparacionModule() {
       });
       setPedidos([]);
     } else {
-      const nextPedidos = ((pedidosResult.data ?? []) as PedidoPreparacion[]).filter((pedido) => {
-        // entregado: solo mantener si aun queda saldo por cobrar
-        if (pedido.estado === "entregado") {
-          return pedido.estado_pago === "debe";
-        }
-        // El resto (pendiente, pago_enviado, pago_validado, en_preparacion,
-        // listo_para_recoger) entra siempre, incluidos los a credito.
-        return true;
-      });
+      const nextPedidos = (pedidosResult.data ?? []) as PedidoPreparacion[];
       setPedidos(nextPedidos);
 
       const targetPedido = targetPedidoId
@@ -104,6 +98,16 @@ export function PreparacionModule() {
         : null;
       if (targetPedido) {
         void loadDetalle(targetPedido);
+      } else {
+        // Si el pedido seleccionado ya no esta en la cola (fue entregado o
+        // cambio fuera de los estados activos), limpia el panel derecho.
+        setSelectedPedido((current) => {
+          if (current && !nextPedidos.find((p) => p.id === current.id)) {
+            setDetalles([]);
+            return null;
+          }
+          return current;
+        });
       }
     }
 
@@ -401,16 +405,19 @@ export function PreparacionModule() {
     }
 
     if (selectedPedido.estado_pago === "debe") {
-      setMessage({ type: "success", text: "Pedido entregado. El cliente aun debe parte del pago." });
-      const updated: PedidoPreparacion = { ...selectedPedido, estado: "entregado" };
-      setSelectedPedido(updated);
-      await loadPedidos();
+      setMessage({
+        type: "success",
+        text:
+          "Pedido entregado a credito. Cobra el saldo desde el modulo del cliente.",
+      });
     } else {
       setMessage({ type: "success", text: "Pedido marcado como entregado." });
-      setSelectedPedido(null);
-      setDetalles([]);
-      await loadPedidos();
     }
+    // Limpia seleccion y recarga. loadPedidos quita el entregado de la cola
+    // y limpia automaticamente el panel derecho si quedo en seleccion stale.
+    setSelectedPedido(null);
+    setDetalles([]);
+    await loadPedidos();
   }
 
   return (
