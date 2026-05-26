@@ -9,6 +9,7 @@ import { Layout } from "@/components/Layout";
 import { getStoredAppUser } from "@/lib/authRoles";
 import { formatDate, formatTime } from "@/lib/dateUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { validateHorarioLaboral } from "@/lib/validators";
 import type {
   AppUsuario,
   PersonalAsistencia,
@@ -50,6 +51,14 @@ function hoursBetween(start: string | null | undefined, end: string | null | und
   return (et - st) / 60;
 }
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nowHHMM() {
+  return new Date().toTimeString().slice(0, 5);
+}
+
 function getWeekRange() {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
@@ -74,6 +83,11 @@ export default function MisDatosPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [isMarking, setIsMarking] = useState<"ingreso" | "salida" | null>(null);
 
   useEffect(() => {
     const stored = getStoredAppUser();
@@ -146,6 +160,109 @@ export default function MisDatosPage() {
     return Math.max(0, base - descuentosSemana);
   }, [data.trabajador, descuentosSemana, horasSemanaReales]);
 
+  const asistenciaHoy = useMemo(() => {
+    const hoy = todayIso();
+    return data.asistencias.find((a) => a.fecha === hoy) ?? null;
+  }, [data.asistencias]);
+
+  async function marcarIngreso() {
+    if (!supabase || !data.trabajador) return;
+    setActionMessage(null);
+
+    // Si ya hay hora_ingreso registrada hoy, no permitir reescritura.
+    if (asistenciaHoy?.hora_ingreso) {
+      setActionMessage({
+        type: "error",
+        text: `Ya marcaste tu ingreso hoy a las ${asistenciaHoy.hora_ingreso.slice(0, 5)}.`,
+      });
+      return;
+    }
+
+    const fecha = todayIso();
+    const hora = nowHHMM();
+
+    // Si ya hay salida previa (edge case raro), validar que ingreso quede antes.
+    if (asistenciaHoy?.hora_salida) {
+      const check = validateHorarioLaboral(hora, asistenciaHoy.hora_salida);
+      if (!check.ok) {
+        setActionMessage({ type: "error", text: check.error });
+        return;
+      }
+    }
+
+    setIsMarking("ingreso");
+    const { error } = await supabase.from("personal_asistencias").upsert(
+      {
+        usuario_id: data.trabajador.id,
+        fecha,
+        hora_ingreso: hora,
+        hora_salida: asistenciaHoy?.hora_salida ?? null,
+        productividad: asistenciaHoy?.productividad ?? 2,
+        observacion: asistenciaHoy?.observacion ?? null,
+      },
+      { onConflict: "usuario_id,fecha" },
+    );
+    setIsMarking(null);
+
+    if (error) {
+      setActionMessage({ type: "error", text: `No se registro: ${error.message}` });
+      return;
+    }
+    setActionMessage({ type: "success", text: `Ingreso registrado a las ${hora}.` });
+    await loadData(data.trabajador.id);
+  }
+
+  async function marcarSalida() {
+    if (!supabase || !data.trabajador) return;
+    setActionMessage(null);
+
+    if (!asistenciaHoy?.hora_ingreso) {
+      setActionMessage({
+        type: "error",
+        text: "Primero marca tu ingreso del dia.",
+      });
+      return;
+    }
+
+    if (asistenciaHoy.hora_salida) {
+      setActionMessage({
+        type: "error",
+        text: `Ya marcaste tu salida hoy a las ${asistenciaHoy.hora_salida.slice(0, 5)}.`,
+      });
+      return;
+    }
+
+    const fecha = todayIso();
+    const hora = nowHHMM();
+
+    const check = validateHorarioLaboral(asistenciaHoy.hora_ingreso, hora);
+    if (!check.ok) {
+      setActionMessage({ type: "error", text: check.error });
+      return;
+    }
+
+    setIsMarking("salida");
+    const { error } = await supabase.from("personal_asistencias").upsert(
+      {
+        usuario_id: data.trabajador.id,
+        fecha,
+        hora_ingreso: asistenciaHoy.hora_ingreso,
+        hora_salida: hora,
+        productividad: asistenciaHoy.productividad ?? 2,
+        observacion: asistenciaHoy.observacion ?? null,
+      },
+      { onConflict: "usuario_id,fecha" },
+    );
+    setIsMarking(null);
+
+    if (error) {
+      setActionMessage({ type: "error", text: `No se registro: ${error.message}` });
+      return;
+    }
+    setActionMessage({ type: "success", text: `Salida registrada a las ${hora}.` });
+    await loadData(data.trabajador.id);
+  }
+
   return (
     <Layout title="Mis datos" description="Tu informacion personal, asistencia, descuentos y pagos.">
       <div className="space-y-5">
@@ -203,6 +320,65 @@ export default function MisDatosPage() {
 
             {tab === "asistencia" ? (
               <Panel title="Mi asistencia" subtitle={week.label}>
+                {/* Botones para marcar ingreso/salida del dia */}
+                <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Hoy {formatDate(todayIso())}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Ingreso:{" "}
+                    <span className="font-semibold text-slate-950">
+                      {asistenciaHoy?.hora_ingreso ? asistenciaHoy.hora_ingreso.slice(0, 5) : "-"}
+                    </span>
+                    {"  -  Salida: "}
+                    <span className="font-semibold text-slate-950">
+                      {asistenciaHoy?.hora_salida ? asistenciaHoy.hora_salida.slice(0, 5) : "-"}
+                    </span>
+                  </p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => void marcarIngreso()}
+                      disabled={isMarking !== null || Boolean(asistenciaHoy?.hora_ingreso)}
+                      className="h-12 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {isMarking === "ingreso"
+                        ? "Registrando..."
+                        : asistenciaHoy?.hora_ingreso
+                          ? "Ingreso ya registrado"
+                          : "Marcar mi ingreso"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void marcarSalida()}
+                      disabled={
+                        isMarking !== null ||
+                        !asistenciaHoy?.hora_ingreso ||
+                        Boolean(asistenciaHoy?.hora_salida)
+                      }
+                      className="h-12 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {isMarking === "salida"
+                        ? "Registrando..."
+                        : asistenciaHoy?.hora_salida
+                          ? "Salida ya registrada"
+                          : "Marcar mi salida"}
+                    </button>
+                  </div>
+                  {actionMessage ? (
+                    <p
+                      className={`mt-3 text-xs ${
+                        actionMessage.type === "success" ? "text-emerald-700" : "text-red-700"
+                      }`}
+                    >
+                      {actionMessage.text}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Tu admin es quien puede editar o corregir registros anteriores.
+                  </p>
+                </div>
+
                 {data.asistencias.length === 0 ? (
                   <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
                     Aun no tienes asistencias registradas.
