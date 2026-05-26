@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getBaseStockByName, getStockProductId } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { selectOnFocus } from "@/lib/inputUtils";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type {
   Almacen,
@@ -481,6 +482,7 @@ export function AlmacenDashboard() {
                       <td className="px-3 py-3">
                         <input
                           type="number"
+                          onFocus={selectOnFocus}
                           min="0"
                           step="0.01"
                           value={quick[producto.id]?.stock_minimo ?? ""}
@@ -493,6 +495,7 @@ export function AlmacenDashboard() {
                       <td className="px-3 py-3">
                         <input
                           type="number"
+                          onFocus={selectOnFocus}
                           min="0"
                           step="0.01"
                           value={quick[producto.id]?.precio_venta ?? ""}
@@ -505,6 +508,7 @@ export function AlmacenDashboard() {
                       <td className="px-3 py-3">
                         <input
                           type="number"
+                          onFocus={selectOnFocus}
                           min="0"
                           step="0.01"
                           value={quick[producto.id]?.precio_compra_referencial ?? ""}
@@ -598,6 +602,7 @@ function StockInput({
     <div className="flex gap-1">
       <input
         type="number"
+        onFocus={selectOnFocus}
         min="0"
         step="0.01"
         value={value}

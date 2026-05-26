@@ -11,6 +11,7 @@ import {
 } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { selectOnFocus } from "@/lib/inputUtils";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type {
   Almacen,
@@ -617,6 +618,7 @@ export function AlmacenTransferencias() {
                       <p className="text-xs text-slate-500">Solicitado: {formatStock(item.cantidad_solicitada)}</p>
                       <input
                         type="number"
+                        onFocus={selectOnFocus}
                         min="0"
                         step="0.01"
                         defaultValue={item.cantidad_recibida ?? item.cantidad_solicitada}
@@ -699,7 +701,7 @@ function CartPanel({ title, items, type, onChange, onRemove, onSave, isSaving, b
                 <option value="negocio_a_casa">Negocio -&gt; Casa</option>
               </select>
             ) : null}
-            <input type="number" min="0.01" step="0.01" value={item.cantidad} onChange={(event) => onChange(type, item.producto.id, event.target.value)} className="h-9 rounded-md border border-slate-300 px-2 text-sm" />
+            <input type="number" onFocus={selectOnFocus} min="0.01" step="0.01" value={item.cantidad} onChange={(event) => onChange(type, item.producto.id, event.target.value)} className="h-9 rounded-md border border-slate-300 px-2 text-sm" />
             <button type="button" onClick={() => onRemove(type, item.producto.id)} className="h-9 rounded-md border border-red-200 px-2 text-xs font-medium text-red-700">Quitar</button>
           </div>
         ))}

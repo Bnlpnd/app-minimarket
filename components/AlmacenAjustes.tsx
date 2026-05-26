@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getBaseStockByAlmacen, getStockProductId } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { selectOnFocus } from "@/lib/inputUtils";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Almacen, Producto, ProductoAlmacen } from "@/types/database";
 
@@ -270,6 +271,7 @@ export function AlmacenAjustes() {
           <Field label="Stock real contado">
             <input
               type="number"
+              onFocus={selectOnFocus}
               min="0"
               step="0.01"
               value={stockContado}

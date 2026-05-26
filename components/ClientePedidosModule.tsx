@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { selectOnFocus } from "@/lib/inputUtils";
 import { formatDate, formatDateTime } from "@/lib/dateUtils";
 import { getStoredAppUser } from "@/lib/authRoles";
 import type {
@@ -734,6 +735,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                 <Field label="Monto a pagar" required>
                   <input
                     type="number"
+                    onFocus={selectOnFocus}
                     min="0"
                     step="0.01"
                     value={manualForm.total}
@@ -746,6 +748,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                 <Field label="A cuenta">
                   <input
                     type="number"
+                    onFocus={selectOnFocus}
                     min="0"
                     step="0.01"
                     value={manualForm.monto_a_cuenta}
@@ -805,6 +808,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
               <Field label="Monto">
                 <input
                   type="number"
+                  onFocus={selectOnFocus}
                   min="0"
                   step="0.01"
                   value={pagoForm.monto}

@@ -11,6 +11,7 @@ import {
 } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { selectOnFocus } from "@/lib/inputUtils";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type {
   Almacen,
@@ -426,11 +427,11 @@ export function AlmacenAgregarStock() {
           ) : null}
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Cantidad de presentaciones</span>
-            <input type="number" min="0" step="1" value={cantidadPresentaciones} onChange={(event) => setCantidadPresentaciones(event.target.value)} placeholder="Presentaciones" className={inputClassName} />
+            <input type="number" onFocus={selectOnFocus} min="0" step="1" value={cantidadPresentaciones} onChange={(event) => setCantidadPresentaciones(event.target.value)} placeholder="Presentaciones" className={inputClassName} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Unidades sueltas</span>
-            <input type="number" min="0" step="1" value={unidadesSueltas} onChange={(event) => setUnidadesSueltas(event.target.value)} placeholder="Unidades sueltas" className={inputClassName} />
+            <input type="number" onFocus={selectOnFocus} min="0" step="1" value={unidadesSueltas} onChange={(event) => setUnidadesSueltas(event.target.value)} placeholder="Unidades sueltas" className={inputClassName} />
           </label>
           <button type="button" disabled={isSaving} onClick={() => void agregarCantidad()} className="h-12 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300 md:h-11">
             Agregar stock
@@ -519,6 +520,7 @@ export function AlmacenAgregarStock() {
                     <td className="px-4 py-3">
                       <input
                         type="number"
+                        onFocus={selectOnFocus}
                         min="0"
                         step="0.01"
                         value={stockEdit[producto.id] ?? "0"}
@@ -560,6 +562,7 @@ export function AlmacenAgregarStock() {
                 ) : null}
                 <input
                   type="number"
+                  onFocus={selectOnFocus}
                   min="0"
                   step="0.01"
                   value={stockEdit[producto.id] ?? "0"}

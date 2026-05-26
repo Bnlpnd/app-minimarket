@@ -15,6 +15,7 @@ import {
   toPresentationStock,
   type StockReservadoMap,
 } from "@/lib/inventoryUtils";
+import { selectOnFocus } from "@/lib/inputUtils";
 import { calcularPrecioPorCantidad } from "@/lib/pricing";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
@@ -1671,7 +1672,7 @@ export function PedidoNuevoForm() {
                 {pagoTipo === "debe" ? (
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <Field label="Monto a cuenta (lo que ya pago)">
-                      <input type="number" min="0" step="0.01" value={montoACuenta} onChange={(event) => setMontoACuenta(event.target.value)} placeholder="0.00" className={inputClassName} />
+                      <input type="number" onFocus={selectOnFocus} min="0" step="0.01" value={montoACuenta} onChange={(event) => setMontoACuenta(event.target.value)} placeholder="0.00" className={inputClassName} />
                     </Field>
                     <Field label="Observacion (ej. paga al recoger)">
                       <input value={observacionPago} onChange={(event) => setObservacionPago(event.target.value)} className={inputClassName} />
@@ -1799,6 +1800,7 @@ function Cart({
                         step="0.01"
                         value={item.cantidad}
                         disabled={readonly}
+                        onFocus={selectOnFocus}
                         onChange={(event) => onUpdate(item.producto.id, { cantidad: Number(event.target.value) || 0 })}
                         className="h-9 w-24 rounded-md border border-slate-300 px-2 text-sm"
                       />
@@ -1865,10 +1867,12 @@ function Cart({
               {/* Cantidad */}
               <input
                 type="number"
+                inputMode="decimal"
                 min="0.01"
                 step="0.01"
                 value={item.cantidad}
                 disabled={readonly}
+                onFocus={selectOnFocus}
                 onChange={(event) =>
                   onUpdate(item.producto.id, { cantidad: Number(event.target.value) || 0 })
                 }
