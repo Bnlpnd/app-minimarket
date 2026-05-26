@@ -123,6 +123,43 @@ export interface Proveedor {
   updated_at: string;
 }
 
+export type ProductoLoteOrigen =
+  | "inicial"
+  | "compra"
+  | "transferencia"
+  | "ajuste";
+
+export interface ProductoLote {
+  id: string;
+  producto_id: string;
+  almacen_id: string;
+  cantidad_inicial: number;
+  cantidad_actual: number;
+  fecha_ingreso: string;
+  fecha_vencimiento: string | null;
+  origen: ProductoLoteOrigen;
+  notas: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LoteEstadoVencimiento =
+  | "vencido"
+  | "urgente"
+  | "proximo"
+  | "ok"
+  | null;
+
+export interface VistaLoteVencimiento extends ProductoLote {
+  nombre_producto: string;
+  codigo_interno: string | null;
+  unidad_base: string | null;
+  almacen_nombre: string;
+  estado_vencimiento: LoteEstadoVencimiento;
+  dias_restantes: number | null;
+}
+
 export interface ProductoPresentacionCompra {
   id: string;
   producto_id: string;

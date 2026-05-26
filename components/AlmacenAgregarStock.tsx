@@ -13,6 +13,7 @@ import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { selectOnFocus } from "@/lib/inputUtils";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import type {
   Almacen,
   Categoria,
@@ -79,6 +80,9 @@ export function AlmacenAgregarStock() {
   const [cantidadPresentaciones, setCantidadPresentaciones] = useState("1");
   const [unidadesSueltas, setUnidadesSueltas] = useState("0");
   const [presentacionCompraIndex, setPresentacionCompraIndex] = useState(0);
+  // Fecha de vencimiento opcional del lote que ingresa. Vacio = no se
+  // crea lote (productos no perecederos como cuadernos, detergentes).
+  const [fechaVencimiento, setFechaVencimiento] = useState("");
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -343,11 +347,12 @@ export function AlmacenAgregarStock() {
     }
 
     const actual = stockForAlmacen(productoIngreso, almacenIngresoId);
+    const productoStockId = getStockProductId(productoIngreso);
     setIsSaving(true);
     setMessage(null);
     try {
       const { error } = await supabase.rpc("ajustar_stock", {
-        p_producto_id: getStockProductId(productoIngreso),
+        p_producto_id: productoStockId,
         p_almacen_id: almacenIngresoId,
         p_stock_contado: actual + totalIngreso,
         p_observacion: `Ingreso rapido: ${cantidadPresentaciones} presentacion(es) x ${unidadesPorPresentacion} + ${unidadesSueltas} unidad(es)`,
@@ -356,6 +361,30 @@ export function AlmacenAgregarStock() {
       if (error) {
         setMessage({ type: "error", text: `No se agrego stock: ${error.message}` });
         return;
+      }
+
+      // Si el usuario eligio fecha de vencimiento, registramos un lote.
+      // Sin fecha = ingreso comun sin tracking (productos no perecederos).
+      if (fechaVencimiento) {
+        const { error: loteError } = await supabase
+          .from("producto_lotes")
+          .insert({
+            producto_id: productoStockId,
+            almacen_id: almacenIngresoId,
+            cantidad_inicial: totalIngreso,
+            cantidad_actual: totalIngreso,
+            fecha_vencimiento: fechaVencimiento,
+            origen: "compra",
+            notas: `Ingreso ${cantidadPresentaciones}x${unidadesPorPresentacion}+${unidadesSueltas} sueltas`,
+          });
+        if (loteError) {
+          // No bloquear: el stock ya se ajusto. Avisar como warning suave.
+          setMessage({
+            type: "error",
+            text: `Stock actualizado, pero no se guardo el lote: ${loteError.message}`,
+          });
+          return;
+        }
       }
     } catch (rpcError) {
       const text = rpcError instanceof Error ? rpcError.message : String(rpcError);
@@ -370,9 +399,12 @@ export function AlmacenAgregarStock() {
 
     setCantidadPresentaciones("1");
     setUnidadesSueltas("0");
+    setFechaVencimiento("");
     setMessage({
       type: "success",
-      text: `Se agregaron ${formatStock(totalIngreso)} unidades base.`,
+      text: fechaVencimiento
+        ? `Se agregaron ${formatStock(totalIngreso)} unidades base y se registro el lote.`
+        : `Se agregaron ${formatStock(totalIngreso)} unidades base.`,
     });
     await loadProductos();
   }
@@ -390,14 +422,16 @@ export function AlmacenAgregarStock() {
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Producto</span>
-            <select value={productoIngresoId} onChange={(event) => setProductoIngresoId(event.target.value)} className={inputClassName}>
-              <option value="">Producto</option>
-              {productos.map((producto) => (
-                <option key={producto.id} value={producto.id}>
-                  {producto.nombre_producto}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={productoIngresoId}
+              onChange={(id) => setProductoIngresoId(id)}
+              options={productos.map((producto) => ({
+                id: producto.id,
+                label: producto.nombre_producto,
+                sub: producto.codigo_interno ?? undefined,
+              }))}
+              placeholder="Buscar producto..."
+            />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Almacen</span>
@@ -433,12 +467,23 @@ export function AlmacenAgregarStock() {
             <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Unidades sueltas</span>
             <input type="number" onFocus={selectOnFocus} min="0" step="1" value={unidadesSueltas} onChange={(event) => setUnidadesSueltas(event.target.value)} placeholder="Unidades sueltas" className={inputClassName} />
           </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Fecha vencimiento (opcional)</span>
+            <input
+              type="date"
+              value={fechaVencimiento}
+              onChange={(event) => setFechaVencimiento(event.target.value)}
+              className={inputClassName}
+              title="Fecha vencimiento (opcional)"
+            />
+          </label>
           <button type="button" disabled={isSaving} onClick={() => void agregarCantidad()} className="h-12 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300 md:h-11">
             Agregar stock
           </button>
         </div>
         <p className="mt-3 text-sm text-slate-500">
-          Presentacion: {productoIngreso?.presentacion ?? "sin producto"} | unidades por presentacion: {formatStock(unidadesPorPresentacion)} | se agregaran {formatStock(totalIngreso)} {productoIngreso?.unidad_base?.trim() || "unidades base"}.
+          Presentacion: {productoIngreso?.presentacion ?? "sin producto"} | unidades por presentacion: {formatStock(unidadesPorPresentacion)} | se agregaran {formatStock(totalIngreso)} {productoIngreso?.unidad_base?.trim() || "unidades base"}
+          {fechaVencimiento ? ` | vence ${fechaVencimiento.split("-").reverse().join("/")}` : ""}.
         </p>
         {productoIngreso?.producto_base_id && productoIngreso.producto_base ? (
           <p className="mt-2 text-sm text-emerald-700">
