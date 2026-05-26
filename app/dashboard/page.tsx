@@ -693,6 +693,14 @@ function WorkerDashboard() {
         <ActionLink href="/almacen/agregar-stock">Stock</ActionLink>
       </section>
 
+      <Link
+        href="/mis-datos"
+        className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+      >
+        <span>Mis datos (asistencia, descuentos, pagos)</span>
+        <span aria-hidden="true">→</span>
+      </Link>
+
       <Panel
         title="Pedidos por atender"
         action={

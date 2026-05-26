@@ -99,7 +99,16 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
-        {navigationItems.map((group) => (
+        {navigationItems
+          .filter((group) => {
+            // El modulo Personal solo lo ve el admin. Cada trabajador ve su
+            // info en /mis-datos desde el dashboard.
+            if (group.label === "Personal" && user?.rol !== "admin") {
+              return false;
+            }
+            return true;
+          })
+          .map((group) => (
           <div key={group.label}>
             <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
               {group.label}
