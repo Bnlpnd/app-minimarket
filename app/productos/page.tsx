@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { ProductoTable } from "@/components/ProductoTable";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import type { ProductoConRelaciones } from "@/components/ProductoTable";
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
 import { getBaseStockByName } from "@/lib/inventoryUtils";
@@ -471,45 +472,30 @@ export default function ProductosPage() {
               placeholder="Codigo, producto o marca"
               className={`${inputClassName} xl:col-span-2`}
             />
-            <select
+            <SearchableSelect
               value={categoriaId}
-              onChange={(event) => {
-                setCategoriaId(event.target.value);
+              onChange={(id) => {
+                setCategoriaId(id);
                 setSubcategoriaId("");
               }}
-              className={inputClassName}
-            >
-              <option value="">Categoria</option>
-              {categorias.map((categoria) => (
-                <option key={categoria.id} value={categoria.id}>
-                  {categoria.nombre}
-                </option>
-              ))}
-            </select>
-            <select
+              options={categorias.map((c) => ({ id: c.id, label: c.nombre }))}
+              placeholder="Categoria"
+            />
+            <SearchableSelect
               value={subcategoriaId}
-              onChange={(event) => setSubcategoriaId(event.target.value)}
-              className={inputClassName}
-            >
-              <option value="">Subcategoria</option>
-              {subcategoriasFiltradas.map((subcategoria) => (
-                <option key={subcategoria.id} value={subcategoria.id}>
-                  {subcategoria.nombre}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={(id) => setSubcategoriaId(id)}
+              options={subcategoriasFiltradas.map((s) => ({
+                id: s.id,
+                label: s.nombre,
+              }))}
+              placeholder="Subcategoria"
+            />
+            <SearchableSelect
               value={marcaId}
-              onChange={(event) => setMarcaId(event.target.value)}
-              className={inputClassName}
-            >
-              <option value="">Marca</option>
-              {marcas.map((marca) => (
-                <option key={marca.id} value={marca.id}>
-                  {marca.nombre}
-                </option>
-              ))}
-            </select>
+              onChange={(id) => setMarcaId(id)}
+              options={marcas.map((m) => ({ id: m.id, label: m.nombre }))}
+              placeholder="Marca"
+            />
             <select
               value={estadoFilter}
               onChange={(event) => setEstadoFilter(event.target.value as EstadoFilter)}

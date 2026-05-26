@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { compressImage } from "@/lib/imageUtils";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import {
   combineValidations,
   validatePrice,
@@ -702,68 +703,52 @@ export function ProductoForm({
         </Field>
 
         <Field label="Categoria" required>
-          <select
+          <SearchableSelect
             value={values.categoria_id}
-            onChange={(event) => updateValue("categoria_id", event.target.value)}
-            className={inputClassName}
-          >
-            <option value="">Seleccionar</option>
-            {categorias.map((categoria) => (
-              <option key={categoria.id} value={categoria.id}>
-                {categoria.nombre}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => updateValue("categoria_id", id)}
+            options={categorias.map((c) => ({ id: c.id, label: c.nombre }))}
+            placeholder="Buscar categoria..."
+          />
         </Field>
 
         <Field label="Subcategoria" required>
-          <select
+          <SearchableSelect
             value={values.subcategoria_id}
-            onChange={(event) =>
-              updateValue("subcategoria_id", event.target.value)
+            onChange={(id) => updateValue("subcategoria_id", id)}
+            options={subcategoriasDisponibles.map((s) => ({
+              id: s.id,
+              label: s.nombre,
+            }))}
+            placeholder={
+              values.categoria_id ? "Buscar subcategoria..." : "Elegi categoria primero"
             }
-            className={inputClassName}
-          >
-            <option value="">Seleccionar</option>
-            {subcategoriasDisponibles.map((subcategoria) => (
-              <option key={subcategoria.id} value={subcategoria.id}>
-                {subcategoria.nombre}
-              </option>
-            ))}
-          </select>
+            disabled={!values.categoria_id}
+          />
         </Field>
 
         <Field label="Marca" required>
-          <select
+          <SearchableSelect
             value={values.marca_id}
-            onChange={(event) => updateValue("marca_id", event.target.value)}
-            className={inputClassName}
-          >
-            <option value="">Seleccionar</option>
-            {marcas.map((marca) => (
-              <option key={marca.id} value={marca.id}>
-                {marca.nombre}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => updateValue("marca_id", id)}
+            options={marcas.map((m) => ({ id: m.id, label: m.nombre }))}
+            placeholder="Escribe la marca..."
+          />
         </Field>
 
         <Field label="Presentacion" required>
-          <select
+          {/* Presentacion usa nombre como id (legacy), no UUID. */}
+          <SearchableSelect
             value={values.presentacion}
-            onChange={(event) => {
-              updateValue("presentacion", event.target.value);
-              updateValue("presentacion_compra", event.target.value);
+            onChange={(nombre) => {
+              updateValue("presentacion", nombre);
+              updateValue("presentacion_compra", nombre);
             }}
-            className={inputClassName}
-          >
-            <option value="">Seleccionar</option>
-            {presentaciones.map((presentacion) => (
-              <option key={presentacion.id} value={presentacion.nombre}>
-                {presentacion.nombre}
-              </option>
-            ))}
-          </select>
+            options={presentaciones.map((p) => ({
+              id: p.nombre,
+              label: p.nombre,
+            }))}
+            placeholder="Buscar presentacion..."
+          />
         </Field>
 
         <Field label="Unidad base">
@@ -1138,20 +1123,21 @@ export function ProductoForm({
           <label className="block">
             <span className="text-sm font-medium text-slate-700">Producto base (opcional)</span>
             <span className="mt-1 block">
-              <select
+              <SearchableSelect
                 value={values.producto_base_id}
-                onChange={(event) => updateValue("producto_base_id", event.target.value)}
-                className={inputClassName}
-              >
-                <option value="">Sin vinculo (este ES el producto base)</option>
-                {productosBase
+                onChange={(id) => updateValue("producto_base_id", id)}
+                options={productosBase
                   .filter((option) => option.id !== productoEditando?.id)
-                  .map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.nombre_producto}{option.presentacion ? " - " + option.presentacion : ""}
-                    </option>
-                  ))}
-              </select>
+                  .map((option) => ({
+                    id: option.id,
+                    label:
+                      option.nombre_producto +
+                      (option.presentacion ? " - " + option.presentacion : ""),
+                    sub: option.codigo_interno ?? undefined,
+                  }))}
+                placeholder="Sin vinculo (este ES el producto base)"
+                emptyText="Sin productos base coincidentes"
+              />
             </span>
           </label>
           <label className="block">
