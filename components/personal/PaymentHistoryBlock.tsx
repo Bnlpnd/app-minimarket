@@ -1,11 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
+import {
+  calcularPagoSemanal,
+  elegirTurnoParaAsistencia,
+  hoursBetween,
+  pagoPorDia,
+} from "@/lib/payrollUtils";
 import type {
   AppUsuario,
   PersonalAsistencia,
   PersonalDescuento,
   PersonalPago,
+  PersonalTurno,
 } from "@/types/database";
 
 type UsuarioInterno = Omit<AppUsuario, "rol"> & { rol: "admin" | "trabajador" };
@@ -15,14 +22,15 @@ type Props = {
   asistencias: PersonalAsistencia[];
   descuentos: PersonalDescuento[];
   pagos: PersonalPago[];
+  turnos: PersonalTurno[];
   historyAsistencias: PersonalAsistencia[];
   historyDescuentos: PersonalDescuento[];
   historyPagos: PersonalPago[];
   week: { start: string; end: string; label: string };
-  paymentFilter: "semana" | "mes";
+  paymentFilter: "dia" | "semana" | "mes";
   isAdmin: boolean;
   isSaving: boolean;
-  onChangeFilter: (filter: "semana" | "mes") => void;
+  onChangeFilter: (filter: "dia" | "semana" | "mes") => void;
   onRegisterPayment: () => void;
 };
 
@@ -30,16 +38,6 @@ function toInputDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate(),
   ).padStart(2, "0")}`;
-}
-
-function hoursBetween(start: string | null | undefined, end: string | null | undefined) {
-  if (!start || !end) return 0;
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  const st = sh * 60 + sm;
-  const et = eh * 60 + em;
-  if (!Number.isFinite(st) || !Number.isFinite(et) || et <= st) return 0;
-  return (et - st) / 60;
 }
 
 function numberValue(value: number | null | undefined) {
@@ -73,6 +71,7 @@ export function PaymentHistoryBlock({
   worker,
   asistencias,
   descuentos,
+  turnos,
   week,
   historyAsistencias,
   historyDescuentos,
@@ -83,17 +82,64 @@ export function PaymentHistoryBlock({
   onChangeFilter,
   onRegisterPayment,
 }: Props) {
-  // Quick metric: current week summary using current week's data
-  const currentWeekHours = useMemo(
-    () => asistencias.filter((a) => a.usuario_id === worker.id).reduce((sum, a) => sum + hoursBetween(a.hora_ingreso, a.hora_salida), 0),
+  const workerAsistSemana = useMemo(
+    () => asistencias.filter((a) => a.usuario_id === worker.id),
     [asistencias, worker.id],
   );
-  const currentWeekDiscount = useMemo(
-    () => descuentos.filter((d) => d.usuario_id === worker.id).reduce((sum, d) => sum + numberValue(d.monto), 0),
+  const workerDescSemana = useMemo(
+    () => descuentos.filter((d) => d.usuario_id === worker.id),
     [descuentos, worker.id],
   );
+  const workerTurnos = useMemo(
+    () => turnos.filter((t) => t.usuario_id === worker.id),
+    [turnos, worker.id],
+  );
+
+  const currentWeekHours = useMemo(
+    () =>
+      workerAsistSemana.reduce(
+        (sum, a) => sum + hoursBetween(a.hora_ingreso, a.hora_salida),
+        0,
+      ),
+    [workerAsistSemana],
+  );
+  const currentWeekDiscount = useMemo(
+    () => workerDescSemana.reduce((sum, d) => sum + numberValue(d.monto), 0),
+    [workerDescSemana],
+  );
+
+  // Fechas L-D de la semana actual para evaluar bono y agrupar.
+  const fechasSemana = useMemo(() => {
+    const [y, m, d] = week.start.split("-").map(Number);
+    const start = new Date(y, (m || 1) - 1, d || 1);
+    return Array.from({ length: 7 }, (_, i) => {
+      const next = new Date(start);
+      next.setDate(start.getDate() + i);
+      return toInputDate(next);
+    });
+  }, [week.start]);
+
+  // Monto a pagar: usa el calculo correcto con turnos + bono.
+  const currentAmount = useMemo(() => {
+    if (workerTurnos.length > 0) {
+      const resumen = calcularPagoSemanal({
+        asistencias: workerAsistSemana,
+        turnos: workerTurnos,
+        pagoHoraGeneral: numberValue(worker.pago_hora),
+        bonoSemanaCompleta: numberValue(
+          (worker as UsuarioInterno & { bono_asistencia_completa?: number })
+            .bono_asistencia_completa,
+        ),
+        fechasSemana,
+      });
+      return Math.max(0, resumen.total - currentWeekDiscount);
+    }
+    // Sin turnos: fallback historico horas × pago_hora.
+    const hoursForPay = currentWeekHours > 0 ? currentWeekHours : numberValue(worker.horas_semana);
+    return Math.max(0, hoursForPay * numberValue(worker.pago_hora) - currentWeekDiscount);
+  }, [workerAsistSemana, workerTurnos, worker, fechasSemana, currentWeekHours, currentWeekDiscount]);
+
   const hoursForPay = currentWeekHours > 0 ? currentWeekHours : numberValue(worker.horas_semana);
-  const currentAmount = Math.max(0, hoursForPay * numberValue(worker.pago_hora) - currentWeekDiscount);
   const registeredPayment = useMemo(
     () => historyPagos.find((p) => p.usuario_id === worker.id && p.semana_inicio === week.start),
     [historyPagos, worker.id, week.start],
@@ -105,6 +151,42 @@ export function PaymentHistoryBlock({
     const workerDisc = historyDescuentos.filter((d) => d.usuario_id === worker.id);
     const workerPagos = historyPagos.filter((p) => p.usuario_id === worker.id);
 
+    // Modo "dia": cada barra es un dia de la SEMANA ACTUAL, calculado
+    // con la logica nueva (turnos + horas extra).
+    if (paymentFilter === "dia") {
+      const labels = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"];
+      return fechasSemana.map((fecha, i) => {
+        const asistDia = workerAsistSemana.find((a) => a.fecha === fecha) ?? null;
+        const descDia = workerDescSemana.filter((d) => d.fecha === fecha);
+        const descTotal = descDia.reduce((s, d) => s + numberValue(d.monto), 0);
+        let payment = 0;
+        let hours = 0;
+        let prodSum = 0;
+        let prodCount = 0;
+        if (asistDia) {
+          const turno = elegirTurnoParaAsistencia(asistDia, workerTurnos);
+          const calc = pagoPorDia(asistDia, turno, numberValue(worker.pago_hora));
+          payment = Math.max(0, calc.pago - descTotal);
+          hours = calc.horas;
+          const prod = Number(asistDia.productividad);
+          if (Number.isFinite(prod) && prod > 0) {
+            prodSum = prod;
+            prodCount = 1;
+          }
+        }
+        return {
+          key: fecha,
+          label: `${labels[i]} ${fecha.slice(8, 10)}`,
+          hours,
+          productivitySum: prodSum,
+          productivityCount: prodCount,
+          discounts: descTotal,
+          payment,
+        };
+      });
+    }
+
+    // Modo "semana" o "mes": agregado historico.
     const map = new Map<string, Bucket>();
     const keyFor = (date: string) => (paymentFilter === "semana" ? getMondayOf(date) : getMonthOf(date));
     const ensure = (key: string, label: string): Bucket => {
@@ -145,7 +227,18 @@ export function PaymentHistoryBlock({
     }
 
     return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key)).slice(-8);
-  }, [historyAsistencias, historyDescuentos, historyPagos, paymentFilter, worker.id]);
+  }, [
+    historyAsistencias,
+    historyDescuentos,
+    historyPagos,
+    paymentFilter,
+    worker.id,
+    worker.pago_hora,
+    workerAsistSemana,
+    workerDescSemana,
+    workerTurnos,
+    fechasSemana,
+  ]);
 
   const maxValue = Math.max(
     1,
@@ -184,6 +277,9 @@ export function PaymentHistoryBlock({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-950">Historico</h3>
           <div className="flex gap-1 rounded-md border border-slate-200 p-1 text-xs">
+            <button type="button" onClick={() => onChangeFilter("dia")} className={`rounded px-3 py-1 ${paymentFilter === "dia" ? "bg-emerald-600 text-white" : "text-slate-700"}`}>
+              Dia
+            </button>
             <button type="button" onClick={() => onChangeFilter("semana")} className={`rounded px-3 py-1 ${paymentFilter === "semana" ? "bg-emerald-600 text-white" : "text-slate-700"}`}>
               Semana
             </button>

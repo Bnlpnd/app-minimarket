@@ -292,7 +292,7 @@ export function PersonalModule() {
   const [historyAsistencias, setHistoryAsistencias] = useState<PersonalAsistencia[]>([]);
   const [historyDescuentos, setHistoryDescuentos] = useState<PersonalDescuento[]>([]);
   const [historyPagos, setHistoryPagos] = useState<PersonalPago[]>([]);
-  const [paymentFilter, setPaymentFilter] = useState<"semana" | "mes">("semana");
+  const [paymentFilter, setPaymentFilter] = useState<"dia" | "semana" | "mes">("dia");
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -1555,7 +1555,7 @@ function WeeklyPaySection({
   historyAsistencias: PersonalAsistencia[];
   historyDescuentos: PersonalDescuento[];
   historyPagos: PersonalPago[];
-  paymentFilter: "semana" | "mes";
+  paymentFilter: "dia" | "semana" | "mes";
   onSelectAction: (worker: UsuarioInterno, action: WorkerAction) => void;
   onDiscountChange: (key: keyof DiscountForm, value: string) => void;
   onSaveDiscount: (event: FormEvent<HTMLFormElement>) => void;
@@ -1565,7 +1565,7 @@ function WeeklyPaySection({
   setSelectedDate: (date: string) => void;
   setShowIngreso: (updater: (current: boolean) => boolean) => void;
   setShowSalida: (updater: (current: boolean) => boolean) => void;
-  setPaymentFilter: (filter: "semana" | "mes") => void;
+  setPaymentFilter: (filter: "dia" | "semana" | "mes") => void;
   onSaveIngreso: (date: string, hora: string, observacion: string) => Promise<void>;
   onSaveSalida: (date: string, hora: string, productividad: number) => Promise<void>;
   onEditAttendance: (item: PersonalAsistencia) => void;
@@ -1708,6 +1708,7 @@ function WeeklyPaySection({
               asistencias={asistencias}
               descuentos={descuentos}
               pagos={pagos}
+              turnos={turnos}
               historyAsistencias={historyAsistencias}
               historyDescuentos={historyDescuentos}
               historyPagos={historyPagos}
