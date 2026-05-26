@@ -68,6 +68,7 @@ type ProductoFormProps = {
   almacenes?: Almacen[];
   isSaving: boolean;
   onSubmit: (values: ProductoFormValues) => Promise<boolean>;
+  onDelete?: () => Promise<boolean>;
   onCancelEdit?: () => void;
   onQuickCreateCategoria?: (nombre: string) => Promise<Categoria | null>;
   onQuickCreateSubcategoria?: (
@@ -181,6 +182,7 @@ export function ProductoForm({
   almacenes = [],
   isSaving,
   onSubmit,
+  onDelete,
   onCancelEdit,
   onQuickCreateCategoria,
   onQuickCreateSubcategoria,
@@ -273,6 +275,41 @@ export function ProductoForm({
     setImageFile(null);
     setImagePreview("");
     setImageError("");
+  }
+
+  /**
+   * Quita la foto del producto: borra del storage si la URL apunta a
+   * nuestro bucket, y limpia imagen_url en el form. El usuario debe
+   * guardar despues para persistir el cambio en la BD.
+   */
+  async function removeStoredImage() {
+    if (!values.imagen_url) {
+      clearSelectedImage();
+      return;
+    }
+    if (typeof window !== "undefined" && !window.confirm("¿Eliminar la foto del producto?")) {
+      return;
+    }
+    if (supabase) {
+      try {
+        const url = new URL(values.imagen_url);
+        // URL publica de Supabase Storage tiene la forma
+        // /storage/v1/object/public/productos/<path>
+        const marker = "/storage/v1/object/public/productos/";
+        const idx = url.pathname.indexOf(marker);
+        if (idx >= 0) {
+          const objectPath = url.pathname.slice(idx + marker.length);
+          if (objectPath) {
+            await supabase.storage.from("productos").remove([objectPath]);
+          }
+        }
+      } catch {
+        // Si no es URL de nuestro storage (ej. enlace manual), solo
+        // limpiamos el campo sin tocar storage.
+      }
+    }
+    updateValue("imagen_url", "");
+    clearSelectedImage();
   }
 
   function handleImageChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -471,7 +508,7 @@ export function ProductoForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5 pb-24 sm:pb-5"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -898,20 +935,31 @@ export function ProductoForm({
             alt="Vista previa del producto"
             className="h-20 w-20 rounded-md border border-slate-200 object-cover"
           />
-          <div className="min-w-0 text-sm text-slate-600">
+          <div className="min-w-0 flex-1 text-sm text-slate-600">
             <p className="font-medium text-slate-900">Preview de imagen</p>
             <p className="mt-1 break-all text-xs">
               {imageFile ? imageFile.name : values.imagen_url}
             </p>
-            {imageFile ? (
-              <button
-                type="button"
-                onClick={clearSelectedImage}
-                className="mt-2 text-xs font-medium text-red-700 hover:text-red-800"
-              >
-                Quitar seleccion
-              </button>
-            ) : null}
+            <div className="mt-2 flex flex-wrap gap-3">
+              {imageFile ? (
+                <button
+                  type="button"
+                  onClick={clearSelectedImage}
+                  className="text-xs font-medium text-slate-700 hover:text-slate-950"
+                >
+                  Quitar seleccion
+                </button>
+              ) : null}
+              {values.imagen_url && !imageFile ? (
+                <button
+                  type="button"
+                  onClick={() => void removeStoredImage()}
+                  className="text-xs font-medium text-red-700 hover:text-red-800"
+                >
+                  Eliminar foto
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
@@ -926,11 +974,50 @@ export function ProductoForm({
         Producto activo
       </label>
 
-      <div className="mt-5 flex justify-end">
+      {/* Botonera desktop (oculta en mobile) */}
+      <div className="mt-5 hidden gap-3 sm:flex sm:justify-between">
+        {productoEditando && onDelete ? (
+          <button
+            type="button"
+            disabled={isSaving || isUploadingImage}
+            onClick={() => void onDelete()}
+            className="h-11 rounded-md border border-red-200 px-5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-400"
+          >
+            Eliminar producto
+          </button>
+        ) : (
+          <span />
+        )}
         <button
           type="submit"
           disabled={isSaving || isUploadingImage || !hasCatalogOptions}
           className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {isSaving || isUploadingImage
+            ? "Guardando..."
+            : productoEditando
+              ? "Guardar cambios"
+              : "Crear producto"}
+        </button>
+      </div>
+
+      {/* Botonera sticky mobile (oculta en >=sm) */}
+      <div className="fixed inset-x-0 bottom-0 z-30 flex gap-2 border-t border-slate-200 bg-white p-3 shadow-lg sm:hidden">
+        {productoEditando && onDelete ? (
+          <button
+            type="button"
+            disabled={isSaving || isUploadingImage}
+            onClick={() => void onDelete()}
+            className="h-12 shrink-0 rounded-md border border-red-200 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-400"
+            aria-label="Eliminar producto"
+          >
+            Eliminar
+          </button>
+        ) : null}
+        <button
+          type="submit"
+          disabled={isSaving || isUploadingImage || !hasCatalogOptions}
+          className="h-12 flex-1 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {isSaving || isUploadingImage
             ? "Guardando..."

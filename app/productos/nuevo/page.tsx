@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Layout } from "@/components/Layout";
 import { ProductoForm } from "@/components/ProductoForm";
 import type { ProductoBaseOption, ProductoFormValues } from "@/components/ProductoForm";
@@ -67,6 +67,7 @@ export default function ProductoNuevoPage() {
 }
 
 function ProductoNuevoContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const productoId = searchParams.get("id");
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -618,6 +619,94 @@ function ProductoNuevoContent() {
     return true;
   }
 
+  /**
+   * Elimina el producto solo si nunca fue agregado a un pedido. Verifica
+   * count en detalle_pedido por seguridad y muestra mensaje claro.
+   * Borra producto, sus relaciones (cascade) y la imagen del storage si
+   * vivia en nuestro bucket.
+   */
+  async function handleDelete(): Promise<boolean> {
+    if (!supabase || !productoEditando) return false;
+    if (typeof window !== "undefined") {
+      const ok = window.confirm(
+        "¿Eliminar este producto? Esta accion es permanente.",
+      );
+      if (!ok) return false;
+    }
+
+    // Verifica que no este en ningun pedido (ni como producto ni como base).
+    const usoComoItem = await supabase
+      .from("detalle_pedido")
+      .select("id", { count: "exact", head: true })
+      .or(`producto_id.eq.${productoEditando.id},producto_stock_id.eq.${productoEditando.id}`);
+
+    if (usoComoItem.error) {
+      setMessage({
+        type: "error",
+        text: `No se pudo verificar uso del producto: ${usoComoItem.error.message}`,
+      });
+      return false;
+    }
+
+    if ((usoComoItem.count ?? 0) > 0) {
+      setMessage({
+        type: "error",
+        text: "Este producto ya fue agregado a un pedido. No se puede eliminar (para preservar el historial). Puedes desactivarlo desmarcando 'Producto activo'.",
+      });
+      return false;
+    }
+
+    // Verifica que no sea base de otra presentacion en uso.
+    const esBase = await supabase
+      .from("productos")
+      .select("id", { count: "exact", head: true })
+      .eq("producto_base_id", productoEditando.id);
+    if ((esBase.count ?? 0) > 0) {
+      setMessage({
+        type: "error",
+        text: "Otros productos lo tienen como base. Desvincula esas presentaciones antes de eliminar.",
+      });
+      return false;
+    }
+
+    // Borra la imagen del storage si vive en nuestro bucket.
+    if (productoEditando.imagen_url) {
+      try {
+        const url = new URL(productoEditando.imagen_url);
+        const marker = "/storage/v1/object/public/productos/";
+        const idx = url.pathname.indexOf(marker);
+        if (idx >= 0) {
+          const objectPath = url.pathname.slice(idx + marker.length);
+          if (objectPath) {
+            await supabase.storage.from("productos").remove([objectPath]);
+          }
+        }
+      } catch {
+        // ignorar si la URL no es de nuestro bucket
+      }
+    }
+
+    // Borrar relaciones y producto.
+    await supabase.from("producto_almacen").delete().eq("producto_id", productoEditando.id);
+    await supabase
+      .from("producto_presentaciones_compra")
+      .delete()
+      .eq("producto_id", productoEditando.id);
+    await supabase.from("producto_precios_mayor").delete().eq("producto_id", productoEditando.id);
+    const del = await supabase.from("productos").delete().eq("id", productoEditando.id);
+    if (del.error) {
+      setMessage({
+        type: "error",
+        text: `No se pudo eliminar: ${del.error.message}`,
+      });
+      return false;
+    }
+
+    setMessage({ type: "success", text: "Producto eliminado correctamente." });
+    setTimeout(() => router.push("/productos"), 800);
+    return true;
+  }
+
   return (
     <Layout
       title={productoEditando ? "Editar producto" : "Nuevo producto"}
@@ -672,6 +761,7 @@ function ProductoNuevoContent() {
           almacenes={almacenes}
           isSaving={isSaving}
           onSubmit={handleSubmit}
+          onDelete={productoEditando ? handleDelete : undefined}
           onQuickCreateCategoria={quickCreateCategoria}
           onQuickCreateSubcategoria={quickCreateSubcategoria}
           onQuickCreateMarca={quickCreateMarca}

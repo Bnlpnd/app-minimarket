@@ -387,37 +387,52 @@ export function AlmacenAgregarStock() {
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-base font-semibold text-slate-950">Agregar cantidad</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <select value={productoIngresoId} onChange={(event) => setProductoIngresoId(event.target.value)} className={inputClassName}>
-            <option value="">Producto</option>
-            {productos.map((producto) => (
-              <option key={producto.id} value={producto.id}>
-                {producto.nombre_producto}
-              </option>
-            ))}
-          </select>
-          <select value={almacenIngresoId} onChange={(event) => setAlmacenIngresoId(event.target.value)} className={inputClassName}>
-            {almacenes.map((almacen) => (
-              <option key={almacen.id} value={almacen.id}>
-                {almacen.nombre}
-              </option>
-            ))}
-          </select>
-          {presentacionesCompraOrdenadas.length > 1 ? (
-            <select
-              value={presentacionCompraIndex}
-              onChange={(event) => setPresentacionCompraIndex(Number(event.target.value))}
-              className={inputClassName}
-            >
-              {presentacionesCompraOrdenadas.map((pres, index) => (
-                <option key={`${pres.nombre_presentacion}-${index}`} value={index}>
-                  {pres.nombre_presentacion} (x{pres.unidades_por_presentacion})
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Producto</span>
+            <select value={productoIngresoId} onChange={(event) => setProductoIngresoId(event.target.value)} className={inputClassName}>
+              <option value="">Producto</option>
+              {productos.map((producto) => (
+                <option key={producto.id} value={producto.id}>
+                  {producto.nombre_producto}
                 </option>
               ))}
             </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Almacen</span>
+            <select value={almacenIngresoId} onChange={(event) => setAlmacenIngresoId(event.target.value)} className={inputClassName}>
+              {almacenes.map((almacen) => (
+                <option key={almacen.id} value={almacen.id}>
+                  {almacen.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+          {presentacionesCompraOrdenadas.length > 1 ? (
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Presentacion</span>
+              <select
+                value={presentacionCompraIndex}
+                onChange={(event) => setPresentacionCompraIndex(Number(event.target.value))}
+                className={inputClassName}
+              >
+                {presentacionesCompraOrdenadas.map((pres, index) => (
+                  <option key={`${pres.nombre_presentacion}-${index}`} value={index}>
+                    {pres.nombre_presentacion} (x{pres.unidades_por_presentacion})
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : null}
-          <input type="number" min="0" step="1" value={cantidadPresentaciones} onChange={(event) => setCantidadPresentaciones(event.target.value)} placeholder="Presentaciones" className={inputClassName} />
-          <input type="number" min="0" step="1" value={unidadesSueltas} onChange={(event) => setUnidadesSueltas(event.target.value)} placeholder="Unidades sueltas" className={inputClassName} />
-          <button type="button" disabled={isSaving} onClick={() => void agregarCantidad()} className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Cantidad de presentaciones</span>
+            <input type="number" min="0" step="1" value={cantidadPresentaciones} onChange={(event) => setCantidadPresentaciones(event.target.value)} placeholder="Presentaciones" className={inputClassName} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Unidades sueltas</span>
+            <input type="number" min="0" step="1" value={unidadesSueltas} onChange={(event) => setUnidadesSueltas(event.target.value)} placeholder="Unidades sueltas" className={inputClassName} />
+          </label>
+          <button type="button" disabled={isSaving} onClick={() => void agregarCantidad()} className="h-12 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300 md:h-11">
             Agregar stock
           </button>
         </div>
