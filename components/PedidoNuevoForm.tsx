@@ -56,6 +56,12 @@ type ProductoSearchRow = Producto & {
     >;
   } | null;
   producto_precios_mayor?: ProductoPrecioMayor[];
+  producto_presentaciones_compra?: Array<{
+    id: string;
+    nombre_presentacion: string;
+    unidades_por_presentacion: number;
+    activo: boolean | null;
+  }>;
 };
 
 type StockWithAlmacen = Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
@@ -65,7 +71,19 @@ type StockWithAlmacen = Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
 
 type PedidoItem = {
   producto: ProductoSearchRow;
+  /**
+   * Cantidad final en la unidad NATURAL del producto (la que usa
+   * precio_venta y stock_actual). Resultado de cantidadInput × multiplicador.
+   * Despues toBaseQuantity() convierte a unidades base si el producto es
+   * una presentacion (saco, etc.).
+   */
   cantidad: number;
+  /** Cuanto tipeo el usuario en el input (puede ser 2 paquetes). */
+  cantidadInput: number;
+  /** Cuantas unidades naturales del producto contiene la presentacion elegida. 1 = unidad. */
+  presentacionMultiplicador: number;
+  /** Nombre de la presentacion (para mostrar). "" = unidad. */
+  presentacionNombre: string;
   almacen_id: string;
   reservaId?: string | null;
 };
@@ -274,7 +292,8 @@ export function PedidoNuevoForm() {
           categorias(nombre),
           subcategorias(nombre),
           producto_almacen(almacen_id,stock_actual,almacenes(id,nombre)),
-          producto_precios_mayor(*)
+          producto_precios_mayor(*),
+          producto_presentaciones_compra(id,nombre_presentacion,unidades_por_presentacion,activo)
         `,
       )
       .eq("activo", true)
@@ -457,7 +476,8 @@ export function PedidoNuevoForm() {
               categorias(nombre),
               subcategorias(nombre),
               producto_almacen(almacen_id,stock_actual,almacenes(id,nombre)),
-              producto_precios_mayor(*)
+              producto_precios_mayor(*),
+          producto_presentaciones_compra(id,nombre_presentacion,unidades_por_presentacion,activo)
             )
           )
         `,
@@ -498,13 +518,21 @@ export function PedidoNuevoForm() {
     );
     const duplicatedItems = (pedido.detalle_pedido ?? [])
       .filter((detalle) => detalle.productos)
-      .map((detalle) => ({
-        producto:
-          productosById.get((detalle.productos as ProductoSearchRow).id) ??
-          (detalle.productos as ProductoSearchRow),
-        cantidad: Number(detalle.cantidad ?? 1),
-        almacen_id: detalle.almacen_id ?? defaultAlmacenId,
-      }));
+      .map((detalle) => {
+        const cantidad = Number(detalle.cantidad ?? 1);
+        return {
+          producto:
+            productosById.get((detalle.productos as ProductoSearchRow).id) ??
+            (detalle.productos as ProductoSearchRow),
+          cantidad,
+          // Al duplicar no preservamos presentacion: el detalle solo guarda
+          // la cantidad en unidad del producto, no si fue como paquete/caja.
+          cantidadInput: cantidad,
+          presentacionMultiplicador: 1,
+          presentacionNombre: "",
+          almacen_id: detalle.almacen_id ?? defaultAlmacenId,
+        };
+      });
 
     setItems(duplicatedItems);
     setTipoEntrega(pedido.tipo_entrega ?? "llevar_ahora");
@@ -664,7 +692,9 @@ export function PedidoNuevoForm() {
     const existing = items.find((item) => item.producto.id === producto.id);
 
     if (existing) {
-      const nuevaCantidad = existing.cantidad + 1;
+      // Sumar una "presentacion" mas (un paquete, una caja, una unidad...).
+      const nuevoInput = existing.cantidadInput + 1;
+      const nuevaCantidad = nuevoInput * existing.presentacionMultiplicador;
       if (existing.reservaId) {
         const cantidadBase = toBaseQuantity(producto, nuevaCantidad);
         const { error } = await supabase.rpc("actualizar_reserva_carrito", {
@@ -682,7 +712,7 @@ export function PedidoNuevoForm() {
       setItems((current) =>
         current.map((item) =>
           item.producto.id === producto.id
-            ? { ...item, cantidad: nuevaCantidad }
+            ? { ...item, cantidad: nuevaCantidad, cantidadInput: nuevoInput }
             : item,
         ),
       );
@@ -707,7 +737,15 @@ export function PedidoNuevoForm() {
     const reservaId = (data as string | null) ?? null;
     setItems((current) => [
       ...current,
-      { producto, cantidad: 1, almacen_id: defaultAlmacenId, reservaId },
+      {
+        producto,
+        cantidad: 1,
+        cantidadInput: 1,
+        presentacionMultiplicador: 1,
+        presentacionNombre: "",
+        almacen_id: defaultAlmacenId,
+        reservaId,
+      },
     ]);
     await loadReservadoMap();
   }
@@ -724,7 +762,28 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    const nuevaCantidad = patch.cantidad ?? current.cantidad;
+    // Resolver la nueva cantidad final en unidad del producto.
+    // Reglas:
+    //  - Si el patch trae cantidad directa (handleMontoClick), eso manda y
+    //    reseteamos a unidad simple (sin presentacion).
+    //  - Si trae cantidadInput o presentacionMultiplicador, recalculamos
+    //    cantidad = input × multiplicador.
+    const nuevoMultiplicador =
+      patch.presentacionMultiplicador ?? current.presentacionMultiplicador;
+    const nuevoInput = patch.cantidadInput ?? current.cantidadInput;
+    let nuevaCantidad: number;
+    const consolidatedPatch: Partial<PedidoItem> = { ...patch };
+    if (patch.cantidad !== undefined) {
+      // Override directo: sincronizar input y limpiar presentacion.
+      nuevaCantidad = patch.cantidad;
+      consolidatedPatch.cantidadInput = patch.cantidad;
+      consolidatedPatch.presentacionMultiplicador = 1;
+      consolidatedPatch.presentacionNombre = "";
+    } else {
+      nuevaCantidad = nuevoInput * nuevoMultiplicador;
+      consolidatedPatch.cantidad = nuevaCantidad;
+    }
+
     const nuevoAlmacenId = patch.almacen_id ?? current.almacen_id;
     const productoStockId = getStockProductId(current.producto);
     const usuarioId = getStoredAppUser()?.id ?? null;
@@ -768,7 +827,7 @@ export function PedidoNuevoForm() {
       setItems((curr) =>
         curr.map((item) =>
           item.producto.id === productoId
-            ? { ...item, ...patch, reservaId: (data as string | null) ?? null }
+            ? { ...item, ...consolidatedPatch, reservaId: (data as string | null) ?? null }
             : item,
         ),
       );
@@ -776,8 +835,8 @@ export function PedidoNuevoForm() {
       return;
     }
 
-    // Solo cambio cantidad.
-    if (patch.cantidad !== undefined && patch.cantidad !== current.cantidad && current.reservaId) {
+    // Cambio de cantidad (input o multiplicador) sin cambio de almacen.
+    if (nuevaCantidad !== current.cantidad && current.reservaId) {
       const cantidadBase = toBaseQuantity(current.producto, nuevaCantidad);
       const { error } = await supabase.rpc("actualizar_reserva_carrito", {
         p_reserva_id: current.reservaId,
@@ -794,7 +853,7 @@ export function PedidoNuevoForm() {
 
     setItems((curr) =>
       curr.map((item) =>
-        item.producto.id === productoId ? { ...item, ...patch } : item,
+        item.producto.id === productoId ? { ...item, ...consolidatedPatch } : item,
       ),
     );
     await loadReservadoMap();
@@ -1040,7 +1099,13 @@ export function PedidoNuevoForm() {
         monto_a_cuenta: pagoTipo === "debe" ? Math.max(0, Number(montoACuenta) || 0) : total,
         estado_pago: pagoTipo === "debe" && (Number(montoACuenta) || 0) < total ? "debe" : "pagado",
         detalle_manual: items
-          .map((item) => `${item.cantidad} x ${item.producto.nombre_producto}`)
+          .map((item) => {
+            const usaPres =
+              item.presentacionMultiplicador > 1 && item.presentacionNombre;
+            return usaPres
+              ? `${item.cantidadInput} ${item.presentacionNombre} (${item.cantidad}) x ${item.producto.nombre_producto}`
+              : `${item.cantidad} x ${item.producto.nombre_producto}`;
+          })
           .join("; "),
       })
       .select("id")
@@ -1598,9 +1663,17 @@ export function PedidoNuevoForm() {
                 <tbody className="divide-y divide-slate-100">
                   {items.map((item) => {
                     const pricing = getItemPricing(item);
+                    const usaPresentacion =
+                      item.presentacionMultiplicador > 1 &&
+                      item.presentacionNombre;
+                    const unidadBaseLbl =
+                      (item.producto.unidad_base ?? "und").trim() || "und";
+                    const cantidadLabel = usaPresentacion
+                      ? `${item.cantidadInput} ${item.presentacionNombre} (${item.cantidad} ${unidadBaseLbl})`
+                      : String(item.cantidad);
                     return (
                       <tr key={item.producto.id}>
-                        <td className="px-3 py-3 text-slate-700">{item.cantidad}</td>
+                        <td className="px-3 py-3 text-slate-700">{cantidadLabel}</td>
                         <td className="px-3 py-3 font-medium text-slate-950">{item.producto.nombre_producto}</td>
                         <td className="px-3 py-3 text-slate-600">{formatMoney(pricing.precioUnitarioPromedio)}</td>
                         <td className="px-3 py-3 font-semibold text-slate-950">{formatMoney(pricing.subtotal)}</td>
@@ -1619,9 +1692,16 @@ export function PedidoNuevoForm() {
             <div className="space-y-3 p-3 lg:hidden">
               {items.map((item) => {
                 const pricing = getItemPricing(item);
+                const usaPresentacion =
+                  item.presentacionMultiplicador > 1 && item.presentacionNombre;
+                const unidadBaseLbl =
+                  (item.producto.unidad_base ?? "und").trim() || "und";
+                const cantidadLabel = usaPresentacion
+                  ? `${item.cantidadInput} ${item.presentacionNombre} (${item.cantidad} ${unidadBaseLbl})`
+                  : `${item.cantidad}x`;
                 return (
                   <div key={item.producto.id} className="flex justify-between rounded-md border border-slate-200 p-3 text-sm">
-                    <span className="text-slate-700">{item.cantidad}x {item.producto.nombre_producto}</span>
+                    <span className="text-slate-700">{cantidadLabel} {item.producto.nombre_producto}</span>
                     <span className="font-semibold text-slate-950">{formatMoney(pricing.subtotal)}</span>
                   </div>
                 );
@@ -1786,6 +1866,11 @@ function Cart({
                 const requiredBase = toBaseQuantity(item.producto, item.cantidad);
                 const pricing = getItemPricing(item);
                 const hasStockIssue = requiredBase > stockBase;
+                const presentacionesActivas = (
+                  item.producto.producto_presentaciones_compra ?? []
+                ).filter((p) => p.activo !== false && Number(p.unidades_por_presentacion) > 1);
+                const unidadBaseLbl =
+                  (item.producto.unidad_base ?? "und").trim() || "und";
                 return (
                   <tr
                     key={item.producto.id}
@@ -1816,16 +1901,56 @@ function Cart({
                       ) : null}
                     </td>
                     <td className="px-3 py-3">
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={item.cantidad}
-                        disabled={readonly}
-                        onFocus={selectOnFocus}
-                        onChange={(event) => onUpdate(item.producto.id, { cantidad: Number(event.target.value) || 0 })}
-                        className="h-9 w-24 rounded-md border border-slate-300 px-2 text-sm"
-                      />
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={item.cantidadInput}
+                          disabled={readonly}
+                          onFocus={selectOnFocus}
+                          onChange={(event) =>
+                            onUpdate(item.producto.id, {
+                              cantidadInput: Number(event.target.value) || 0,
+                            })
+                          }
+                          className="h-9 w-20 rounded-md border border-slate-300 px-2 text-sm"
+                        />
+                        {presentacionesActivas.length > 0 ? (
+                          <select
+                            value={String(item.presentacionMultiplicador)}
+                            disabled={readonly}
+                            onChange={(event) => {
+                              const valor = Number(event.target.value) || 1;
+                              const opt = presentacionesActivas.find(
+                                (p) =>
+                                  Number(p.unidades_por_presentacion) === valor,
+                              );
+                              onUpdate(item.producto.id, {
+                                presentacionMultiplicador: valor,
+                                presentacionNombre: opt?.nombre_presentacion ?? "",
+                              });
+                            }}
+                            className="h-9 rounded-md border border-slate-300 bg-white px-1 text-xs"
+                            title="Vender por presentacion"
+                          >
+                            <option value="1">Und</option>
+                            {presentacionesActivas.map((p) => (
+                              <option
+                                key={p.id}
+                                value={String(p.unidades_por_presentacion)}
+                              >
+                                {p.nombre_presentacion}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                      </div>
+                      {item.presentacionMultiplicador > 1 ? (
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          = {item.cantidad} {unidadBaseLbl}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3 text-slate-600">{formatMoney(pricing.precioUnitarioPromedio)}</td>
                     <td className="px-3 py-3 font-semibold text-slate-950">{formatMoney(pricing.subtotal)}</td>
@@ -1880,6 +2005,11 @@ function Cart({
             ? almacenes.find((a) => ["tienda", "negocio"].includes(a.nombre.toLowerCase()))
             : almacenes.find((a) => a.nombre.toLowerCase() === "casa");
           const unidadBase = (item.producto.unidad_base ?? "und").trim() || "und";
+          const presentacionesActivas = (
+            item.producto.producto_presentaciones_compra ?? []
+          ).filter(
+            (p) => p.activo !== false && Number(p.unidades_por_presentacion) > 1,
+          );
           const handleMontoClick = () => {
             if (readonly || typeof window === "undefined") return;
             const precioUnit = getPrecioBase(item.producto);
@@ -1901,17 +2031,19 @@ function Cart({
                 hasStockIssue ? "bg-red-50" : ""
               }`}
             >
-              {/* Cantidad */}
+              {/* Cantidad (en la presentacion elegida) */}
               <input
                 type="number"
                 inputMode="decimal"
                 min="0.01"
                 step="0.01"
-                value={item.cantidad}
+                value={item.cantidadInput}
                 disabled={readonly}
                 onFocus={selectOnFocus}
                 onChange={(event) =>
-                  onUpdate(item.producto.id, { cantidad: Number(event.target.value) || 0 })
+                  onUpdate(item.producto.id, {
+                    cantidadInput: Number(event.target.value) || 0,
+                  })
                 }
                 className="h-11 w-full rounded-md border border-slate-300 px-2 text-center text-sm font-semibold"
                 aria-label="Cantidad"
@@ -1929,12 +2061,12 @@ function Cart({
                   IMG
                 </span>
               )}
-              {/* Nombre + toggle almacen + precio unidad */}
+              {/* Nombre + toggle almacen + precio unidad + selector presentacion */}
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-slate-950">
                   {item.producto.nombre_producto}
                 </p>
-                <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
                   {otroAlmacen && !readonly ? (
                     <button
                       type="button"
@@ -1964,6 +2096,39 @@ function Cart({
                   <span>
                     {formatMoney(pricing.precioUnitarioPromedio)}/{unidadBase}
                   </span>
+                  {presentacionesActivas.length > 0 && !readonly ? (
+                    <select
+                      value={String(item.presentacionMultiplicador)}
+                      onChange={(event) => {
+                        const valor = Number(event.target.value) || 1;
+                        const opt = presentacionesActivas.find(
+                          (p) =>
+                            Number(p.unidades_por_presentacion) === valor,
+                        );
+                        onUpdate(item.producto.id, {
+                          presentacionMultiplicador: valor,
+                          presentacionNombre: opt?.nombre_presentacion ?? "",
+                        });
+                      }}
+                      className="h-6 rounded border border-slate-300 bg-white px-1 text-[10px] font-medium text-slate-700"
+                      title="Vender por presentacion"
+                    >
+                      <option value="1">Und</option>
+                      {presentacionesActivas.map((p) => (
+                        <option
+                          key={p.id}
+                          value={String(p.unidades_por_presentacion)}
+                        >
+                          {p.nombre_presentacion}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {item.presentacionMultiplicador > 1 ? (
+                    <span className="rounded bg-slate-100 px-1 text-[10px] font-semibold text-slate-700">
+                      = {item.cantidad} {unidadBase}
+                    </span>
+                  ) : null}
                   {!readonly ? (
                     <button
                       type="button"
