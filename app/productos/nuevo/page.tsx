@@ -512,6 +512,21 @@ function ProductoNuevoContent() {
             : "Stock inicial al crear producto",
           p_usuario_id: null,
         });
+
+        // Si el usuario informo fecha de vencimiento del stock inicial,
+        // registrar el lote correspondiente. Sin fecha = no perecedero.
+        const fechaVtoInicial = values.stock_inicial_fecha_vencimiento;
+        if (fechaVtoInicial && stockEnBase > 0) {
+          await supabase.from("producto_lotes").insert({
+            producto_id: targetProductoId,
+            almacen_id: almacenInicialId,
+            cantidad_inicial: stockEnBase,
+            cantidad_actual: stockEnBase,
+            fecha_vencimiento: fechaVtoInicial,
+            origen: "inicial",
+            notas: "Lote del stock inicial al crear producto",
+          });
+        }
       } else {
         // Crear fila en Tienda con 0 para que el producto aparezca en listados
         const tienda = await supabase

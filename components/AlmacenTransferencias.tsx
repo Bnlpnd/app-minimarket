@@ -129,6 +129,9 @@ export function AlmacenTransferencias() {
   const [pedidoCart, setPedidoCart] = useState<CartItem[]>([]);
   const [pedidoProveedorId, setPedidoProveedorId] = useState("");
   const [pedidoUrgencia, setPedidoUrgencia] = useState<"baja" | "normal" | "alta">("normal");
+  // Fecha vto opcional por solicitud, ingresada por el usuario antes de
+  // confirmar la transferencia. Si se completa, crea lotes en destino.
+  const [vtoSolicitudes, setVtoSolicitudes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -508,8 +511,31 @@ export function AlmacenTransferencias() {
         setMessage({ type: "error", text: `No se pudo confirmar: ${result.error.message}` });
         return;
       }
+
+      // Si el usuario informo fecha vto al confirmar, crear lote en destino.
+      const fechaVto = vtoSolicitudes[solicitud.id];
+      if (fechaVto) {
+        const { error: loteError } = await supabase.from("producto_lotes").insert({
+          producto_id: productoStockId,
+          almacen_id: destinoId,
+          cantidad_inicial: cantidad,
+          cantidad_actual: cantidad,
+          fecha_vencimiento: fechaVto,
+          origen: "transferencia",
+          notas: `Recibido en transferencia ${solicitud.id.slice(0, 8)}`,
+        });
+        if (loteError) {
+          // El stock ya se transfirio; reportar como warning suave.
+          console.warn("Lote no creado:", loteError.message);
+        }
+      }
     }
     await supabase.from("almacen_transferencias_solicitudes").update({ estado: "recibido" }).eq("id", solicitud.id);
+    setVtoSolicitudes((current) => {
+      const next = { ...current };
+      delete next[solicitud.id];
+      return next;
+    });
     setIsSaving(false);
     setMessage({ type: "success", text: "Transferencia confirmada y stock actualizado." });
     await loadProductos();
@@ -602,9 +628,26 @@ export function AlmacenTransferencias() {
                   <p className="text-xs text-slate-500">{new Date(solicitud.created_at).toLocaleString("es-PE")} - {solicitud.estado}</p>
                 </div>
                 {solicitud.estado !== "recibido" ? (
-                  <button type="button" disabled={isSaving} onClick={() => void confirmarTransferencia(solicitud)} className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
-                    Confirmar envio recibido
-                  </button>
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+                    <label className="flex items-center gap-1 text-xs text-slate-600">
+                      Vto:
+                      <input
+                        type="date"
+                        value={vtoSolicitudes[solicitud.id] ?? ""}
+                        onChange={(event) =>
+                          setVtoSolicitudes((current) => ({
+                            ...current,
+                            [solicitud.id]: event.target.value,
+                          }))
+                        }
+                        className="h-10 rounded-md border border-slate-300 px-2 text-xs"
+                        title="Fecha vencimiento (opcional) para registrar lote en destino"
+                      />
+                    </label>
+                    <button type="button" disabled={isSaving} onClick={() => void confirmarTransferencia(solicitud)} className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+                      Confirmar envio recibido
+                    </button>
+                  </div>
                 ) : null}
               </div>
               <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">

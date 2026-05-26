@@ -64,6 +64,8 @@ export type ProductoFormValues = {
   stock_cantidad_presentaciones: string;
   stock_unidades_sueltas: string;
   stock_inicial_almacen_id: string;
+  /** YYYY-MM-DD opcional: si hay stock inicial y se completa, crea un lote. */
+  stock_inicial_fecha_vencimiento: string;
   precios_mayor: PrecioMayorFormValue[];
   presentaciones_compra: PresentacionCompraFormValue[];
   producto_base_id: string;
@@ -124,6 +126,7 @@ const emptyValues: ProductoFormValues = {
   stock_cantidad_presentaciones: "0",
   stock_unidades_sueltas: "0",
   stock_inicial_almacen_id: "",
+  stock_inicial_fecha_vencimiento: "",
   precios_mayor: [],
   presentaciones_compra: [],
   producto_base_id: "",
@@ -205,6 +208,7 @@ function getInitialValues({
     stock_cantidad_presentaciones: "0",
     stock_unidades_sueltas: "0",
     stock_inicial_almacen_id: "",
+    stock_inicial_fecha_vencimiento: "",
     precios_mayor: preciosMayorValues,
     presentaciones_compra: presentacionesCompraValues,
     producto_base_id: producto.producto_base_id ?? "",
@@ -854,6 +858,23 @@ export function ProductoForm({
                     </p>
                   );
                 })()}
+              </Field>
+              <Field label="Fecha vencimiento (opcional)">
+                <input
+                  type="date"
+                  value={values.stock_inicial_fecha_vencimiento}
+                  onChange={(event) =>
+                    updateValue("stock_inicial_fecha_vencimiento", event.target.value)
+                  }
+                  disabled={stockInicialUnidades <= 0}
+                  className={
+                    inputClassName +
+                    (stockInicialUnidades > 0 ? "" : " bg-slate-50 text-slate-400")
+                  }
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Si lo dejas vacio, no se registra lote (productos no perecederos).
+                </p>
               </Field>
             </>
           ) : null}
