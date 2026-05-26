@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { selectOnFocus } from "@/lib/inputUtils";
+import { compressImage } from "@/lib/imageUtils";
 import { formatDate, formatDateTime, parseInputDate } from "@/lib/dateUtils";
 import { getStoredAppUser } from "@/lib/authRoles";
 import type {
@@ -281,7 +282,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
     return allocateAmountFifo(monto, pedidos, selectedPedidoIds);
   }, [pagoForm.monto, pedidos, selectedPedidoIds]);
 
-  function handleManualImagenChange(file: File | null) {
+  async function handleManualImagenChange(file: File | null) {
     setManualImagenError("");
     if (!file) {
       setManualImagenFile(null);
@@ -292,12 +293,21 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
       setManualImagenError("Formato no permitido. Usa JPG, PNG o WEBP.");
       return;
     }
+    let finalFile = file;
     if (file.size > MAX_IMAGE_SIZE) {
-      setManualImagenError("La imagen supera 2 MB.");
-      return;
+      try {
+        finalFile = await compressImage(file, { maxSizeBytes: MAX_IMAGE_SIZE });
+      } catch (err) {
+        setManualImagenError(
+          err instanceof Error
+            ? err.message
+            : "La imagen es muy grande y no se pudo comprimir.",
+        );
+        return;
+      }
     }
-    setManualImagenFile(file);
-    setManualImagenPreview(URL.createObjectURL(file));
+    setManualImagenFile(finalFile);
+    setManualImagenPreview(URL.createObjectURL(finalFile));
   }
 
   async function uploadManualImagen(): Promise<string | null> {

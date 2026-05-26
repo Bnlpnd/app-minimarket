@@ -16,6 +16,7 @@ import {
   type StockReservadoMap,
 } from "@/lib/inventoryUtils";
 import { selectOnFocus } from "@/lib/inputUtils";
+import { compressImage } from "@/lib/imageUtils";
 import { calcularPrecioPorCantidad } from "@/lib/pricing";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
@@ -603,7 +604,7 @@ export function PedidoNuevoForm() {
     setCaptureError("");
   }
 
-  function handleCaptureChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleCaptureChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     clearCapture();
 
@@ -617,14 +618,23 @@ export function PedidoNuevoForm() {
       return;
     }
 
+    let finalFile = file;
     if (file.size > maxCaptureSize) {
-      setCaptureError("La captura no debe superar 1 MB.");
-      event.target.value = "";
-      return;
+      try {
+        finalFile = await compressImage(file, { maxSizeBytes: maxCaptureSize });
+      } catch (err) {
+        setCaptureError(
+          err instanceof Error
+            ? err.message
+            : "La captura es muy grande y no se pudo comprimir.",
+        );
+        event.target.value = "";
+        return;
+      }
     }
 
-    setCaptureFile(file);
-    setCapturePreview(URL.createObjectURL(file));
+    setCaptureFile(finalFile);
+    setCapturePreview(URL.createObjectURL(finalFile));
   }
 
   async function loadReservadoMap() {

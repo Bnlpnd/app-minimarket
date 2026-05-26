@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { compressImage } from "@/lib/imageUtils";
 import {
   combineValidations,
   validatePrice,
@@ -350,7 +351,7 @@ export function ProductoForm({
     clearSelectedImage();
   }
 
-  function handleImageChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImageChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     clearSelectedImage();
 
@@ -364,14 +365,24 @@ export function ProductoForm({
       return;
     }
 
+    // Si pesa mas del limite, comprimir automaticamente (resize + JPEG).
+    let finalFile = file;
     if (file.size > maxImageSize) {
-      setImageError("La imagen no debe superar 1 MB.");
-      event.target.value = "";
-      return;
+      try {
+        finalFile = await compressImage(file, { maxSizeBytes: maxImageSize });
+      } catch (err) {
+        setImageError(
+          err instanceof Error
+            ? err.message
+            : "La imagen es muy grande y no se pudo comprimir.",
+        );
+        event.target.value = "";
+        return;
+      }
     }
 
-    setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+    setImageFile(finalFile);
+    setImagePreview(URL.createObjectURL(finalFile));
   }
 
   function buildImagePath(file: File) {
@@ -936,7 +947,7 @@ export function ProductoForm({
             </label>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            JPG, PNG o WebP. Tamano maximo 1 MB.
+            JPG, PNG o WebP. Si pesa mas de 1 MB se comprime automaticamente.
           </p>
           {imageError ? (
             <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
