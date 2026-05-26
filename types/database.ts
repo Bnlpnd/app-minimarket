@@ -123,6 +123,78 @@ export interface Proveedor {
   updated_at: string;
 }
 
+export type ProveedorCompraEstadoPago = "pagado" | "parcial" | "pendiente";
+export type ProveedorCompraTipoDoc =
+  | "boleta"
+  | "factura"
+  | "nota"
+  | "sin_documento";
+export type ProveedorPagoMetodo =
+  | "efectivo"
+  | "yape"
+  | "transferencia"
+  | "otro";
+
+export interface ProveedorCompra {
+  id: string;
+  proveedor_id: string;
+  fecha_compra: string;
+  numero_documento: string | null;
+  tipo_documento: ProveedorCompraTipoDoc;
+  subtotal: number;
+  descuento: number;
+  total: number;
+  monto_pagado: number;
+  saldo: number;
+  estado_pago: ProveedorCompraEstadoPago;
+  observacion: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProveedorCompraItem {
+  id: string;
+  compra_id: string;
+  producto_id: string | null;
+  descripcion: string | null;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+  fecha_vencimiento: string | null;
+  almacen_destino_id: string | null;
+  registrar_stock: boolean;
+  created_at: string;
+}
+
+export interface ProveedorPago {
+  id: string;
+  compra_id: string;
+  fecha_pago: string;
+  monto: number;
+  metodo: ProveedorPagoMetodo;
+  referencia: string | null;
+  observacion: string | null;
+  created_at: string;
+}
+
+export interface VistaProveedorResumen {
+  proveedor_id: string;
+  proveedor_nombre: string;
+  compras_total: number;
+  compras_monto_total: number;
+  pagos_total: number;
+  deuda_total: number;
+  compras_con_saldo: number;
+  ultima_compra: string | null;
+}
+
+export interface VistaPagosProveedorMensual {
+  mes: string;
+  metodo: ProveedorPagoMetodo;
+  pagos_cantidad: number;
+  monto_total: number;
+}
+
 export type ProductoLoteOrigen =
   | "inicial"
   | "compra"

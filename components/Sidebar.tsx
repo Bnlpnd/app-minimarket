@@ -42,7 +42,10 @@ export const navigationItems = [
   },
   {
     label: "Proveedores",
-    items: [{ href: "/proveedores", label: "Proveedores" }],
+    items: [
+      { href: "/proveedores?tab=listado", label: "Listado proveedores" },
+      { href: "/proveedores?tab=compras", label: "Compras y pagos" },
+    ],
   },
   {
     label: "Personal",

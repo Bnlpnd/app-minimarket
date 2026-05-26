@@ -54,6 +54,8 @@ type AdminData = {
   ultimosPedidos: PedidoResumen[];
   productosStockBajo: ProductoStockBajo[];
   proximosVencer: VistaLoteVencimiento[];
+  deudaProveedores: number;
+  pagoProveedorMes: number;
   errors: string[];
 };
 
@@ -111,6 +113,8 @@ const emptyAdminData: AdminData = {
   ultimosPedidos: [],
   productosStockBajo: [],
   proximosVencer: [],
+  deudaProveedores: 0,
+  pagoProveedorMes: 0,
   errors: [],
 };
 
@@ -277,13 +281,31 @@ function AdminDashboard() {
         ),
       ]);
 
-      // Lotes proximos a vencer (en paralelo con resto del dashboard).
-      const vencerResult = await supabase
-        .from("vista_lotes_vencimiento")
-        .select("*")
-        .in("estado_vencimiento", ["vencido", "urgente", "proximo"])
-        .order("fecha_vencimiento", { ascending: true })
-        .limit(8);
+      // Lotes proximos a vencer + deudas y pagos a proveedores (mes actual).
+      const mesActualIso = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-01`;
+      const [vencerResult, resumenProvResult, pagoProvMesResult] = await Promise.all([
+        supabase
+          .from("vista_lotes_vencimiento")
+          .select("*")
+          .in("estado_vencimiento", ["vencido", "urgente", "proximo"])
+          .order("fecha_vencimiento", { ascending: true })
+          .limit(8),
+        supabase
+          .from("vista_proveedor_resumen")
+          .select("deuda_total"),
+        supabase
+          .from("proveedor_pagos")
+          .select("monto")
+          .gte("fecha_pago", mesActualIso),
+      ]);
+      const deudaProveedores = ((resumenProvResult.data ?? []) as Array<{ deuda_total: number }>).reduce(
+        (sum, r) => sum + Number(r.deuda_total ?? 0),
+        0,
+      );
+      const pagoProveedorMes = ((pagoProvMesResult.data ?? []) as Array<{ monto: number }>).reduce(
+        (sum, r) => sum + Number(r.monto ?? 0),
+        0,
+      );
 
       const errors = [
         pendientes.error ? `Pendientes: ${pendientes.error.message}` : null,
@@ -297,6 +319,8 @@ function AdminDashboard() {
         ultimos.error ? `Ultimos pedidos: ${ultimos.error.message}` : null,
         productos.error ? `Stock bajo: ${productos.error.message}` : null,
         vencerResult.error ? `Vencimientos: ${vencerResult.error.message}` : null,
+        resumenProvResult.error ? `Deuda proveedores: ${resumenProvResult.error.message}` : null,
+        pagoProvMesResult.error ? `Pagos proveedores mes: ${pagoProvMesResult.error.message}` : null,
       ].filter(Boolean) as string[];
 
       const montoDia = ((pedidosDia.data ?? []) as Pick<Pedido, "total">[]).reduce(
@@ -339,6 +363,8 @@ function AdminDashboard() {
         ultimosPedidos: (ultimos.data ?? []) as unknown as PedidoResumen[],
         productosStockBajo,
         proximosVencer: ((vencerResult.data ?? []) as VistaLoteVencimiento[]),
+        deudaProveedores,
+        pagoProveedorMes,
         errors,
       });
       setIsLoading(false);
@@ -382,6 +408,16 @@ function AdminDashboard() {
         <MetricCard label="Descuentos de la semana" value={formatMoney(data.descuentoSemana)} detail="Control comercial semanal" />
         <MetricCard label="Personal activo" value={String(data.personalActivo)} detail="Usuarios activos" />
         <MetricCard label="Pagos por validar" value={String(data.pagosPorValidar)} detail="Capturas Yape pendientes" />
+        <MetricCard
+          label="Deuda a proveedores"
+          value={formatMoney(data.deudaProveedores)}
+          detail="Saldo total a pagar a proveedores"
+        />
+        <MetricCard
+          label="Pago a proveedores (mes)"
+          value={formatMoney(data.pagoProveedorMes)}
+          detail="Suma de abonos del mes actual"
+        />
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
