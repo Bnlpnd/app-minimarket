@@ -179,6 +179,7 @@ export function PedidoNuevoForm() {
   const [isSavingPedido, setIsSavingPedido] = useState(false);
   const [queryLoaded, setQueryLoaded] = useState(false);
   const [reservadoMap, setReservadoMap] = useState<StockReservadoMap | null>(null);
+  const productoSearchInputRef = useRef<HTMLInputElement | null>(null);
   const sesionIdRef = useRef<string>(
     `carrito-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
@@ -563,6 +564,15 @@ export function PedidoNuevoForm() {
     return () => window.clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productoSearch, categoriaId, subcategoriaId]);
+
+  // Auto-focus al input de busqueda cuando entras al paso 1.
+  useEffect(() => {
+    if (step !== 1) return;
+    const id = window.setTimeout(() => {
+      productoSearchInputRef.current?.focus();
+    }, 150);
+    return () => window.clearTimeout(id);
+  }, [step]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -1232,8 +1242,10 @@ export function PedidoNuevoForm() {
         </div>
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
-        <div className="grid gap-2 sm:grid-cols-5">
+      {/* Wizard de 5 pasos: visible solo en >=md. En mobile usamos un
+          badge compacto dentro de cada Panel. */}
+      <section className="hidden rounded-lg border border-slate-200 bg-white p-3 shadow-sm md:block md:p-4">
+        <div className="grid gap-2 md:grid-cols-5">
           {[1, 2, 3, 4, 5].map((item) => {
             const isLocked = item > maxStepVisited || Boolean(createdPedidoId);
             return (
@@ -1257,23 +1269,34 @@ export function PedidoNuevoForm() {
         </div>
       </section>
 
+      {/* Badge compacto del paso actual: solo mobile */}
+      <div className="md:hidden">
+        <span className="inline-flex h-9 items-center rounded-md bg-slate-900 px-3 text-sm font-semibold text-white">
+          {step}. {["Productos", "Cliente", "Entrega", "Confirmar", "Pago"][step - 1]}
+        </span>
+      </div>
+
       {step === 1 ? (
         <Panel title="Paso 1: elegir productos">
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px]">
             <input
+              ref={productoSearchInputRef}
               type="search"
               value={productoSearch}
               onChange={(event) => setProductoSearch(event.target.value)}
               placeholder="Codigo, producto o marca"
               className={inputClassName}
+              autoFocus
             />
+            {/* Categoria oculta en mobile: con muchos productos es muy
+                generica y consume espacio. */}
             <select
               value={categoriaId}
               onChange={(event) => {
                 setCategoriaId(event.target.value);
                 setSubcategoriaId("");
               }}
-              className={inputClassName}
+              className={`${inputClassName} hidden md:block`}
             >
               <option value="">Categoria</option>
               {categorias.map((categoria) => (
@@ -1296,7 +1319,20 @@ export function PedidoNuevoForm() {
             </select>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {/* Mobile: solo mostrar productos si el usuario busca o elige
+              subcategoria (con 1600+ items mostrar todo es lento e
+              inutil). Desktop ve siempre la lista. */}
+          {productoSearch.trim() || subcategoriaId || categoriaId ? null : (
+            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500 md:hidden">
+              Escribe en el buscador o elige una subcategoria para ver productos.
+            </p>
+          )}
+
+          <div
+            className={`grid gap-2 md:grid-cols-2 xl:grid-cols-3 ${
+              productoSearch.trim() || subcategoriaId || categoriaId ? "" : "hidden md:grid"
+            }`}
+          >
               {isSearchingProducts ? (
                 <p className="text-sm text-slate-500">Buscando productos...</p>
               ) : productos.length > 0 ? (
@@ -1381,6 +1417,15 @@ export function PedidoNuevoForm() {
             canNext={canGoNext}
             onBack={() => setStep(Math.max(1, step - 1))}
             onNext={() => { setStep(2); setMaxStepVisited((current) => Math.max(current, 2)); }}
+            onCancel={() => {
+              if (items.length === 0) {
+                resetForNewSale();
+                return;
+              }
+              if (typeof window === "undefined" || window.confirm("¿Cancelar la venta? Se pierde lo agregado y se libera el stock reservado.")) {
+                resetForNewSale();
+              }
+            }}
           />
         </Panel>
       ) : null}
@@ -1789,49 +1834,122 @@ function Cart({
           ) : null}
         </table>
       </div>
-      <div className="space-y-3 p-3 lg:hidden">
+      {/* Mobile: fila compacta por item.
+          Layout: Cantidad | img | nombre + T/C + precio | subtotal | X
+          El toggle T/C cambia el almacen al item entre Tienda y Casa. */}
+      <div className="divide-y divide-slate-100 lg:hidden">
+        {items.length === 0 ? (
+          <p className="p-4 text-center text-sm text-slate-500">
+            Agrega productos al pedido.
+          </p>
+        ) : null}
         {items.map((item) => {
           const pricing = getItemPricing(item);
           const stock = stockIn(item.producto, item.almacen_id);
           const stockBase = getBaseStockByAlmacen(item.producto, item.almacen_id);
           const requiredBase = toBaseQuantity(item.producto, item.cantidad);
           const hasStockIssue = requiredBase > stockBase;
+          const almacenActual = almacenes.find((a) => a.id === item.almacen_id);
+          const isCasa = almacenActual?.nombre.toLowerCase() === "casa";
+          const labelAlmacen = isCasa ? "C" : "T";
+          const otroAlmacen = isCasa
+            ? almacenes.find((a) => ["tienda", "negocio"].includes(a.nombre.toLowerCase()))
+            : almacenes.find((a) => a.nombre.toLowerCase() === "casa");
           return (
             <article
               key={item.producto.id}
-              className={`rounded-md border p-3 text-sm ${
-                hasStockIssue ? "border-red-200 bg-red-50" : "border-slate-200"
+              className={`grid grid-cols-[60px_44px_minmax(0,1fr)_70px_28px] items-center gap-2 px-2 py-2 text-sm ${
+                hasStockIssue ? "bg-red-50" : ""
               }`}
             >
-              <p className="font-semibold text-slate-950">{item.producto.nombre_producto}</p>
-              <p className="mt-1 text-xs text-slate-500">{item.producto.codigo_interno}</p>
-              {hasStockIssue ? (
-                <p className="mt-2 rounded-md bg-red-100 px-2 py-1 text-xs font-medium text-red-700">
-                  Stock insuficiente: disponible {stock}
+              {/* Cantidad */}
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={item.cantidad}
+                disabled={readonly}
+                onChange={(event) =>
+                  onUpdate(item.producto.id, { cantidad: Number(event.target.value) || 0 })
+                }
+                className="h-11 w-full rounded-md border border-slate-300 px-2 text-center text-sm font-semibold"
+                aria-label="Cantidad"
+              />
+              {/* Imagen miniatura */}
+              {item.producto.imagen_url ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={item.producto.imagen_url}
+                  alt=""
+                  className="h-11 w-11 shrink-0 rounded border border-slate-200 object-cover"
+                />
+              ) : (
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50 text-[10px] text-slate-400">
+                  IMG
+                </span>
+              )}
+              {/* Nombre + toggle almacen + precio unidad */}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-slate-950">
+                  {item.producto.nombre_producto}
                 </p>
-              ) : null}
-              <div className="mt-3 grid gap-2">
-                <select value={item.almacen_id} disabled={readonly} onChange={(event) => onUpdate(item.producto.id, { almacen_id: event.target.value })} className={inputClassName}>
-                  {almacenes.map((almacen) => (
-                    <option key={almacen.id} value={almacen.id}>{almacen.nombre}</option>
-                  ))}
-                </select>
-                <input type="number" min="0.01" step="0.01" value={item.cantidad} disabled={readonly} onChange={(event) => onUpdate(item.producto.id, { cantidad: Number(event.target.value) || 0 })} className={inputClassName} />
-                <div className="flex justify-between text-sm">
+                <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                  {otroAlmacen && !readonly ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdate(item.producto.id, { almacen_id: otroAlmacen.id })
+                      }
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                        isCasa
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-emerald-100 text-emerald-700"
+                      }`}
+                      title={`Cambiar a ${otroAlmacen.nombre}`}
+                    >
+                      {labelAlmacen}
+                    </button>
+                  ) : (
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
+                        isCasa
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-emerald-100 text-emerald-700"
+                      }`}
+                    >
+                      {labelAlmacen}
+                    </span>
+                  )}
                   <span>{formatMoney(pricing.precioUnitarioPromedio)}</span>
-                  <strong>{formatMoney(pricing.subtotal)}</strong>
+                  {hasStockIssue ? (
+                    <span className="rounded bg-red-100 px-1 text-[10px] font-semibold text-red-700">
+                      Stock {stock}
+                    </span>
+                  ) : null}
                 </div>
               </div>
+              {/* Subtotal */}
+              <p className="text-right text-sm font-bold text-slate-950">
+                {formatMoney(pricing.subtotal)}
+              </p>
+              {/* Quitar */}
               {!readonly ? (
-                <button type="button" onClick={() => onRemove(item.producto.id)} className="mt-3 h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700">
-                  Quitar
+                <button
+                  type="button"
+                  onClick={() => onRemove(item.producto.id)}
+                  className="flex h-8 w-7 items-center justify-center rounded text-lg font-bold text-red-600 hover:bg-red-50"
+                  aria-label="Quitar"
+                >
+                  ×
                 </button>
-              ) : null}
+              ) : (
+                <span />
+              )}
             </article>
           );
         })}
         {items.length > 0 ? (
-          <div className="flex justify-between rounded-md bg-slate-50 px-3 py-3 text-sm font-bold text-slate-950">
+          <div className="flex justify-between bg-slate-50 px-3 py-3 text-sm font-bold text-slate-950">
             <span>Total</span>
             <span>{formatMoney(items.reduce((sum, item) => sum + getItemPricing(item).subtotal, 0))}</span>
           </div>
@@ -1875,19 +1993,34 @@ function StepActions({
   canNext,
   onBack,
   onNext,
+  onCancel,
 }: {
   step: number;
   canNext: boolean;
   onBack: () => void;
   onNext: () => void;
+  onCancel?: () => void;
 }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+      {/* En el paso 1 mostramos "Cancelar pedido" en mobile (el back no
+          tiene sentido). En desktop seguimos con el "Atras" deshabilitado. */}
+      {step === 1 && onCancel ? (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="h-11 rounded-md border border-red-200 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 md:hidden"
+        >
+          Cancelar pedido
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onBack}
         disabled={step === 1}
-        className="h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 disabled:opacity-40"
+        className={`h-11 rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 disabled:opacity-40 ${
+          step === 1 ? "hidden md:block" : ""
+        }`}
       >
         Atras
       </button>
