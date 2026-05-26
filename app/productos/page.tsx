@@ -25,12 +25,20 @@ type EstadoFilter = "todos" | "activos" | "inactivos";
 type QuickValues = Record<
   string,
   {
+    precio_compra: string;
     precio_venta: string;
     stock_minimo: string;
     stock_tienda: string;
     stock_casa: string;
   }
 >;
+
+type QuickKey =
+  | "precio_compra"
+  | "precio_venta"
+  | "stock_minimo"
+  | "stock_tienda"
+  | "stock_casa";
 
 const PAGE_SIZE = 50;
 const inputClassName =
@@ -41,6 +49,10 @@ function buildQuickValues(productos: ProductoConRelaciones[]) {
     productos.map((producto) => [
       producto.id,
       {
+        precio_compra:
+          producto.precio_compra_referencial != null
+            ? String(Number(producto.precio_compra_referencial).toFixed(2))
+            : "",
         precio_venta: String(Number(producto.precio_venta ?? 1).toFixed(2)),
         stock_minimo: String(Number(producto.stock_minimo ?? 10)),
         stock_tienda: String(getBaseStockByName(producto, "Tienda")),
@@ -287,7 +299,7 @@ export default function ProductosPage() {
 
   function handleQuickValueChange(
     productoId: string,
-    key: "precio_venta" | "stock_minimo" | "stock_tienda" | "stock_casa",
+    key: QuickKey,
     value: string,
   ) {
     setQuickValues((current) => ({
@@ -309,6 +321,17 @@ export default function ProductosPage() {
     const stockMinimo = Number(values?.stock_minimo);
     const stockTienda = Number(values?.stock_tienda);
     const stockCasa = Number(values?.stock_casa);
+    // Costo unidad puede quedar vacio (se guarda como null).
+    const precioCompraRaw = values?.precio_compra ?? "";
+    let precioCompra: number | null = null;
+    if (precioCompraRaw.trim() !== "") {
+      const parsed = Number(precioCompraRaw);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        setMessage({ type: "error", text: "Costo unidad invalido." });
+        return;
+      }
+      precioCompra = parsed;
+    }
 
     if (!Number.isFinite(precioVenta) || precioVenta < 0) {
       setMessage({ type: "error", text: "Precio venta invalido." });
@@ -367,6 +390,7 @@ export default function ProductosPage() {
       .update({
         precio_venta: precioVenta,
         stock_minimo: stockMinimo,
+        precio_compra_referencial: precioCompra,
       })
       .eq("id", producto.id);
 

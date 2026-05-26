@@ -29,6 +29,7 @@ export type ProductoConRelaciones = Producto & {
 type QuickValues = Record<
   string,
   {
+    precio_compra: string;
     precio_venta: string;
     stock_minimo: string;
     stock_tienda: string;
@@ -36,15 +37,18 @@ type QuickValues = Record<
   }
 >;
 
+type QuickKey =
+  | "precio_compra"
+  | "precio_venta"
+  | "stock_minimo"
+  | "stock_tienda"
+  | "stock_casa";
+
 type ProductoTableProps = {
   productos: ProductoConRelaciones[];
   isLoading: boolean;
   quickValues: QuickValues;
-  onQuickValueChange: (
-    productoId: string,
-    key: "precio_venta" | "stock_minimo" | "stock_tienda" | "stock_casa",
-    value: string,
-  ) => void;
+  onQuickValueChange: (productoId: string, key: QuickKey, value: string) => void;
   onQuickSave: (producto: ProductoConRelaciones) => void;
   onToggleActivo: (producto: ProductoConRelaciones) => void;
 };
@@ -78,6 +82,24 @@ function quickStockTotal(
     (Number.isFinite(tienda) ? tienda : 0) +
     (Number.isFinite(casa) ? casa : 0)
   );
+}
+
+/**
+ * Calcula margen porcentual de ganancia: (venta - costo) / costo × 100.
+ * Devuelve null si el costo es 0 o invalido.
+ */
+function calcMargen(precioCompra: number, precioVenta: number): number | null {
+  if (!Number.isFinite(precioCompra) || precioCompra <= 0) return null;
+  if (!Number.isFinite(precioVenta) || precioVenta < 0) return null;
+  return ((precioVenta - precioCompra) / precioCompra) * 100;
+}
+
+function margenClass(margen: number | null): string {
+  if (margen === null) return "text-slate-500";
+  if (margen < 0) return "text-red-700 font-semibold";
+  if (margen < 10) return "text-orange-600 font-semibold";
+  if (margen < 25) return "text-amber-700";
+  return "text-emerald-700 font-semibold";
 }
 
 function ProductImage({ producto }: { producto: ProductoConRelaciones }) {
@@ -122,7 +144,7 @@ export function ProductoTable({
       </div>
 
       <div className="hidden max-h-[70vh] overflow-auto lg:block">
-        <table className="w-full min-w-[980px] text-left text-sm">
+        <table className="w-full min-w-[1080px] text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-3 py-3 font-medium">Producto</th>
@@ -131,7 +153,9 @@ export function ProductoTable({
               <th className="px-3 py-3 font-medium">Stock tienda</th>
               <th className="px-3 py-3 font-medium">Stock casa</th>
               <th className="px-3 py-3 font-medium">Stock minimo</th>
+              <th className="px-3 py-3 font-medium">Costo unidad</th>
               <th className="px-3 py-3 font-medium">Precio venta</th>
+              <th className="px-3 py-3 font-medium">Margen</th>
               <th className="px-3 py-3 font-medium">Estado</th>
               <th className="px-3 py-3 font-medium">Acciones</th>
             </tr>
@@ -139,13 +163,13 @@ export function ProductoTable({
           <tbody className="divide-y divide-slate-100">
             {isLoading ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                   Cargando productos...
                 </td>
               </tr>
             ) : productos.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                   No hay productos para mostrar.
                 </td>
               </tr>
@@ -202,11 +226,38 @@ export function ProductoTable({
                   </td>
                   <td className="px-3 py-3">
                     <StockInput
+                      value={quickValues[producto.id]?.precio_compra ?? ""}
+                      onChange={(value) =>
+                        onQuickValueChange(producto.id, "precio_compra", value)
+                      }
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <StockInput
                       value={quickValues[producto.id]?.precio_venta ?? ""}
                       onChange={(value) =>
                         onQuickValueChange(producto.id, "precio_venta", value)
                       }
                     />
+                  </td>
+                  <td className="px-3 py-3">
+                    {(() => {
+                      const compra = Number(quickValues[producto.id]?.precio_compra);
+                      const venta = Number(quickValues[producto.id]?.precio_venta);
+                      const margen = calcMargen(compra, venta);
+                      if (margen === null) {
+                        return <span className="text-xs text-slate-400">—</span>;
+                      }
+                      const ganancia = venta - compra;
+                      return (
+                        <span className={`text-xs ${margenClass(margen)}`}>
+                          {margen.toFixed(1)}%
+                          <span className="block text-[10px] text-slate-500">
+                            +{formatMoney(ganancia)}
+                          </span>
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-3 py-3">
                     <span
@@ -274,7 +325,25 @@ export function ProductoTable({
                   label="Stock total"
                   value={formatStock(quickStockTotal(quickValues[producto.id], producto))}
                 />
-                <Info label="Precio venta" value={formatMoney(producto.precio_venta)} />
+                {(() => {
+                  const compra = Number(quickValues[producto.id]?.precio_compra);
+                  const venta = Number(quickValues[producto.id]?.precio_venta);
+                  const margen = calcMargen(compra, venta);
+                  if (margen === null) {
+                    return <Info label="Margen" value="—" />;
+                  }
+                  return (
+                    <div className="rounded-md bg-slate-50 p-2">
+                      <dt className="text-xs text-slate-500">Margen</dt>
+                      <dd className={`mt-1 text-sm ${margenClass(margen)}`}>
+                        {margen.toFixed(1)}%{" "}
+                        <span className="text-xs text-slate-500">
+                          ({formatMoney(venta - compra)})
+                        </span>
+                      </dd>
+                    </div>
+                  );
+                })()}
               </dl>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -300,11 +369,18 @@ export function ProductoTable({
                   placeholder="Stock minimo"
                 />
                 <StockInput
+                  value={quickValues[producto.id]?.precio_compra ?? ""}
+                  onChange={(value) =>
+                    onQuickValueChange(producto.id, "precio_compra", value)
+                  }
+                  placeholder="Costo unidad"
+                />
+                <StockInput
                   value={quickValues[producto.id]?.precio_venta ?? ""}
                   onChange={(value) =>
                     onQuickValueChange(producto.id, "precio_venta", value)
                   }
-                  placeholder="Precio"
+                  placeholder="Precio venta"
                 />
               </div>
 
