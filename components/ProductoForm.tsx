@@ -21,7 +21,11 @@ import type {
 
 export type PrecioMayorFormValue = {
   cantidad_minima: string;
-  precio_unitario: string;
+  /**
+   * El usuario tipea precio TOTAL (mas natural: "medio saco vale S/68").
+   * El precio unitario se calcula al guardar: total / cantidad_minima.
+   */
+  precio_total: string;
   descripcion: string;
 };
 
@@ -146,11 +150,22 @@ function getInitialValues({
     presentacionesCompra.find((item) => item.es_principal && item.activo) ??
     presentacionesCompra.find((item) => item.activo) ??
     null;
-  const preciosMayorValues = preciosMayor.map((precio) => ({
-    cantidad_minima: toInputValue(precio.cantidad_minima),
-    precio_unitario: toInputValue(precio.precio_unitario),
-    descripcion: precio.descripcion ?? "",
-  }));
+  const preciosMayorValues = preciosMayor.map((precio) => {
+    // Si el registro ya tiene precio_total guardado, usalo; si no, calculalo
+    // desde precio_unitario × cantidad_minima (compatibilidad con data vieja).
+    const cantidad = Number(precio.cantidad_minima ?? 0);
+    const total =
+      precio.precio_total != null && precio.precio_total !== undefined
+        ? Number(precio.precio_total)
+        : cantidad > 0
+          ? Number(precio.precio_unitario ?? 0) * cantidad
+          : 0;
+    return {
+      cantidad_minima: toInputValue(precio.cantidad_minima),
+      precio_total: total > 0 ? Number(total.toFixed(2)).toString() : "",
+      descripcion: precio.descripcion ?? "",
+    };
+  });
 
   // Solo cargamos presentaciones de compra que tengan unidades > 1
   // (la principal "x1 unidad" se maneja implicita desde precio_compra
@@ -227,6 +242,25 @@ export function ProductoForm({
   const [imagePreview, setImagePreview] = useState("");
   const [imageError, setImageError] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  // Modos de las cantidades de stock: "" = unidad base; "idx-N" = una de
+  // las presentaciones_compra (indice N). Asi el usuario tipea "4" y elige
+  // "Saco x49" y el sistema sabe que son 196 kg al guardar.
+  const [stockMinimoMode, setStockMinimoMode] = useState<string>("");
+  const [stockInicialMode, setStockInicialMode] = useState<string>("");
+
+  function getModeFactor(mode: string): { factor: number; label: string } {
+    if (mode.startsWith("idx-")) {
+      const idx = Number(mode.slice(4));
+      const pres = values.presentaciones_compra[idx];
+      if (pres) {
+        const factor = Number(pres.unidades_por_presentacion);
+        if (Number.isFinite(factor) && factor > 0) {
+          return { factor, label: pres.nombre_presentacion || `Pres. x${factor}` };
+        }
+      }
+    }
+    return { factor: 1, label: values.unidad_base || "unidad" };
+  }
 
   useEffect(() => {
     setValues(getInitialValues({ producto: productoEditando, presentacionesCompra, preciosMayor }));
@@ -412,7 +446,25 @@ export function ProductoForm({
       return;
     }
 
-    const saved = await onSubmit({ ...values, imagen_url: uploadedUrl });
+    // Aplicar factores de los toggles (saco/kg) al guardar:
+    const stockMinNum = Number(values.stock_minimo);
+    const stockMinFactor = getModeFactor(stockMinimoMode).factor;
+    const stockMinFinal = Number.isFinite(stockMinNum)
+      ? String(stockMinNum * stockMinFactor)
+      : values.stock_minimo;
+
+    const stockInicialNum = Number(values.stock_cantidad_presentaciones);
+    const stockInicialFactor = getModeFactor(stockInicialMode).factor;
+    const stockInicialFinal = Number.isFinite(stockInicialNum)
+      ? String(stockInicialNum * stockInicialFactor)
+      : values.stock_cantidad_presentaciones;
+
+    const saved = await onSubmit({
+      ...values,
+      imagen_url: uploadedUrl,
+      stock_minimo: stockMinFinal,
+      stock_cantidad_presentaciones: stockInicialFinal,
+    });
 
     if (saved && !productoEditando) {
       setValues(emptyValues);
@@ -438,7 +490,7 @@ export function ProductoForm({
       ...current,
       precios_mayor: [
         ...current.precios_mayor,
-        { cantidad_minima: "", precio_unitario: "", descripcion: "" },
+        { cantidad_minima: "", precio_total: "", descripcion: "" },
       ],
     }));
   }
@@ -764,33 +816,87 @@ export function ProductoForm({
                 ) : null}
               </Field>
               <Field label="Stock">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={values.stock_cantidad_presentaciones}
-                  onChange={(event) =>
-                    updateValue("stock_cantidad_presentaciones", event.target.value)
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={values.stock_cantidad_presentaciones}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) =>
+                      updateValue("stock_cantidad_presentaciones", event.target.value)
+                    }
+                    className={`${inputClassName} flex-1`}
+                  />
+                  <select
+                    value={stockInicialMode}
+                    onChange={(event) => setStockInicialMode(event.target.value)}
+                    className="h-11 shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm"
+                  >
+                    <option value="">{values.unidad_base || "unidad"}</option>
+                    {values.presentaciones_compra.map((pres, i) => (
+                      <option key={i} value={`idx-${i}`}>
+                        {pres.nombre_presentacion || `Pres ${i + 1}`} (x{pres.unidades_por_presentacion})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {(() => {
+                  const { factor, label } = getModeFactor(stockInicialMode);
+                  const num = Number(values.stock_cantidad_presentaciones);
+                  if (!Number.isFinite(num) || num <= 0) {
+                    return (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Si dejas 0, lo agregas despues desde Almacenes.
+                      </p>
+                    );
                   }
-                  className={inputClassName}
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  Cantidad inicial en unidades. Si dejas 0, lo agregas despues desde
-                  Almacenes &rarr; Agregar stock.
-                </p>
+                  const equivalente = num * factor;
+                  return (
+                    <p className="mt-1 text-xs text-emerald-700">
+                      = {equivalente.toFixed(2).replace(/\.00$/, "")} {values.unidad_base || "unidades"} ({num} {label})
+                    </p>
+                  );
+                })()}
               </Field>
             </>
           ) : null}
 
         <Field label="Stock minimo">
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={values.stock_minimo}
-            onChange={(event) => updateValue("stock_minimo", event.target.value)}
-            className={inputClassName}
-          />
+          <div className="flex gap-2">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={values.stock_minimo}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => updateValue("stock_minimo", event.target.value)}
+              className={`${inputClassName} flex-1`}
+            />
+            <select
+              value={stockMinimoMode}
+              onChange={(event) => setStockMinimoMode(event.target.value)}
+              className="h-11 shrink-0 rounded-md border border-slate-300 bg-white px-2 text-sm"
+            >
+              <option value="">{values.unidad_base || "unidad"}</option>
+              {values.presentaciones_compra.map((pres, i) => (
+                <option key={i} value={`idx-${i}`}>
+                  {pres.nombre_presentacion || `Pres ${i + 1}`} (x{pres.unidades_por_presentacion})
+                </option>
+              ))}
+            </select>
+          </div>
+          {(() => {
+            const { factor, label } = getModeFactor(stockMinimoMode);
+            const num = Number(values.stock_minimo);
+            if (!Number.isFinite(num) || num <= 0) return null;
+            const equivalente = num * factor;
+            return (
+              <p className="mt-1 text-xs text-slate-500">
+                Alerta cuando queden ≤ {equivalente.toFixed(2).replace(/\.00$/, "")} {values.unidad_base || "unidades"} ({num} {label}).
+              </p>
+            );
+          })()}
         </Field>
 
         <Field label="Imagen URL">
@@ -859,47 +965,64 @@ export function ProductoForm({
           </button>
         </div>
         <div className="mt-4 space-y-3">
-          {values.precios_mayor.map((precio, index) => (
-            <div key={index} className="grid gap-3 md:grid-cols-[1fr_1fr_1.4fr_auto]">
-              <input
-                type="number"
-                step="0.01"
-                min="1"
-                value={precio.cantidad_minima}
-                onChange={(event) =>
-                  updatePrecioMayor(index, "cantidad_minima", event.target.value)
-                }
-                placeholder="Desde unidades"
-                className={inputClassName}
-              />
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={precio.precio_unitario}
-                onChange={(event) =>
-                  updatePrecioMayor(index, "precio_unitario", event.target.value)
-                }
-                placeholder="Precio unitario"
-                className={inputClassName}
-              />
-              <input
-                value={precio.descripcion}
-                onChange={(event) =>
-                  updatePrecioMayor(index, "descripcion", event.target.value)
-                }
-                placeholder="Ej. precio x6"
-                className={inputClassName}
-              />
-              <button
-                type="button"
-                onClick={() => removePrecioMayor(index)}
-                className="h-11 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
-              >
-                Quitar
-              </button>
-            </div>
-          ))}
+          {values.precios_mayor.map((precio, index) => {
+            const cantidad = Number(precio.cantidad_minima);
+            const total = Number(precio.precio_total);
+            const unitarioCalc =
+              Number.isFinite(cantidad) && cantidad > 0 && Number.isFinite(total) && total > 0
+                ? total / cantidad
+                : null;
+            return (
+              <div key={index} className="rounded-md border border-slate-200 p-3">
+                <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.4fr_auto]">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    value={precio.cantidad_minima}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) =>
+                      updatePrecioMayor(index, "cantidad_minima", event.target.value)
+                    }
+                    placeholder={`Desde ${values.unidad_base || "unidades"}`}
+                    className={inputClassName}
+                  />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={precio.precio_total}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) =>
+                      updatePrecioMayor(index, "precio_total", event.target.value)
+                    }
+                    placeholder="S/ total"
+                    className={inputClassName}
+                  />
+                  <input
+                    value={precio.descripcion}
+                    onChange={(event) =>
+                      updatePrecioMayor(index, "descripcion", event.target.value)
+                    }
+                    placeholder="Ej. medio saco S/68"
+                    className={inputClassName}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removePrecioMayor(index)}
+                    className="h-11 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+                  >
+                    Quitar
+                  </button>
+                </div>
+                {unitarioCalc !== null ? (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Equivale a S/ {unitarioCalc.toFixed(2)} por {values.unidad_base || "unidad"}.
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </section>
 

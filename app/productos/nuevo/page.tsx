@@ -571,13 +571,23 @@ function ProductoNuevoContent() {
       .delete()
       .eq("producto_id", savedProductId);
     const preciosMayorPayload = values.precios_mayor
-      .map((precio) => ({
-        producto_id: savedProductId,
-        cantidad_minima: parsePositiveNumber(precio.cantidad_minima, null),
-        precio_unitario: parsePositiveNumber(precio.precio_unitario, null),
-        descripcion: emptyToNull(precio.descripcion),
-        activo: true,
-      }))
+      .map((precio) => {
+        const cantidad = parsePositiveNumber(precio.cantidad_minima, null);
+        const total = parsePositiveNumber(precio.precio_total, null);
+        const unitario =
+          cantidad !== null && total !== null && cantidad > 0
+            ? Number((total / cantidad).toFixed(4))
+            : null;
+        return {
+          producto_id: savedProductId,
+          cantidad_minima: cantidad,
+          precio_unitario: unitario,
+          precio_total: total,
+          tipo_precio: "paquete" as const,
+          descripcion: emptyToNull(precio.descripcion),
+          activo: true,
+        };
+      })
       .filter(
         (precio) =>
           precio.cantidad_minima !== null && precio.precio_unitario !== null,
