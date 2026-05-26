@@ -25,6 +25,21 @@ export type PrecioMayorFormValue = {
   descripcion: string;
 };
 
+/**
+ * Presentaciones de compra: como se compra/ingresa el producto.
+ * Ejemplo: Arroz tiene unidad base "kg" y presentacion "Saco" con
+ * unidades_por_presentacion=49 y costo_presentacion=143. Al ingresar
+ * stock se eligen sacos y el sistema multiplica para descontar/agregar
+ * en kg.
+ */
+export type PresentacionCompraFormValue = {
+  id: string; // id de DB si ya existe; "" si es nueva
+  nombre_presentacion: string;
+  unidades_por_presentacion: string;
+  costo_presentacion: string;
+  es_principal: boolean;
+};
+
 export type ProductoFormValues = {
   codigo_interno: string;
   categoria_id: string;
@@ -44,8 +59,10 @@ export type ProductoFormValues = {
   stock_unidades_sueltas: string;
   stock_inicial_almacen_id: string;
   precios_mayor: PrecioMayorFormValue[];
+  presentaciones_compra: PresentacionCompraFormValue[];
   producto_base_id: string;
   unidades_equivalentes: string;
+  unidad_base: string;
 };
 
 export type ProductoBaseOption = {
@@ -102,8 +119,10 @@ const emptyValues: ProductoFormValues = {
   stock_unidades_sueltas: "0",
   stock_inicial_almacen_id: "",
   precios_mayor: [],
+  presentaciones_compra: [],
   producto_base_id: "",
   unidades_equivalentes: "1",
+  unidad_base: "und",
 };
 
 function toInputValue(value: string | number | null, fallback = "") {
@@ -133,6 +152,19 @@ function getInitialValues({
     descripcion: precio.descripcion ?? "",
   }));
 
+  // Solo cargamos presentaciones de compra que tengan unidades > 1
+  // (la principal "x1 unidad" se maneja implicita desde precio_compra
+  // unidad y no aparece en esta lista).
+  const presentacionesCompraValues: PresentacionCompraFormValue[] = presentacionesCompra
+    .filter((p) => p.activo && Number(p.unidades_por_presentacion ?? 1) > 1)
+    .map((p) => ({
+      id: p.id,
+      nombre_presentacion: p.nombre_presentacion,
+      unidades_por_presentacion: toInputValue(p.unidades_por_presentacion ?? 1),
+      costo_presentacion: toInputValue(p.costo_presentacion ?? ""),
+      es_principal: Boolean(p.es_principal),
+    }));
+
   return {
     codigo_interno: producto.codigo_interno,
     categoria_id: producto.categoria_id,
@@ -157,8 +189,10 @@ function getInitialValues({
     stock_unidades_sueltas: "0",
     stock_inicial_almacen_id: "",
     precios_mayor: preciosMayorValues,
+    presentaciones_compra: presentacionesCompraValues,
     producto_base_id: producto.producto_base_id ?? "",
     unidades_equivalentes: toInputValue(producto.unidades_equivalentes ?? 1, "1"),
+    unidad_base: producto.unidad_base ?? "und",
   };
 }
 
@@ -416,6 +450,52 @@ export function ProductoForm({
     }));
   }
 
+  function updatePresentacionCompra(
+    index: number,
+    key: keyof PresentacionCompraFormValue,
+    value: string | boolean,
+  ) {
+    setValues((current) => ({
+      ...current,
+      presentaciones_compra: current.presentaciones_compra.map((item, i) =>
+        i === index ? { ...item, [key]: value } : item,
+      ),
+    }));
+  }
+
+  function setPresentacionPrincipal(index: number) {
+    setValues((current) => ({
+      ...current,
+      presentaciones_compra: current.presentaciones_compra.map((item, i) => ({
+        ...item,
+        es_principal: i === index,
+      })),
+    }));
+  }
+
+  function addPresentacionCompra() {
+    setValues((current) => ({
+      ...current,
+      presentaciones_compra: [
+        ...current.presentaciones_compra,
+        {
+          id: "",
+          nombre_presentacion: "",
+          unidades_por_presentacion: "",
+          costo_presentacion: "",
+          es_principal: current.presentaciones_compra.length === 0,
+        },
+      ],
+    }));
+  }
+
+  function removePresentacionCompra(index: number) {
+    setValues((current) => ({
+      ...current,
+      presentaciones_compra: current.presentaciones_compra.filter((_, i) => i !== index),
+    }));
+  }
+
   async function handleQuickCategoria() {
     if (!onQuickCreateCategoria) {
       return;
@@ -623,6 +703,19 @@ export function ProductoForm({
           </select>
         </Field>
 
+        <Field label="Unidad base">
+          <input
+            value={values.unidad_base}
+            onChange={(event) => updateValue("unidad_base", event.target.value)}
+            placeholder="kg, und, lt, ml..."
+            className={inputClassName}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            En que se cuenta el stock. Ej: arroz=kg, gaseosa=und, aceite=lt.
+            Por defecto: und.
+          </p>
+        </Field>
+
           <Field label="Precio compra unidad">
             <input
               type="number"
@@ -782,6 +875,92 @@ export function ProductoForm({
               <button
                 type="button"
                 onClick={() => removePrecioMayor(index)}
+                className="h-11 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+              >
+                Quitar
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-950">
+              Presentaciones de compra
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Como compras este producto: saco x49, caja x12, etc. Sirve para
+              ingresar stock por presentacion (el sistema multiplica por las
+              unidades). La unidad base sigue siendo {values.unidad_base || "1 unidad"}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addPresentacionCompra}
+            className="h-10 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Agregar presentacion
+          </button>
+        </div>
+        <div className="mt-4 space-y-3">
+          {values.presentaciones_compra.length === 0 ? (
+            <p className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">
+              Sin presentaciones extra. Si solo compras por unidad base, dejalo
+              vacio.
+            </p>
+          ) : null}
+          {values.presentaciones_compra.map((pres, index) => (
+            <div
+              key={pres.id || index}
+              className="grid gap-3 md:grid-cols-[1.4fr_1fr_1fr_auto_auto]"
+            >
+              <input
+                value={pres.nombre_presentacion}
+                onChange={(event) =>
+                  updatePresentacionCompra(index, "nombre_presentacion", event.target.value)
+                }
+                placeholder="Saco, Caja, Pack..."
+                className={inputClassName}
+              />
+              <input
+                type="number"
+                step="0.01"
+                min="1"
+                value={pres.unidades_por_presentacion}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) =>
+                  updatePresentacionCompra(index, "unidades_por_presentacion", event.target.value)
+                }
+                placeholder={`Cantidad en ${values.unidad_base || "unidades"}`}
+                className={inputClassName}
+              />
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={pres.costo_presentacion}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) =>
+                  updatePresentacionCompra(index, "costo_presentacion", event.target.value)
+                }
+                placeholder="Costo total"
+                className={inputClassName}
+              />
+              <label className="flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700">
+                <input
+                  type="radio"
+                  name="presentacion_principal"
+                  checked={pres.es_principal}
+                  onChange={() => setPresentacionPrincipal(index)}
+                  className="h-4 w-4 text-emerald-700"
+                />
+                Principal
+              </label>
+              <button
+                type="button"
+                onClick={() => removePresentacionCompra(index)}
                 className="h-11 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
               >
                 Quitar

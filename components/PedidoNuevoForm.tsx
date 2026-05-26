@@ -1868,6 +1868,21 @@ function Cart({
           const otroAlmacen = isCasa
             ? almacenes.find((a) => ["tienda", "negocio"].includes(a.nombre.toLowerCase()))
             : almacenes.find((a) => a.nombre.toLowerCase() === "casa");
+          const unidadBase = (item.producto.unidad_base ?? "und").trim() || "und";
+          const handleMontoClick = () => {
+            if (readonly || typeof window === "undefined") return;
+            const precioUnit = getPrecioBase(item.producto);
+            if (precioUnit <= 0) return;
+            const raw = window.prompt(
+              `¿Cuanto en S/ de ${item.producto.nombre_producto}? (precio: ${formatMoney(precioUnit)}/${unidadBase})`,
+              "",
+            );
+            if (!raw) return;
+            const monto = Number(raw.replace(",", "."));
+            if (!Number.isFinite(monto) || monto <= 0) return;
+            const nuevaCantidad = Math.round((monto / precioUnit) * 100) / 100;
+            onUpdate(item.producto.id, { cantidad: nuevaCantidad });
+          };
           return (
             <article
               key={item.producto.id}
@@ -1935,7 +1950,19 @@ function Cart({
                       {labelAlmacen}
                     </span>
                   )}
-                  <span>{formatMoney(pricing.precioUnitarioPromedio)}</span>
+                  <span>
+                    {formatMoney(pricing.precioUnitarioPromedio)}/{unidadBase}
+                  </span>
+                  {!readonly ? (
+                    <button
+                      type="button"
+                      onClick={handleMontoClick}
+                      className="rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-800 hover:bg-amber-200"
+                      title="Vender por monto S/"
+                    >
+                      S/
+                    </button>
+                  ) : null}
                   {hasStockIssue ? (
                     <span className="rounded bg-red-100 px-1 text-[10px] font-semibold text-red-700">
                       Stock {stock}

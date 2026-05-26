@@ -440,7 +440,7 @@ function ProductoNuevoContent() {
       nombre_producto: nombreProducto,
       marca_id: values.marca_id,
       presentacion: emptyToNull(values.presentacion),
-      unidad_base: null,
+      unidad_base: emptyToNull(values.unidad_base) ?? "und",
       stock_minimo: parseNumber(values.stock_minimo, 10),
       precio_compra_referencial: null as number | null,
       precio_venta: parseNumber(values.precio_venta, 1),
@@ -592,6 +592,50 @@ function ProductoNuevoContent() {
         setMessage({
           type: "error",
           text: `Producto guardado, pero fallaron precios por mayor: ${preciosError.message}`,
+        });
+        return false;
+      }
+    }
+
+    // Persistir presentaciones de compra adicionales (saco x49, caja x12,
+    // etc.). Borramos las que ya existian con unidades > 1 y reinsertamos
+    // las que vienen del form. La presentacion "x1" implicita NO se toca.
+    const presentacionesValidas = values.presentaciones_compra
+      .map((pres) => ({
+        producto_id: savedProductId,
+        proveedor_id: null,
+        nombre_presentacion: normalizeSpaces(pres.nombre_presentacion),
+        unidades_por_presentacion: parsePositiveNumber(pres.unidades_por_presentacion, 0),
+        costo_presentacion: parsePositiveNumber(pres.costo_presentacion, null),
+        es_principal: pres.es_principal,
+        activo: true,
+      }))
+      .filter((p) => p.nombre_presentacion && (p.unidades_por_presentacion ?? 0) > 1);
+
+    // Borrar presentaciones con unidades > 1 previas (las dinamicas).
+    await supabase
+      .from("producto_presentaciones_compra")
+      .delete()
+      .eq("producto_id", savedProductId)
+      .gt("unidades_por_presentacion", 1);
+
+    if (presentacionesValidas.length > 0) {
+      // Si alguna esta marcada como principal, primero deshabilitamos el
+      // principal anterior para evitar tener dos.
+      const hayPrincipal = presentacionesValidas.some((p) => p.es_principal);
+      if (hayPrincipal) {
+        await supabase
+          .from("producto_presentaciones_compra")
+          .update({ es_principal: false })
+          .eq("producto_id", savedProductId);
+      }
+      const { error: presError } = await supabase
+        .from("producto_presentaciones_compra")
+        .insert(presentacionesValidas);
+      if (presError) {
+        setMessage({
+          type: "error",
+          text: `Producto guardado, pero fallaron presentaciones: ${presError.message}`,
         });
         return false;
       }

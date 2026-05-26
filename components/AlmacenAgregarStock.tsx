@@ -438,7 +438,7 @@ export function AlmacenAgregarStock() {
           </button>
         </div>
         <p className="mt-3 text-sm text-slate-500">
-          Presentacion: {productoIngreso?.presentacion ?? "sin producto"} | unidades por presentacion: {formatStock(unidadesPorPresentacion)} | se agregaran {formatStock(totalIngreso)} unidades base.
+          Presentacion: {productoIngreso?.presentacion ?? "sin producto"} | unidades por presentacion: {formatStock(unidadesPorPresentacion)} | se agregaran {formatStock(totalIngreso)} {productoIngreso?.unidad_base?.trim() || "unidades base"}.
         </p>
         {productoIngreso?.producto_base_id && productoIngreso.producto_base ? (
           <p className="mt-2 text-sm text-emerald-700">
