@@ -56,12 +56,6 @@ type ProductoSearchRow = Producto & {
     >;
   } | null;
   producto_precios_mayor?: ProductoPrecioMayor[];
-  producto_presentaciones_compra?: Array<{
-    id: string;
-    nombre_presentacion: string;
-    unidades_por_presentacion: number;
-    activo: boolean | null;
-  }>;
 };
 
 type StockWithAlmacen = Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
@@ -158,6 +152,44 @@ function getCurrentTime() {
 
 function stockIn(producto: ProductoSearchRow, almacenId: string) {
   return toPresentationStock(producto, getBaseStockByAlmacen(producto, almacenId));
+}
+
+/**
+ * Construye opciones del selector de presentacion del carrito a partir de
+ * los precios por mayor del producto. La idea: si el dueno definio
+ * "Paquete 10und a S/3" y "Caja 4paq (40und) a S/12.50", entonces al
+ * vender el cajero elige una de esas escalas y el sistema multiplica
+ * la cantidad por el factor para descontar stock correctamente.
+ * El precio mayorista se aplica automaticamente via calcularPrecioPorCantidad
+ * porque la cantidad final ya cae en la escala.
+ *
+ * Filtros: activo=true, cantidad_minima>1. Dedupe por cantidad_minima.
+ */
+type PresentacionVentaOpcion = {
+  id: string;
+  multiplicador: number;
+  nombre: string;
+};
+function buildPresentacionesVenta(
+  precios: ProductoPrecioMayor[] | undefined,
+): PresentacionVentaOpcion[] {
+  if (!precios || precios.length === 0) return [];
+  const porCantidad = new Map<number, PresentacionVentaOpcion>();
+  for (const p of precios) {
+    if (p.activo === false) continue;
+    const mult = Number(p.cantidad_minima);
+    if (!Number.isFinite(mult) || mult <= 1) continue;
+    // Si ya hay opcion con la misma cantidad, ganar la primera con descripcion.
+    if (porCantidad.has(mult) && !p.descripcion) continue;
+    porCantidad.set(mult, {
+      id: p.id,
+      multiplicador: mult,
+      nombre: (p.descripcion?.trim()) || `Mayoreo x${mult}`,
+    });
+  }
+  return Array.from(porCantidad.values()).sort(
+    (a, b) => a.multiplicador - b.multiplicador,
+  );
 }
 
 export function PedidoNuevoForm() {
@@ -292,8 +324,7 @@ export function PedidoNuevoForm() {
           categorias(nombre),
           subcategorias(nombre),
           producto_almacen(almacen_id,stock_actual,almacenes(id,nombre)),
-          producto_precios_mayor(*),
-          producto_presentaciones_compra(id,nombre_presentacion,unidades_por_presentacion,activo)
+          producto_precios_mayor(*)
         `,
       )
       .eq("activo", true)
@@ -476,8 +507,7 @@ export function PedidoNuevoForm() {
               categorias(nombre),
               subcategorias(nombre),
               producto_almacen(almacen_id,stock_actual,almacenes(id,nombre)),
-              producto_precios_mayor(*),
-          producto_presentaciones_compra(id,nombre_presentacion,unidades_por_presentacion,activo)
+              producto_precios_mayor(*)
             )
           )
         `,
@@ -1866,9 +1896,9 @@ function Cart({
                 const requiredBase = toBaseQuantity(item.producto, item.cantidad);
                 const pricing = getItemPricing(item);
                 const hasStockIssue = requiredBase > stockBase;
-                const presentacionesActivas = (
-                  item.producto.producto_presentaciones_compra ?? []
-                ).filter((p) => p.activo !== false && Number(p.unidades_por_presentacion) > 1);
+                const presentacionesActivas = buildPresentacionesVenta(
+                  item.producto.producto_precios_mayor,
+                );
                 const unidadBaseLbl =
                   (item.producto.unidad_base ?? "und").trim() || "und";
                 return (
@@ -1923,12 +1953,11 @@ function Cart({
                             onChange={(event) => {
                               const valor = Number(event.target.value) || 1;
                               const opt = presentacionesActivas.find(
-                                (p) =>
-                                  Number(p.unidades_por_presentacion) === valor,
+                                (p) => p.multiplicador === valor,
                               );
                               onUpdate(item.producto.id, {
                                 presentacionMultiplicador: valor,
-                                presentacionNombre: opt?.nombre_presentacion ?? "",
+                                presentacionNombre: opt?.nombre ?? "",
                               });
                             }}
                             className="h-9 rounded-md border border-slate-300 bg-white px-1 text-xs"
@@ -1938,9 +1967,9 @@ function Cart({
                             {presentacionesActivas.map((p) => (
                               <option
                                 key={p.id}
-                                value={String(p.unidades_por_presentacion)}
+                                value={String(p.multiplicador)}
                               >
-                                {p.nombre_presentacion}
+                                {p.nombre}
                               </option>
                             ))}
                           </select>
@@ -2005,10 +2034,8 @@ function Cart({
             ? almacenes.find((a) => ["tienda", "negocio"].includes(a.nombre.toLowerCase()))
             : almacenes.find((a) => a.nombre.toLowerCase() === "casa");
           const unidadBase = (item.producto.unidad_base ?? "und").trim() || "und";
-          const presentacionesActivas = (
-            item.producto.producto_presentaciones_compra ?? []
-          ).filter(
-            (p) => p.activo !== false && Number(p.unidades_por_presentacion) > 1,
+          const presentacionesActivas = buildPresentacionesVenta(
+            item.producto.producto_precios_mayor,
           );
           const handleMontoClick = () => {
             if (readonly || typeof window === "undefined") return;
@@ -2102,12 +2129,11 @@ function Cart({
                       onChange={(event) => {
                         const valor = Number(event.target.value) || 1;
                         const opt = presentacionesActivas.find(
-                          (p) =>
-                            Number(p.unidades_por_presentacion) === valor,
+                          (p) => p.multiplicador === valor,
                         );
                         onUpdate(item.producto.id, {
                           presentacionMultiplicador: valor,
-                          presentacionNombre: opt?.nombre_presentacion ?? "",
+                          presentacionNombre: opt?.nombre ?? "",
                         });
                       }}
                       className="h-6 rounded border border-slate-300 bg-white px-1 text-[10px] font-medium text-slate-700"
@@ -2117,9 +2143,9 @@ function Cart({
                       {presentacionesActivas.map((p) => (
                         <option
                           key={p.id}
-                          value={String(p.unidades_por_presentacion)}
+                          value={String(p.multiplicador)}
                         >
-                          {p.nombre_presentacion}
+                          {p.nombre}
                         </option>
                       ))}
                     </select>
