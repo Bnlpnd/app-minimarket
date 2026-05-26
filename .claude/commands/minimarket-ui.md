@@ -15,16 +15,17 @@ Usa esta referencia cuando crees o modifiques componentes, layouts o estilos en 
 
 ```
 app/
-  layout.tsx          -- RootLayout, Geist fonts, lang="es"
+  layout.tsx          -- RootLayout, Geist fonts, lang="es-PE"
   page.tsx            -- redirect("/login")
   globals.css         -- Tailwind import + CSS vars
   login/page.tsx      -- Login form, RPC login_app, localStorage
-  dashboard/page.tsx  -- AdminDashboard + WorkerDashboard (654 lineas)
+  dashboard/page.tsx  -- AdminDashboard + WorkerDashboard (1076 lineas)
+  mis-datos/page.tsx  -- Datos del trabajador autenticado (525 lineas)
   productos/
-    page.tsx           -- Listado con quick-edit y paginacion (529 lineas)
-    nuevo/page.tsx     -- Crear/editar producto (614 lineas, ?id= para editar)
+    page.tsx           -- Listado con quick-edit y paginacion (586 lineas)
+    nuevo/page.tsx     -- Crear/editar producto (810 lineas, ?id= para editar)
     importar/page.tsx  -- Wrapper para ProductoImportCsv
-    mantenimiento/page.tsx -- CRUD catalogos admin-only (530 lineas)
+    mantenimiento/page.tsx -- CRUD catalogos admin-only (551 lineas)
   pedidos/
     page.tsx           -- Wrapper para PedidosList
     nuevo/page.tsx     -- Wrapper para PedidoNuevoForm
@@ -34,6 +35,8 @@ app/
     movimientos/       -- Wrapper para AlmacenMovimientos
     transferencias/    -- Wrapper para AlmacenTransferencias
     ajustes/           -- Wrapper para AlmacenAjustes
+    agregar-stock/     -- Wrapper para AlmacenAgregarStock
+    abastecimiento/    -- Wrapper para AlmacenAbastecimiento
   clientes/
     page.tsx           -- Wrapper para ClienteModule
     [id]/pedidos/      -- Wrapper para ClientePedidosModule
@@ -43,50 +46,77 @@ app/
   proveedores/         -- Wrapper para ProveedoresModule
 
 components/
-  Layout.tsx           -- Layout principal (sidebar + content)
-  Header.tsx           -- Header mobile-only
-  Sidebar.tsx          -- Navegacion lateral w-72
-  AdminOnly.tsx        -- Guard de acceso admin
-  ProductoSearch.tsx   -- Input de busqueda simple
-  ProductoTable.tsx    -- Tabla + cards responsive
-  ProductoForm.tsx     -- Formulario producto (869 lineas)
-  ProductoImportCsv.tsx -- Importador CSV (1037 lineas)
-  ProductoCatalogManager.tsx -- CRUD de catalogos inline
-  PedidoNuevoForm.tsx  -- Wizard 5 pasos (1436 lineas)
-  PedidosList.tsx      -- Listado pedidos con filtros
-  PedidoDetalle.tsx    -- Detalle + acciones pedido
-  AlmacenDashboard.tsx -- Dashboard almacen con quick-edit
-  AlmacenMovimientos.tsx -- Historial de movimientos
-  AlmacenTransferencias.tsx -- Transferencia entre almacenes
-  AlmacenAjustes.tsx   -- Ajuste por conteo fisico
-  PreparacionModule.tsx -- Cola de preparacion
-  ClienteModule.tsx    -- CRUD clientes con deuda
-  ClientePedidosModule.tsx -- Historial pedidos por cliente
-  ProveedoresModule.tsx -- CRUD proveedores
-  PersonalModule.tsx   -- Nomina completa (1501 lineas)
-  PagosYapeValidator.tsx -- Validacion pagos Yape
+  Layout.tsx           -- Layout principal, Sidebar en <Suspense> (66 lineas)
+  Header.tsx           -- Header mobile-only (34 lineas)
+  Sidebar.tsx          -- Navegacion lateral w-72, bg-white (189 lineas)
+  AdminOnly.tsx        -- Guard de acceso admin (44 lineas)
+  ProductoSearch.tsx   -- Input de busqueda simple (27 lineas)
+  ProductoTable.tsx    -- Tabla + cards responsive (396 lineas)
+  ProductoForm.tsx     -- Formulario producto (1183 lineas)
+  ProductoImportCsv.tsx -- Importador CSV (1036 lineas)
+  ProductoCatalogManager.tsx -- CRUD de catalogos inline (281 lineas)
+  PedidoNuevoForm.tsx  -- Wizard 5 pasos (2098 lineas)
+  PedidosList.tsx      -- Listado pedidos con filtros (414 lineas)
+  PedidoDetalle.tsx    -- Detalle + acciones pedido (648 lineas)
+  AlmacenDashboard.tsx -- Dashboard almacen con quick-edit (630 lineas)
+  AlmacenMovimientos.tsx -- Historial de movimientos (206 lineas)
+  AlmacenTransferencias.tsx -- Transferencia entre almacenes (715 lineas)
+  AlmacenAjustes.tsx   -- Ajuste por conteo fisico (335 lineas)
+  AlmacenAgregarStock.tsx -- Ingresar stock nuevo a almacen (590 lineas)
+  AlmacenAbastecimiento.tsx -- Lista de productos por reabastecer (267 lineas)
+  PreparacionModule.tsx -- Cola de preparacion (684 lineas)
+  ClienteModule.tsx    -- CRUD clientes con deuda (532 lineas)
+  ClientePedidosModule.tsx -- Historial pedidos por cliente (934 lineas)
+  ProveedoresModule.tsx -- CRUD proveedores (448 lineas)
+  PersonalModule.tsx   -- Nomina completa (1459 lineas)
+  PagosYapeValidator.tsx -- Validacion pagos Yape (379 lineas)
+  personal/
+    AttendanceWeekBlock.tsx  -- Bloque asistencia semanal (348 lineas)
+    DiscountWeekBlock.tsx    -- Bloque descuentos semanal (170 lineas)
+    PaymentHistoryBlock.tsx  -- Historial de pagos (290 lineas)
 
 lib/
   supabaseClient.ts    -- Client Supabase (nullable)
-  authRoles.ts         -- getStoredAppUser, isAdmin, isTrabajador
+  authRoles.ts         -- getStoredAppUser, signOut, isAdmin, isTrabajador
   dateUtils.ts         -- formatDate, formatDateTime, parseInputDate, formatTime
   whatsapp.ts          -- generarMensajePedido, generarLinkWhatsApp
   catalogDefaults.ts   -- Presentaciones y unidades iniciales
+  inputUtils.ts        -- selectOnFocus (auto-select input text on focus)
+  searchUtils.ts       -- normalizeForSearch, searchTokens, matchesSearch
+  supabaseQueryUtils.ts -- fetchAllRows (paginated Supabase fetching)
 ```
 
 ## Layout y navegacion
 
+### app/layout.tsx
+- Server component (no `"use client"`)
+- `lang="es-PE"` en `<html>`
+- Geist + Geist_Mono fonts via `next/font/google`
+- Body: `min-h-full flex flex-col`
+
 ### Layout.tsx
 - `"use client"`, recibe `title`, `description`, `children`
 - Sidebar fijo en desktop (`md:pl-72`), overlay en mobile con `isMenuOpen`
+- Sidebar envuelto en `<Suspense fallback={null}>` (requerido por `useSearchParams` en Sidebar)
 - Content area: `max-w-6xl mx-auto`
 - Brand: "Minimarket Santa Ana"
 
 ### Sidebar.tsx
-- 8 grupos de navegacion con 16 items totales
-- Activo via `usePathname()` match
-- Ancho `w-72`, fondo `bg-slate-950`
+- 7 grupos de navegacion: Dashboard, Productos, Ventas, Almacenes, Clientes, Proveedores, Personal
+- Fondo `bg-white` con `border-r border-slate-200`, ancho `w-72`
+- Activo via `usePathname()` + `useSearchParams()` para matching de `?tab=`
+- Active color: `bg-emerald-50 text-emerald-800`
+- Inactive: `text-slate-600 hover:bg-slate-100 hover:text-slate-950`
+- Flat list (no collapsible groups), group labels en `text-xs uppercase text-slate-400`
+- Imports `signOut` from `@/lib/authRoles`
+- Role-based filtering: grupo "Personal" solo visible para admin
+- Exports `navigationItems` array para uso externo
+- Footer section:
+  - Ayuda link: `<a href="/manual.html?role={rol}">` abre en nueva ventana
+  - User info: nombres + apellidos + rol (capitalize)
+  - Sign-out button: `text-red-700 hover:bg-red-50`, con `window.confirm` antes de cerrar
 - Prop opcional `onNavigate` para cerrar menu mobile
+- Helper `getUserRole()` lee rol de localStorage con fallback a "trabajador"
 
 ### Header.tsx
 - Solo mobile (`md:hidden`), sticky top
@@ -116,6 +146,8 @@ lib/
 | Badge estado | `bg-slate-100 text-slate-700 rounded-md px-2 py-1 text-xs font-medium capitalize` |
 | Tab activo | `bg-slate-900 text-white` |
 | Tab inactivo | `text-slate-600 hover:bg-slate-100` |
+| Sidebar active | `bg-emerald-50 text-emerald-800` |
+| Sidebar inactive | `text-slate-600 hover:bg-slate-100 hover:text-slate-950` |
 
 ## Patrones de componente
 
@@ -164,6 +196,7 @@ const [message, setMessage] = useState<Message | null>(null);
 - Botones submit: `h-11` con texto "Guardando..." cuando `isSaving`
 - Validacion client-side antes del submit, no se usa zod ni react-hook-form
 - Pattern `emptyToNull()` para convertir strings vacios a null antes de enviar
+- `selectOnFocus` de `lib/inputUtils.ts` en inputs numericos para auto-seleccionar al hacer focus
 
 ### Responsive: tabla + cards
 ```tsx
@@ -194,12 +227,40 @@ const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 // Botones Anterior/Siguiente con disabled states
 ```
 
+### Client-side search (lib/searchUtils.ts)
+```tsx
+import { matchesSearch } from "@/lib/searchUtils";
+
+// matchesSearch normaliza (lowercase, strip accents), tokeniza, y verifica que
+// todos los tokens aparezcan en el haystack construido de los valores dados
+const filtered = items.filter((item) =>
+  matchesSearch(searchTerm, [item.nombre, item.codigo, item.marca])
+);
+```
+
+### Paginated Supabase fetching (lib/supabaseQueryUtils.ts)
+```tsx
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
+
+// fetchAllRows pagina automaticamente en bloques de 1000 (configurable)
+// hasta un maximo de 10000 rows. Evita el limite de 1000 rows de Supabase.
+const { data, error } = await fetchAllRows<Producto>(
+  supabase.from("productos").select("*, categorias(nombre)")
+);
+```
+
 ### Sub-componentes inline
 Los componentes grandes definen sub-componentes como funciones en el mismo archivo:
 - `Field`, `QuickCreate` en ProductoForm.tsx
 - `Panel`, `Info` en PedidoDetalle.tsx
 - `Cart` en PedidoNuevoForm.tsx
 - `MetricCard`, `ActionLink`, `Panel`, `ErrorPanel` en dashboard/page.tsx
+
+### Sub-componentes extraidos (components/personal/)
+PersonalModule usa sub-componentes en su propio subdirectorio:
+- `AttendanceWeekBlock.tsx` -- bloque de asistencia semanal por trabajador
+- `DiscountWeekBlock.tsx` -- bloque de descuentos semanal
+- `PaymentHistoryBlock.tsx` -- historial de pagos procesados
 
 ## Autenticacion (lib/authRoles.ts)
 
@@ -213,6 +274,9 @@ getCurrentUserProfile() -> { profile, error }
 // Verificar rol
 isAdmin(profile)     // profile?.roles?.nombre === "admin"
 isTrabajador(profile) // profile?.roles?.nombre === "trabajador"
+
+// Cerrar sesion (limpia localStorage y redirige a /login)
+signOut()
 ```
 
 - Key de localStorage: `app_minimarket_user`
@@ -228,6 +292,16 @@ isTrabajador(profile) // profile?.roles?.nombre === "trabajador"
 | `parseInputDate(d)` | YYYY-MM-DD (para inputs date) |
 | `formatTime(t)` | HH:MM (slice 0-5) |
 
+## Input utils (lib/inputUtils.ts)
+
+```tsx
+import { selectOnFocus } from "@/lib/inputUtils";
+
+// Auto-selecciona todo el texto al hacer focus en un input numerico.
+// Evita que al escribir "20" en un input con "1" quede "120".
+<input type="number" onFocus={selectOnFocus} />
+```
+
 ## Convenciones importantes
 
 1. **Ternarios con null** -- usar `{condition ? <Component /> : null}` (no `&&`)
@@ -240,3 +314,6 @@ isTrabajador(profile) // profile?.roles?.nombre === "trabajador"
 8. **Normalize** -- `normalizeSpaces(v)` strip + single space, `normalizeKey(v)` + lowercase + NFD strip
 9. **eslint suppression** -- `react-hooks/exhaustive-deps` y `react-hooks/set-state-in-effect` frecuentemente deshabilitados
 10. **Supabase null guard** -- siempre `if (!supabase) return;` al inicio de funciones async
+11. **selectOnFocus** -- usar en inputs numericos para auto-seleccionar texto al focus
+12. **matchesSearch** -- usar para filtrado client-side con normalizacion y tokenizacion
+13. **fetchAllRows** -- usar para queries Supabase que pueden superar 1000 filas
