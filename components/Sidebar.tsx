@@ -32,6 +32,7 @@ export const navigationItems = [
     items: [
       { href: "/almacen/transferencias", label: "Transferencias" },
       { href: "/almacen/agregar-stock", label: "Agregar stock" },
+      { href: "/almacen/vencimientos", label: "Vencimientos" },
       { href: "/almacen/abastecimiento", label: "Abastecimiento" },
     ],
   },

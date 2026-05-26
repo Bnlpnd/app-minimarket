@@ -10,7 +10,16 @@ import { getCurrentUserProfile, getStoredAppUser, isTrabajador } from "@/lib/aut
 import { formatDate, formatTime } from "@/lib/dateUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
-import type { AppUsuario, Cliente, PagoMetodo, Pedido, PedidoEstado, Producto } from "@/types/database";
+import type {
+  AppUsuario,
+  Cliente,
+  PagoMetodo,
+  Pedido,
+  PedidoEstado,
+  Producto,
+  VistaLoteVencimiento,
+} from "@/types/database";
+import { estadoVencimientoUI, formatFechaCorta } from "@/lib/loteUtils";
 
 type PedidoResumen = Pick<
   Pedido,
@@ -44,6 +53,7 @@ type AdminData = {
   pagosPorValidar: number;
   ultimosPedidos: PedidoResumen[];
   productosStockBajo: ProductoStockBajo[];
+  proximosVencer: VistaLoteVencimiento[];
   errors: string[];
 };
 
@@ -85,6 +95,7 @@ type WorkerData = {
   solicitudesPendientes: SolicitudPendiente[];
   topVendidosHoy: TopVendido[];
   clientesConDeuda: ClienteDeuda[];
+  proximosVencer: VistaLoteVencimiento[];
   errors: string[];
 };
 
@@ -99,6 +110,7 @@ const emptyAdminData: AdminData = {
   pagosPorValidar: 0,
   ultimosPedidos: [],
   productosStockBajo: [],
+  proximosVencer: [],
   errors: [],
 };
 
@@ -112,6 +124,7 @@ const emptyWorkerData: WorkerData = {
   solicitudesPendientes: [],
   topVendidosHoy: [],
   clientesConDeuda: [],
+  proximosVencer: [],
   errors: [],
 };
 
@@ -264,6 +277,14 @@ function AdminDashboard() {
         ),
       ]);
 
+      // Lotes proximos a vencer (en paralelo con resto del dashboard).
+      const vencerResult = await supabase
+        .from("vista_lotes_vencimiento")
+        .select("*")
+        .in("estado_vencimiento", ["vencido", "urgente", "proximo"])
+        .order("fecha_vencimiento", { ascending: true })
+        .limit(8);
+
       const errors = [
         pendientes.error ? `Pendientes: ${pendientes.error.message}` : null,
         preparacion.error ? `En preparacion: ${preparacion.error.message}` : null,
@@ -275,6 +296,7 @@ function AdminDashboard() {
         pagos.error ? `Pagos por validar: ${pagos.error.message}` : null,
         ultimos.error ? `Ultimos pedidos: ${ultimos.error.message}` : null,
         productos.error ? `Stock bajo: ${productos.error.message}` : null,
+        vencerResult.error ? `Vencimientos: ${vencerResult.error.message}` : null,
       ].filter(Boolean) as string[];
 
       const montoDia = ((pedidosDia.data ?? []) as Pick<Pedido, "total">[]).reduce(
@@ -316,6 +338,7 @@ function AdminDashboard() {
         pagosPorValidar: pagos.count ?? 0,
         ultimosPedidos: (ultimos.data ?? []) as unknown as PedidoResumen[],
         productosStockBajo,
+        proximosVencer: ((vencerResult.data ?? []) as VistaLoteVencimiento[]),
         errors,
       });
       setIsLoading(false);
@@ -386,7 +409,57 @@ function AdminDashboard() {
           </div>
         </Panel>
       </section>
+
+      <VencimientosPanel lotes={data.proximosVencer} />
     </div>
+  );
+}
+
+function VencimientosPanel({ lotes }: { lotes: VistaLoteVencimiento[] }) {
+  return (
+    <Panel
+      title="Lotes por vencer"
+      action={
+        <Link
+          href="/almacen/vencimientos"
+          className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Ver todos
+        </Link>
+      }
+    >
+      {lotes.length > 0 ? (
+        <ul className="divide-y divide-slate-100">
+          {lotes.map((lote) => {
+            const ui = estadoVencimientoUI(lote.estado_vencimiento);
+            return (
+              <li
+                key={lote.id}
+                className={`flex items-center justify-between py-2 text-sm ${ui.row}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-slate-950">{lote.nombre_producto}</p>
+                  <p className="text-xs text-slate-500">
+                    {lote.almacen_nombre} ·{" "}
+                    {Number(lote.cantidad_actual).toFixed(2).replace(/\.00$/, "")}{" "}
+                    {lote.unidad_base ?? "und"} · vence {formatFechaCorta(lote.fecha_vencimiento)}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${ui.badge}`}
+                >
+                  {ui.label}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
+          No hay lotes proximos a vencer. Todo bajo control.
+        </p>
+      )}
+    </Panel>
   );
 }
 
@@ -421,6 +494,7 @@ function WorkerDashboard() {
       solicitudesRows,
       ventasHoyDetalle,
       pedidosDeudaRows,
+      vencerRows,
     ] = await Promise.all([
       // Pedidos en estados activos (no entregados ni cancelados). El trabajador
       // necesita ver lo pendiente para atenderlo, no el historial.
@@ -487,6 +561,13 @@ function WorkerDashboard() {
         .eq("estado_pago", "debe")
         .not("cliente_id", "is", null)
         .limit(500),
+      // Lotes proximos a vencer (vencido/urgente/proximo).
+      supabase
+        .from("vista_lotes_vencimiento")
+        .select("*")
+        .in("estado_vencimiento", ["vencido", "urgente", "proximo"])
+        .order("fecha_vencimiento", { ascending: true })
+        .limit(8),
     ]);
 
     const errors = [
@@ -498,6 +579,7 @@ function WorkerDashboard() {
       solicitudesRows.error ? `Transferencias: ${solicitudesRows.error.message}` : null,
       ventasHoyDetalle.error ? `Top vendidos: ${ventasHoyDetalle.error.message}` : null,
       pedidosDeudaRows.error ? `Deudas: ${pedidosDeudaRows.error.message}` : null,
+      vencerRows.error ? `Vencimientos: ${vencerRows.error.message}` : null,
     ].filter(Boolean) as string[];
 
     // Procesar stock bajo en Tienda.
@@ -634,6 +716,7 @@ function WorkerDashboard() {
       solicitudesPendientes,
       topVendidosHoy,
       clientesConDeuda,
+      proximosVencer: ((vencerRows.data ?? []) as VistaLoteVencimiento[]),
       errors,
     });
     setIsLoading(false);
@@ -826,6 +909,8 @@ function WorkerDashboard() {
             </p>
           )}
         </Panel>
+
+        <VencimientosPanel lotes={data.proximosVencer} />
 
         <Panel
           title="Transferencias por recibir"
