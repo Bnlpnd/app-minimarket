@@ -47,12 +47,44 @@ type AdminData = {
   errors: string[];
 };
 
+type StockBajoTienda = {
+  id: string;
+  nombre_producto: string;
+  stock_tienda: number;
+  stock_casa: number;
+  stock_minimo: number;
+};
+
+type SolicitudPendiente = {
+  id: string;
+  created_at: string;
+  items_count: number;
+};
+
+type TopVendido = {
+  producto_id: string;
+  nombre_producto: string;
+  cantidad: number;
+};
+
+type ClienteDeuda = {
+  id: string;
+  nombres: string;
+  telefono: string | null;
+  deuda_total: number;
+  cards_pendientes: number;
+};
+
 type WorkerData = {
   ultimosPedidos: PedidoResumen[];
   ventasHoy: number;
   entregadosHoy: number;
   pagoSemana: number;
   trabajador: Pick<AppUsuario, "pago_hora" | "horas_semana" | "gastos_semana"> | null;
+  stockBajoTienda: StockBajoTienda[];
+  solicitudesPendientes: SolicitudPendiente[];
+  topVendidosHoy: TopVendido[];
+  clientesConDeuda: ClienteDeuda[];
   errors: string[];
 };
 
@@ -76,6 +108,10 @@ const emptyWorkerData: WorkerData = {
   entregadosHoy: 0,
   pagoSemana: 0,
   trabajador: null,
+  stockBajoTienda: [],
+  solicitudesPendientes: [],
+  topVendidosHoy: [],
+  clientesConDeuda: [],
   errors: [],
 };
 
@@ -376,7 +412,16 @@ function WorkerDashboard() {
     const todayStart = startOfTodayIso();
     const tomorrowStart = startOfTomorrowIso();
 
-    const [ultimos, ventasHoy, entregadosHoy, trabajador] = await Promise.all([
+    const [
+      ultimos,
+      ventasHoy,
+      entregadosHoy,
+      trabajador,
+      stockRows,
+      solicitudesRows,
+      ventasHoyDetalle,
+      pedidosDeudaRows,
+    ] = await Promise.all([
       // Pedidos en estados activos (no entregados ni cancelados). El trabajador
       // necesita ver lo pendiente para atenderlo, no el historial.
       supabase
@@ -409,6 +454,39 @@ function WorkerDashboard() {
         .select("pago_hora,horas_semana,gastos_semana")
         .eq("id", appUser.id)
         .maybeSingle(),
+      // Productos activos con stock por almacen para detectar bajo en Tienda.
+      supabase
+        .from("productos")
+        .select(
+          "id,nombre_producto,stock_minimo,producto_base_id,producto_almacen(stock_actual,almacenes(nombre))",
+        )
+        .eq("activo", true)
+        .is("producto_base_id", null)
+        .limit(500),
+      // Solicitudes de transferencia enviadas (esperando recibir).
+      supabase
+        .from("almacen_transferencias_solicitudes")
+        .select("id, created_at, almacen_transferencias_items(id)")
+        .eq("estado", "enviado")
+        .order("created_at", { ascending: false })
+        .limit(10),
+      // Detalle de pedidos creados hoy para calcular top vendidos.
+      supabase
+        .from("detalle_pedido")
+        .select(
+          "cantidad, producto_id, productos!producto_id(nombre_producto), pedidos!inner(created_at, estado)",
+        )
+        .gte("pedidos.created_at", todayStart)
+        .lt("pedidos.created_at", tomorrowStart)
+        .neq("pedidos.estado", "cancelado")
+        .limit(500),
+      // Pedidos con deuda para agrupar por cliente.
+      supabase
+        .from("pedidos")
+        .select("id, cliente_id, total, monto_a_cuenta, clientes(nombres, telefono)")
+        .eq("estado_pago", "debe")
+        .not("cliente_id", "is", null)
+        .limit(500),
     ]);
 
     const errors = [
@@ -416,7 +494,115 @@ function WorkerDashboard() {
       ventasHoy.error ? `Ventas del dia: ${ventasHoy.error.message}` : null,
       entregadosHoy.error ? `Entregas del dia: ${entregadosHoy.error.message}` : null,
       trabajador.error ? `Pago semanal: ${trabajador.error.message}` : null,
+      stockRows.error ? `Stock bajo: ${stockRows.error.message}` : null,
+      solicitudesRows.error ? `Transferencias: ${solicitudesRows.error.message}` : null,
+      ventasHoyDetalle.error ? `Top vendidos: ${ventasHoyDetalle.error.message}` : null,
+      pedidosDeudaRows.error ? `Deudas: ${pedidosDeudaRows.error.message}` : null,
     ].filter(Boolean) as string[];
+
+    // Procesar stock bajo en Tienda.
+    type StockProductoRow = {
+      id: string;
+      nombre_producto: string;
+      stock_minimo: number | null;
+      producto_almacen: Array<{
+        stock_actual: number;
+        almacenes: { nombre: string } | { nombre: string }[] | null;
+      }>;
+    };
+    const stockBajoTienda: StockBajoTienda[] = ((stockRows.data ?? []) as unknown as StockProductoRow[])
+      .map((row) => {
+        const getNombre = (
+          a: { nombre: string } | { nombre: string }[] | null,
+        ) => (Array.isArray(a) ? a[0]?.nombre : a?.nombre) ?? "";
+        const tienda = row.producto_almacen.find((s) => {
+          const n = getNombre(s.almacenes).toLowerCase();
+          return n === "tienda" || n === "negocio";
+        });
+        const casa = row.producto_almacen.find(
+          (s) => getNombre(s.almacenes).toLowerCase() === "casa",
+        );
+        return {
+          id: row.id,
+          nombre_producto: row.nombre_producto,
+          stock_tienda: Number(tienda?.stock_actual ?? 0),
+          stock_casa: Number(casa?.stock_actual ?? 0),
+          stock_minimo: Number(row.stock_minimo ?? 10),
+        };
+      })
+      .filter((p) => p.stock_tienda <= p.stock_minimo)
+      .sort((a, b) => a.stock_tienda - b.stock_tienda)
+      .slice(0, 8);
+
+    // Solicitudes de transferencia pendientes.
+    const solicitudesPendientes: SolicitudPendiente[] = (
+      (solicitudesRows.data ?? []) as Array<{
+        id: string;
+        created_at: string;
+        almacen_transferencias_items: Array<{ id: string }> | null;
+      }>
+    ).map((s) => ({
+      id: s.id,
+      created_at: s.created_at,
+      items_count: s.almacen_transferencias_items?.length ?? 0,
+    }));
+
+    // Top vendidos hoy (agrupar client-side).
+    type DetalleVenta = {
+      cantidad: number;
+      producto_id: string;
+      productos: { nombre_producto: string } | { nombre_producto: string }[] | null;
+    };
+    const ventasMap = new Map<string, { nombre: string; cantidad: number }>();
+    for (const d of (ventasHoyDetalle.data ?? []) as unknown as DetalleVenta[]) {
+      const nombre = Array.isArray(d.productos)
+        ? d.productos[0]?.nombre_producto
+        : d.productos?.nombre_producto;
+      if (!d.producto_id || !nombre) continue;
+      const prev = ventasMap.get(d.producto_id);
+      ventasMap.set(d.producto_id, {
+        nombre,
+        cantidad: (prev?.cantidad ?? 0) + Number(d.cantidad ?? 0),
+      });
+    }
+    const topVendidosHoy: TopVendido[] = Array.from(ventasMap.entries())
+      .map(([producto_id, v]) => ({
+        producto_id,
+        nombre_producto: v.nombre,
+        cantidad: v.cantidad,
+      }))
+      .sort((a, b) => b.cantidad - a.cantidad)
+      .slice(0, 5);
+
+    // Clientes con deuda (agrupar pedidos).
+    type PedidoDeudaRow = {
+      id: string;
+      cliente_id: string | null;
+      total: number;
+      monto_a_cuenta: number;
+      clientes: { nombres: string; telefono: string | null } | { nombres: string; telefono: string | null }[] | null;
+    };
+    const deudaMap = new Map<string, ClienteDeuda>();
+    for (const p of (pedidosDeudaRows.data ?? []) as unknown as PedidoDeudaRow[]) {
+      if (!p.cliente_id) continue;
+      const cliente = Array.isArray(p.clientes) ? p.clientes[0] : p.clientes;
+      const saldo = Math.max(
+        0,
+        Number(p.total ?? 0) - Number(p.monto_a_cuenta ?? 0),
+      );
+      if (saldo <= 0) continue;
+      const prev = deudaMap.get(p.cliente_id);
+      deudaMap.set(p.cliente_id, {
+        id: p.cliente_id,
+        nombres: cliente?.nombres ?? "Sin nombre",
+        telefono: cliente?.telefono ?? null,
+        deuda_total: (prev?.deuda_total ?? 0) + saldo,
+        cards_pendientes: (prev?.cards_pendientes ?? 0) + 1,
+      });
+    }
+    const clientesConDeuda: ClienteDeuda[] = Array.from(deudaMap.values())
+      .sort((a, b) => b.deuda_total - a.deuda_total)
+      .slice(0, 8);
 
     const payroll = trabajador.data as Pick<AppUsuario, "pago_hora" | "horas_semana" | "gastos_semana"> | null;
     const pagoSemana =
@@ -444,6 +630,10 @@ function WorkerDashboard() {
       entregadosHoy: entregadosHoy.count ?? 0,
       pagoSemana,
       trabajador: payroll,
+      stockBajoTienda,
+      solicitudesPendientes,
+      topVendidosHoy,
+      clientesConDeuda,
       errors,
     });
     setIsLoading(false);
@@ -521,13 +711,16 @@ function WorkerDashboard() {
               const isPending = pedido.estado === "pendiente";
               const isListo = pedido.estado === "listo_para_recoger";
               const isEnPrep = pedido.estado === "en_preparacion";
+              const isPagoEnviado = pedido.estado === "pago_enviado";
               const badgeClass = isPending
                 ? "bg-amber-100 text-amber-800"
-                : isListo
-                  ? "bg-emerald-100 text-emerald-800"
-                  : isEnPrep
-                    ? "bg-blue-100 text-blue-800"
-                    : "bg-slate-100 text-slate-700";
+                : isPagoEnviado
+                  ? "bg-orange-100 text-orange-800"
+                  : isListo
+                    ? "bg-emerald-100 text-emerald-800"
+                    : isEnPrep
+                      ? "bg-blue-100 text-blue-800"
+                      : "bg-slate-100 text-slate-700";
 
               return (
                 <article key={pedido.id} className="rounded-lg border border-slate-200 p-4 text-sm">
@@ -546,7 +739,14 @@ function WorkerDashboard() {
                       <span className={`inline-flex w-fit rounded-md px-2 py-1 text-xs font-medium capitalize ${badgeClass}`}>
                         {formatEstado(pedido.estado)}
                       </span>
-                      {isPending ? (
+                      {isPagoEnviado ? (
+                        <Link
+                          href={`/pagos?pedido=${pedido.id}`}
+                          className="inline-flex h-10 items-center rounded-md bg-orange-600 px-3 text-xs font-semibold text-white hover:bg-orange-700"
+                        >
+                          Validar pago
+                        </Link>
+                      ) : isPending ? (
                         <button
                           type="button"
                           onClick={() => void tomarPedido(pedido)}
@@ -575,6 +775,150 @@ function WorkerDashboard() {
           )}
         </div>
       </Panel>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Panel
+          title="Stock bajo en Tienda"
+          action={
+            data.stockBajoTienda.length > 0 ? (
+              <Link
+                href="/almacen/transferencias"
+                className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Transferir desde Casa
+              </Link>
+            ) : null
+          }
+        >
+          {data.stockBajoTienda.length > 0 ? (
+            <ul className="divide-y divide-slate-100">
+              {data.stockBajoTienda.map((prod) => (
+                <li key={prod.id} className="flex items-center justify-between py-2 text-sm">
+                  <div>
+                    <p className="font-medium text-slate-950">{prod.nombre_producto}</p>
+                    <p className="text-xs text-slate-500">
+                      Tienda: {prod.stock_tienda} / min {prod.stock_minimo} - Casa: {prod.stock_casa}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                      prod.stock_tienda <= 0
+                        ? "bg-red-100 text-red-700"
+                        : "bg-orange-100 text-orange-800"
+                    }`}
+                  >
+                    {prod.stock_tienda <= 0 ? "Sin stock" : "Bajo"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
+              Stock OK en Tienda.
+            </p>
+          )}
+        </Panel>
+
+        <Panel
+          title="Transferencias por recibir"
+          action={
+            data.solicitudesPendientes.length > 0 ? (
+              <Link
+                href="/almacen/transferencias"
+                className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Confirmar
+              </Link>
+            ) : null
+          }
+        >
+          {data.solicitudesPendientes.length > 0 ? (
+            <ul className="divide-y divide-slate-100">
+              {data.solicitudesPendientes.map((s) => (
+                <li key={s.id} className="flex items-center justify-between py-2 text-sm">
+                  <div>
+                    <p className="font-medium text-slate-950">Solicitud #{s.id.slice(0, 8)}</p>
+                    <p className="text-xs text-slate-500">{formatDate(s.created_at)}</p>
+                  </div>
+                  <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800">
+                    {s.items_count} item(s)
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
+              No hay transferencias pendientes.
+            </p>
+          )}
+        </Panel>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Mas vendidos hoy">
+          {data.topVendidosHoy.length > 0 ? (
+            <ul className="divide-y divide-slate-100">
+              {data.topVendidosHoy.map((p, i) => (
+                <li
+                  key={p.producto_id}
+                  className="flex items-center justify-between py-2 text-sm"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-800">
+                      {i + 1}
+                    </span>
+                    <p className="font-medium text-slate-950">{p.nombre_producto}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-700">
+                    {p.cantidad} und
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
+              Aun no hay ventas hoy.
+            </p>
+          )}
+        </Panel>
+
+        <Panel
+          title="Clientes con deuda"
+          action={
+            <Link
+              href="/clientes"
+              className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Ver clientes
+            </Link>
+          }
+        >
+          {data.clientesConDeuda.length > 0 ? (
+            <ul className="divide-y divide-slate-100">
+              {data.clientesConDeuda.map((c) => (
+                <li key={c.id} className="flex items-center justify-between py-2 text-sm">
+                  <Link
+                    href={`/clientes/${c.id}/pedidos`}
+                    className="min-w-0 flex-1 pr-3 hover:underline"
+                  >
+                    <p className="truncate font-medium text-slate-950">{c.nombres}</p>
+                    <p className="text-xs text-slate-500">
+                      {c.cards_pendientes} pedido(s) - {c.telefono ?? "Sin WSP"}
+                    </p>
+                  </Link>
+                  <span className="rounded-md bg-amber-100 px-2 py-1 text-sm font-semibold text-amber-800">
+                    {formatMoney(c.deuda_total)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
+              Ningun cliente con saldo pendiente.
+            </p>
+          )}
+        </Panel>
+      </section>
 
       <section className="grid gap-4 md:grid-cols-3">
         <MetricCard label="Ventas registradas hoy" value={String(data.ventasHoy)} detail="Pedidos creados con tu usuario" />
