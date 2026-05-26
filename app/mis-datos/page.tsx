@@ -10,11 +10,17 @@ import { getStoredAppUser } from "@/lib/authRoles";
 import { formatDate, formatTime } from "@/lib/dateUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { validateHorarioLaboral } from "@/lib/validators";
+import {
+  calcularPagoSemanal,
+  diaSemana,
+  hoursBetween as hoursBetweenUtil,
+} from "@/lib/payrollUtils";
 import type {
   AppUsuario,
   PersonalAsistencia,
   PersonalDescuento,
   PersonalPago,
+  PersonalTurno,
 } from "@/types/database";
 
 type Tab = "asistencia" | "descuento" | "pago";
@@ -30,26 +36,20 @@ type Data = {
     | "horas_semana"
     | "gastos_semana"
     | "horario_laboral"
+    | "bono_asistencia_completa"
     | "rol"
   > | null;
   asistencias: PersonalAsistencia[];
   descuentos: PersonalDescuento[];
   pagos: PersonalPago[];
+  turnos: PersonalTurno[];
 };
 
 function formatMoney(value: number | null | undefined) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
 }
 
-function hoursBetween(start: string | null | undefined, end: string | null | undefined) {
-  if (!start || !end) return 0;
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  const st = sh * 60 + sm;
-  const et = eh * 60 + em;
-  if (!Number.isFinite(st) || !Number.isFinite(et) || et <= st) return 0;
-  return (et - st) / 60;
-}
+const hoursBetween = hoursBetweenUtil;
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -80,7 +80,9 @@ export default function MisDatosPage() {
     asistencias: [],
     descuentos: [],
     pagos: [],
+    turnos: [],
   });
+  const [turnoElegido, setTurnoElegido] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{
@@ -105,10 +107,10 @@ export default function MisDatosPage() {
       return;
     }
     setIsLoading(true);
-    const [trabajador, asistencias, descuentos, pagos] = await Promise.all([
+    const [trabajador, asistencias, descuentos, pagos, turnos] = await Promise.all([
       supabase
         .from("app_usuarios")
-        .select("id,nombres,apellidos,email,pago_hora,horas_semana,gastos_semana,horario_laboral,rol")
+        .select("id,nombres,apellidos,email,pago_hora,horas_semana,gastos_semana,horario_laboral,bono_asistencia_completa,rol")
         .eq("id", userId)
         .maybeSingle(),
       supabase
@@ -129,12 +131,19 @@ export default function MisDatosPage() {
         .eq("usuario_id", userId)
         .order("semana_inicio", { ascending: false })
         .limit(30),
+      supabase
+        .from("personal_turnos")
+        .select("*")
+        .eq("usuario_id", userId)
+        .eq("activo", true)
+        .order("created_at", { ascending: true }),
     ]);
     setData({
       trabajador: (trabajador.data ?? null) as Data["trabajador"],
       asistencias: (asistencias.data ?? []) as PersonalAsistencia[],
       descuentos: (descuentos.data ?? []) as PersonalDescuento[],
       pagos: (pagos.data ?? []) as PersonalPago[],
+      turnos: (turnos.data ?? []) as PersonalTurno[],
     });
     setIsLoading(false);
   }
@@ -153,17 +162,42 @@ export default function MisDatosPage() {
       .reduce((sum, d) => sum + Number(d.monto ?? 0), 0);
   }, [data.descuentos, week]);
 
-  const pagoSemanaEstimado = useMemo(() => {
-    if (!data.trabajador) return 0;
-    const horas = horasSemanaReales > 0 ? horasSemanaReales : Number(data.trabajador.horas_semana ?? 0);
-    const base = horas * Number(data.trabajador.pago_hora ?? 0);
-    return Math.max(0, base - descuentosSemana);
-  }, [data.trabajador, descuentosSemana, horasSemanaReales]);
+  const pagoSemanaResumen = useMemo(() => {
+    if (!data.trabajador) return { total: 0, subtotalDias: 0, bonoAplicado: 0 };
+    const asisSemana = data.asistencias.filter(
+      (a) => a.fecha >= week.startIso && a.fecha <= week.endIso,
+    );
+    const fechas: string[] = [];
+    const [sy, sm, sd] = week.startIso.split("-").map(Number);
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(sy, (sm || 1) - 1, (sd || 1) + i);
+      fechas.push(
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+      );
+    }
+    const resumen = calcularPagoSemanal({
+      asistencias: asisSemana,
+      turnos: data.turnos,
+      pagoHoraGeneral: Number(data.trabajador.pago_hora ?? 0),
+      bonoSemanaCompleta: Number(data.trabajador.bono_asistencia_completa ?? 0),
+      fechasSemana: fechas,
+    });
+    return {
+      total: Math.max(0, resumen.total - descuentosSemana),
+      subtotalDias: resumen.subtotalDias,
+      bonoAplicado: resumen.bonoAplicado,
+    };
+  }, [data.trabajador, data.asistencias, data.turnos, week, descuentosSemana]);
 
   const asistenciaHoy = useMemo(() => {
     const hoy = todayIso();
     return data.asistencias.find((a) => a.fecha === hoy) ?? null;
   }, [data.asistencias]);
+
+  const turnosDeHoy = useMemo(() => {
+    const dia = diaSemana(todayIso());
+    return data.turnos.filter((t) => t.dias_aplica.includes(dia));
+  }, [data.turnos]);
 
   async function marcarIngreso() {
     if (!supabase || !data.trabajador) return;
@@ -190,6 +224,22 @@ export default function MisDatosPage() {
       }
     }
 
+    // Determinar turno: si solo hay 1 turno hoy, auto. Si hay varios y el
+    // usuario eligio, usar eso. Si hay varios pero no eligio, pedirle.
+    let turnoId: string | null = asistenciaHoy?.turno_id ?? null;
+    if (!turnoId && turnosDeHoy.length === 1) {
+      turnoId = turnosDeHoy[0].id;
+    } else if (!turnoId && turnosDeHoy.length > 1) {
+      if (!turnoElegido) {
+        setActionMessage({
+          type: "error",
+          text: "Tienes mas de un turno hoy. Elige cual vas a hacer arriba.",
+        });
+        return;
+      }
+      turnoId = turnoElegido;
+    }
+
     setIsMarking("ingreso");
     const { error } = await supabase.from("personal_asistencias").upsert(
       {
@@ -199,6 +249,7 @@ export default function MisDatosPage() {
         hora_salida: asistenciaHoy?.hora_salida ?? null,
         productividad: asistenciaHoy?.productividad ?? 2,
         observacion: asistenciaHoy?.observacion ?? null,
+        turno_id: turnoId,
       },
       { onConflict: "usuario_id,fecha" },
     );
@@ -250,6 +301,7 @@ export default function MisDatosPage() {
         hora_salida: hora,
         productividad: asistenciaHoy.productividad ?? 2,
         observacion: asistenciaHoy.observacion ?? null,
+        turno_id: asistenciaHoy.turno_id,
       },
       { onConflict: "usuario_id,fecha" },
     );
@@ -295,7 +347,7 @@ export default function MisDatosPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <Metric label="Costo x hora" value={formatMoney(data.trabajador.pago_hora)} />
                 <Metric label="Horas/semana" value={String(Number(data.trabajador.horas_semana ?? 0))} />
-                <Metric label="Pago estimado semana" value={formatMoney(pagoSemanaEstimado)} />
+                <Metric label="Pago estimado semana" value={formatMoney(pagoSemanaResumen.total)} />
               </div>
               {data.trabajador.horario_laboral ? (
                 <p className="mt-4 text-sm text-slate-600">
@@ -335,6 +387,39 @@ export default function MisDatosPage() {
                       {asistenciaHoy?.hora_salida ? asistenciaHoy.hora_salida.slice(0, 5) : "-"}
                     </span>
                   </p>
+
+                  {/* Selector de turno cuando hay varios para hoy */}
+                  {turnosDeHoy.length > 1 && !asistenciaHoy?.hora_ingreso ? (
+                    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-xs font-semibold text-amber-900">
+                        Hoy tienes mas de un turno. Elige cual vas a hacer:
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {turnosDeHoy.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setTurnoElegido(t.id)}
+                            className={`rounded-md border px-3 py-2 text-xs font-semibold ${
+                              turnoElegido === t.id
+                                ? "border-emerald-700 bg-emerald-700 text-white"
+                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                            }`}
+                          >
+                            {t.nombre} ({t.hora_inicio.slice(0, 5)} - {t.hora_fin.slice(0, 5)})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {turnosDeHoy.length === 1 && !asistenciaHoy?.hora_ingreso ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Turno asignado: <strong>{turnosDeHoy[0].nombre}</strong>{" "}
+                      ({turnosDeHoy[0].hora_inicio.slice(0, 5)} - {turnosDeHoy[0].hora_fin.slice(0, 5)})
+                    </p>
+                  ) : null}
+
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <button
                       type="button"

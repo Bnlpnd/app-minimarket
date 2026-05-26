@@ -181,6 +181,21 @@ export interface AppUsuario {
   horas_semana: number;
   gastos_semana: number;
   horario_laboral: string | null;
+  bono_asistencia_completa: number;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalTurno {
+  id: string;
+  usuario_id: string;
+  nombre: string;
+  /** Dias de la semana: 0=Dom, 1=Lun, ..., 6=Sab. */
+  dias_aplica: number[];
+  hora_inicio: string;
+  hora_fin: string;
+  monto_pago: number;
   activo: boolean;
   created_at: string;
   updated_at: string;
@@ -194,6 +209,7 @@ export interface PersonalAsistencia {
   hora_salida: string | null;
   productividad: 1 | 2 | 3;
   observacion: string | null;
+  turno_id: string | null;
   created_at: string;
   updated_at: string;
 }
