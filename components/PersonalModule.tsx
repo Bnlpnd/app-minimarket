@@ -757,13 +757,28 @@ export function PersonalModule() {
     await loadData();
   }
 
+  /**
+   * Trae la asistencia actual del trabajador para esa fecha directo de la
+   * DB. Evita el bug anterior donde historyAsistencias podia no tener la
+   * semana actual y se perdia el ingreso/salida ya registrado.
+   */
+  async function fetchAsistencia(usuarioId: string, fecha: string) {
+    if (!supabase) return null;
+    const { data } = await supabase
+      .from("personal_asistencias")
+      .select("*")
+      .eq("usuario_id", usuarioId)
+      .eq("fecha", fecha)
+      .maybeSingle();
+    return (data ?? null) as PersonalAsistencia | null;
+  }
+
   async function saveIngreso(fecha: string, hora: string, observacion: string) {
     if (!supabase || !selectedWorker) return;
     setMessage(null);
-    // Try to preserve hora_salida + productividad if existing record exists
-    const existing = historyAsistencias.find(
-      (item) => item.usuario_id === selectedWorker.id && item.fecha === fecha,
-    );
+
+    const existing = await fetchAsistencia(selectedWorker.id, fecha);
+
     // Si ya hay salida registrada, validar que ingreso sea anterior.
     if (hora && existing?.hora_salida) {
       const check = validateHorarioLaboral(hora, existing.hora_salida);
@@ -781,6 +796,7 @@ export function PersonalModule() {
         hora_salida: existing?.hora_salida ?? null,
         productividad: existing?.productividad ?? 2,
         observacion: normalizeSpaces(observacion) || existing?.observacion || null,
+        turno_id: existing?.turno_id ?? null,
       },
       { onConflict: "usuario_id,fecha" },
     );
@@ -797,9 +813,9 @@ export function PersonalModule() {
   async function saveSalida(fecha: string, hora: string, productividad: number) {
     if (!supabase || !selectedWorker) return;
     setMessage(null);
-    const existing = historyAsistencias.find(
-      (item) => item.usuario_id === selectedWorker.id && item.fecha === fecha,
-    );
+
+    const existing = await fetchAsistencia(selectedWorker.id, fecha);
+
     // Validar que salida sea mayor que el ingreso del dia (no overnight).
     if (hora && existing?.hora_ingreso) {
       const check = validateHorarioLaboral(existing.hora_ingreso, hora);
@@ -815,8 +831,9 @@ export function PersonalModule() {
         fecha,
         hora_ingreso: existing?.hora_ingreso ?? null,
         hora_salida: hora || null,
-        productividad: productividad || 2,
+        productividad: productividad || existing?.productividad || 2,
         observacion: existing?.observacion ?? null,
+        turno_id: existing?.turno_id ?? null,
       },
       { onConflict: "usuario_id,fecha" },
     );
