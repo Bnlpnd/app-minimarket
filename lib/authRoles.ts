@@ -62,3 +62,12 @@ export function isAdmin(profile: CurrentUserProfile | null) {
 export function isTrabajador(profile: CurrentUserProfile | null) {
   return profile?.activo === true && profile.roles?.nombre === "trabajador";
 }
+
+/**
+ * Cierra la sesion: borra la session local y redirige al login.
+ */
+export function signOut() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem("app_minimarket_user");
+  window.location.href = "/login";
+}

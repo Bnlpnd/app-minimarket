@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { getStoredAppUser, signOut } from "@/lib/authRoles";
 
 export const navigationItems = [
   {
@@ -57,6 +59,22 @@ type SidebarProps = {
 export function Sidebar({ onNavigate }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [user, setUser] = useState<{
+    nombres: string | null;
+    apellidos: string | null;
+    rol: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setUser(getStoredAppUser());
+  }, [pathname]);
+
+  function handleSignOut() {
+    if (typeof window !== "undefined" && !window.confirm("¿Cerrar sesion?")) {
+      return;
+    }
+    signOut();
+  }
 
   function isItemActive(href: string) {
     const [path, query] = href.split("?");
@@ -124,8 +142,23 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         </a>
       </div>
 
-      <div className="border-t border-slate-200 px-5 py-4 text-xs text-slate-500">
-        Version inicial
+      <div className="border-t border-slate-200 px-3 py-3">
+        {user ? (
+          <div className="mb-2 px-3 text-xs text-slate-500">
+            <p className="font-semibold text-slate-700">
+              {[user.nombres, user.apellidos].filter(Boolean).join(" ") || "Usuario"}
+            </p>
+            <p className="capitalize">{user.rol}</p>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+        >
+          <span aria-hidden="true">⤶</span>
+          <span>Cerrar sesion</span>
+        </button>
       </div>
     </aside>
   );
