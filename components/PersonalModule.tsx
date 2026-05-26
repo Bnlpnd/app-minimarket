@@ -777,6 +777,11 @@ export function PersonalModule() {
     if (!supabase || !selectedWorker) return;
     setMessage(null);
 
+    if (fecha > todayInput()) {
+      setMessage({ type: "error", text: "No se puede registrar asistencia en fecha futura." });
+      return;
+    }
+
     const existing = await fetchAsistencia(selectedWorker.id, fecha);
 
     // Si ya hay salida registrada, validar que ingreso sea anterior.
@@ -813,6 +818,11 @@ export function PersonalModule() {
   async function saveSalida(fecha: string, hora: string, productividad: number) {
     if (!supabase || !selectedWorker) return;
     setMessage(null);
+
+    if (fecha > todayInput()) {
+      setMessage({ type: "error", text: "No se puede registrar asistencia en fecha futura." });
+      return;
+    }
 
     const existing = await fetchAsistencia(selectedWorker.id, fecha);
 

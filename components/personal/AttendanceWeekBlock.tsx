@@ -94,6 +94,7 @@ export function AttendanceWeekBlock({
   const days = getWeekDays(viewingWeekStart);
   const currentWeekStart = getCurrentWeekStart();
   const canNavigateNext = viewingWeekStart < currentWeekStart;
+  const todayStr = toInputDate(new Date());
 
   // Filter records for the viewing week
   const weekRecords = historyAsistencias.filter(
@@ -120,12 +121,15 @@ export function AttendanceWeekBlock({
             const rec = historyAsistencias.find((r) => r.fecha === d.date);
             const isSelected = selectedDate === d.date;
             const hasRecord = rec && (rec.hora_ingreso || rec.hora_salida);
+            const isFuture = d.date > todayStr;
             return (
               <button
                 key={d.date}
                 type="button"
+                disabled={isFuture}
                 onClick={() => onChangeSelectedDate(d.date)}
-                className={`flex h-12 w-12 flex-col items-center justify-center rounded-full text-xs font-bold ${isSelected ? "bg-emerald-600 text-white" : hasRecord ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-white text-slate-600 border border-slate-300"}`}
+                className={`flex h-12 w-12 flex-col items-center justify-center rounded-full text-xs font-bold ${isFuture ? "cursor-not-allowed bg-slate-100 text-slate-300 border border-slate-200" : isSelected ? "bg-emerald-600 text-white" : hasRecord ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-white text-slate-600 border border-slate-300"}`}
+                title={isFuture ? "Fecha futura — no se puede registrar" : undefined}
               >
                 {d.label}
               </button>
