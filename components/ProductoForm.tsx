@@ -803,13 +803,32 @@ export function ProductoForm({
           />
         </Field>
 
-        <Field label="Subir imagen">
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleImageChange}
-            className="block w-full text-sm text-slate-700 file:mr-3 file:h-10 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:text-sm file:font-medium file:text-white hover:file:bg-slate-700"
-          />
+        <Field label="Foto del producto">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {/* Galeria: en mobile abre selector. En desktop abre el dialog
+                de archivo. Sin atributo capture. */}
+            <label className="flex h-11 cursor-pointer items-center justify-center rounded-md bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700">
+              Subir imagen
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleImageChange}
+                className="sr-only"
+              />
+            </label>
+            {/* Camara: en mobile abre la camara trasera directamente. En
+                desktop muchos navegadores caen al selector normal. */}
+            <label className="flex h-11 cursor-pointer items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              Tomar foto
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                onChange={handleImageChange}
+                className="sr-only"
+              />
+            </label>
+          </div>
           <p className="mt-1 text-xs text-slate-500">
             JPG, PNG o WebP. Tamano maximo 1 MB.
           </p>
