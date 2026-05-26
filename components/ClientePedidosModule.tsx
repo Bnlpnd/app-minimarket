@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { selectOnFocus } from "@/lib/inputUtils";
-import { formatDate, formatDateTime } from "@/lib/dateUtils";
+import { formatDate, formatDateTime, parseInputDate } from "@/lib/dateUtils";
 import { getStoredAppUser } from "@/lib/authRoles";
 import type {
   Cliente,
@@ -51,7 +51,7 @@ const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
 
 function todayInput() {
-  return new Date().toISOString().slice(0, 10);
+  return parseInputDate(new Date());
 }
 
 const emptyManualPedido: ManualPedidoForm = {

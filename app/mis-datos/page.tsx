@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { getStoredAppUser } from "@/lib/authRoles";
-import { formatDate, formatTime } from "@/lib/dateUtils";
+import { formatDate, formatTime, parseInputDate } from "@/lib/dateUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { validateHorarioLaboral } from "@/lib/validators";
 import {
@@ -52,7 +52,7 @@ function formatMoney(value: number | null | undefined) {
 const hoursBetween = hoursBetweenUtil;
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return parseInputDate(new Date());
 }
 
 function nowHHMM() {
@@ -68,7 +68,8 @@ function getWeekRange() {
   start.setDate(date.getDate() + diffToMonday);
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  // Usa fecha LOCAL para no desfasar el dia por zona horaria.
+  const iso = (d: Date) => parseInputDate(d);
   return { startIso: iso(start), endIso: iso(end), label: `${formatDate(iso(start))} - ${formatDate(iso(end))}` };
 }
 
