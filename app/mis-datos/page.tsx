@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
+import { PaymentHistoryBlock } from "@/components/personal/PaymentHistoryBlock";
 import { getStoredAppUser } from "@/lib/authRoles";
 import { formatDate, formatTime, parseInputDate } from "@/lib/dateUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
@@ -26,19 +27,7 @@ import type {
 type Tab = "asistencia" | "descuento" | "pago";
 
 type Data = {
-  trabajador: Pick<
-    AppUsuario,
-    | "id"
-    | "nombres"
-    | "apellidos"
-    | "email"
-    | "pago_hora"
-    | "horas_semana"
-    | "gastos_semana"
-    | "horario_laboral"
-    | "bono_asistencia_completa"
-    | "rol"
-  > | null;
+  trabajador: AppUsuario | null;
   asistencias: PersonalAsistencia[];
   descuentos: PersonalDescuento[];
   pagos: PersonalPago[];
@@ -104,6 +93,8 @@ export default function MisDatosPage() {
   const [descForm, setDescForm] = useState({ fecha: "", detalle: "", monto: "" });
   const [isSavingDesc, setIsSavingDesc] = useState(false);
   const [descMessage, setDescMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  // Filtro del grafico de pago
+  const [paymentFilter, setPaymentFilter] = useState<"dia" | "semana" | "mes">("dia");
 
   useEffect(() => {
     const stored = getStoredAppUser();
@@ -128,7 +119,7 @@ export default function MisDatosPage() {
     const [trabajador, asistencias, descuentos, pagos, turnos] = await Promise.all([
       supabase
         .from("app_usuarios")
-        .select("id,nombres,apellidos,email,pago_hora,horas_semana,gastos_semana,horario_laboral,bono_asistencia_completa,rol")
+        .select("*")
         .eq("id", userId)
         .maybeSingle(),
       supabase
@@ -812,42 +803,48 @@ export default function MisDatosPage() {
               </Panel>
             ) : null}
 
-            {tab === "pago" ? (
-              <Panel title="Mis pagos">
-                {data.pagos.length === 0 ? (
-                  <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
-                    Aun no tienes pagos registrados.
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-slate-100">
-                    {data.pagos.map((p) => (
-                      <li key={p.id} className="grid gap-2 py-3 sm:grid-cols-[180px_1fr_auto] sm:items-center">
-                        <div>
-                          <p className="font-medium text-slate-950">
-                            Semana {formatDate(p.semana_inicio)}
-                          </p>
-                          <p className="text-xs text-slate-500">a {formatDate(p.semana_fin)}</p>
-                        </div>
-                        <p className="text-sm text-slate-600">
-                          {Number(p.horas_trabajadas ?? 0)} h - descuentos {formatMoney(p.descuentos)}
-                        </p>
-                        <div className="text-right">
-                          <span className="block text-sm font-semibold text-emerald-700">
-                            {formatMoney(p.monto_pagado)}
-                          </span>
-                          <span
-                            className={`text-[10px] font-semibold uppercase ${
-                              p.estado === "pagado" ? "text-emerald-700" : "text-amber-700"
-                            }`}
-                          >
-                            {p.estado}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Panel>
+            {tab === "pago" && data.trabajador ? (
+              <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="text-base font-semibold text-slate-950">
+                  Mi pago de la semana
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">{week.label}</p>
+                {/* Filtra asistencias/descuentos de la semana actual para
+                    el calculo del monto. Los history* son los listados de
+                    los ultimos 60 dias que ya cargamos. */}
+                <PaymentHistoryBlock
+                  worker={
+                    {
+                      ...data.trabajador,
+                      rol:
+                        data.trabajador.rol === "cliente"
+                          ? "trabajador"
+                          : (data.trabajador.rol as "admin" | "trabajador"),
+                    }
+                  }
+                  asistencias={data.asistencias.filter(
+                    (a) => a.fecha >= week.startIso && a.fecha <= week.endIso,
+                  )}
+                  descuentos={data.descuentos.filter(
+                    (d) => d.fecha >= week.startIso && d.fecha <= week.endIso,
+                  )}
+                  pagos={data.pagos}
+                  turnos={data.turnos}
+                  historyAsistencias={data.asistencias}
+                  historyDescuentos={data.descuentos}
+                  historyPagos={data.pagos}
+                  week={{
+                    start: week.startIso,
+                    end: week.endIso,
+                    label: week.label,
+                  }}
+                  paymentFilter={paymentFilter}
+                  isAdmin={false}
+                  isSaving={false}
+                  onChangeFilter={setPaymentFilter}
+                  onRegisterPayment={() => {}}
+                />
+              </section>
             ) : null}
           </>
         )}
