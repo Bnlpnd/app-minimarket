@@ -707,7 +707,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
                   onChange={(event) => handleManualImagenChange(event.target.files?.[0] ?? null)}
-                  className="block w-full text-sm text-slate-600"
+                  className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-800 file:cursor-pointer"
                 />
                 {manualImagenPreview ? (
                   <div className="mt-2 flex items-center gap-2">

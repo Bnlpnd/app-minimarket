@@ -18,7 +18,7 @@ export function formatDate(value: string | Date | null | undefined) {
     return "Sin fecha";
   }
 
-  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()}`;
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
 }
 
 export function formatDateTime(value: string | Date | null | undefined) {
