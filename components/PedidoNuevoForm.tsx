@@ -647,6 +647,9 @@ export function PedidoNuevoForm() {
     const defaultAlmacenId = tienda?.id ?? almacenes[0]?.id ?? "";
     if (!defaultAlmacenId || !supabase) return;
 
+    // Limpia errores previos de stock al iniciar una nueva accion.
+    if (message?.type === "error") setMessage(null);
+
     const existing = items.find((item) => item.producto.id === producto.id);
 
     if (existing) {
@@ -699,6 +702,9 @@ export function PedidoNuevoForm() {
   }
 
   async function updateItem(productoId: string, patch: Partial<PedidoItem>) {
+    // Limpia errores previos al iniciar una nueva accion.
+    if (message?.type === "error") setMessage(null);
+
     const current = items.find((item) => item.producto.id === productoId);
     if (!current || !supabase) {
       setItems((curr) =>
@@ -1148,6 +1154,19 @@ export function PedidoNuevoForm() {
     setCreatedPedidoEstadoPago(pagoTipo === "debe" && (Number(montoACuenta) || 0) < total ? "debe" : "pagado");
   }
 
+  function handleCancelarPedido() {
+    if (items.length === 0) {
+      resetForNewSale();
+      return;
+    }
+    if (
+      typeof window === "undefined" ||
+      window.confirm("¿Cancelar la venta? Se pierde lo agregado y se libera el stock reservado.")
+    ) {
+      resetForNewSale();
+    }
+  }
+
   function resetForNewSale() {
     // Liberar reservas del carrito anterior (no asociadas a pedido).
     if (supabase) {
@@ -1418,15 +1437,7 @@ export function PedidoNuevoForm() {
             canNext={canGoNext}
             onBack={() => setStep(Math.max(1, step - 1))}
             onNext={() => { setStep(2); setMaxStepVisited((current) => Math.max(current, 2)); }}
-            onCancel={() => {
-              if (items.length === 0) {
-                resetForNewSale();
-                return;
-              }
-              if (typeof window === "undefined" || window.confirm("¿Cancelar la venta? Se pierde lo agregado y se libera el stock reservado.")) {
-                resetForNewSale();
-              }
-            }}
+            onCancel={handleCancelarPedido}
           />
         </Panel>
       ) : null}
@@ -1491,7 +1502,7 @@ export function PedidoNuevoForm() {
               {isSavingCliente ? "Creando..." : "Crear/seleccionar cliente"}
             </button>
           </form>
-          <StepActions step={step} canNext={Boolean(canGoNext)} onBack={() => setStep(1)} onNext={() => { setStep(3); setMaxStepVisited((current) => Math.max(current, 3)); }} />
+          <StepActions step={step} canNext={Boolean(canGoNext)} onBack={() => setStep(1)} onNext={() => { setStep(3); setMaxStepVisited((current) => Math.max(current, 3)); }} onCancel={handleCancelarPedido} />
         </Panel>
       ) : null}
 
@@ -1550,7 +1561,7 @@ export function PedidoNuevoForm() {
           <Field label="Observaciones">
             <textarea value={notaCliente} onChange={(event) => setNotaCliente(event.target.value)} rows={3} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
           </Field>
-          <StepActions step={step} canNext onBack={() => setStep(2)} onNext={() => { setStep(4); setMaxStepVisited((current) => Math.max(current, 4)); }} />
+          <StepActions step={step} canNext onBack={() => setStep(2)} onNext={() => { setStep(4); setMaxStepVisited((current) => Math.max(current, 4)); }} onCancel={handleCancelarPedido} />
         </Panel>
       ) : null}
 
@@ -1615,7 +1626,7 @@ export function PedidoNuevoForm() {
               {stockWarnings.join(" ")}
             </p>
           ) : null}
-          <StepActions step={step} canNext={stockWarnings.length === 0} onBack={() => setStep(3)} onNext={() => { setStep(5); setMaxStepVisited((current) => Math.max(current, 5)); }} />
+          <StepActions step={step} canNext={stockWarnings.length === 0} onBack={() => setStep(3)} onNext={() => { setStep(5); setMaxStepVisited((current) => Math.max(current, 5)); }} onCancel={handleCancelarPedido} />
         </Panel>
       ) : null}
 
@@ -2007,9 +2018,9 @@ function StepActions({
 }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-      {/* En el paso 1 mostramos "Cancelar pedido" en mobile (el back no
-          tiene sentido). En desktop seguimos con el "Atras" deshabilitado. */}
-      {step === 1 && onCancel ? (
+      {/* Cancelar pedido: visible en mobile en cualquier paso (1-4). En
+          desktop el wizard tiene su propia navegacion, no se muestra. */}
+      {onCancel ? (
         <button
           type="button"
           onClick={onCancel}
