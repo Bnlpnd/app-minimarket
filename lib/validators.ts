@@ -134,7 +134,8 @@ export function validateHorarioLaboral(
 }
 
 function toMinutes(value: string): number | null {
-  const m = value.match(/^(\d{1,2}):(\d{2})$/);
+  // Acepta HH:MM y HH:MM:SS (Postgres TIME se serializa con segundos).
+  const m = value.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
   if (!m) return null;
   const h = Number(m[1]);
   const mm = Number(m[2]);
