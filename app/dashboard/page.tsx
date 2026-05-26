@@ -377,11 +377,21 @@ function WorkerDashboard() {
     const tomorrowStart = startOfTomorrowIso();
 
     const [ultimos, ventasHoy, entregadosHoy, trabajador] = await Promise.all([
+      // Pedidos en estados activos (no entregados ni cancelados). El trabajador
+      // necesita ver lo pendiente para atenderlo, no el historial.
       supabase
         .from("pedidos")
         .select("id,estado,fecha_recojo,hora_recojo,total,metodo_pago,created_at,clientes(nombres, telefono)")
-        .order("created_at", { ascending: false })
-        .limit(10),
+        .in("estado", [
+          "pendiente",
+          "pago_enviado",
+          "pago_validado",
+          "en_preparacion",
+          "listo_para_recoger",
+        ])
+        .order("fecha_recojo", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(30),
       supabase
         .from("pedidos")
         .select("*", { count: "exact", head: true })
@@ -413,8 +423,23 @@ function WorkerDashboard() {
       Number(payroll?.pago_hora ?? 0) * Number(payroll?.horas_semana ?? 0) -
       Number(payroll?.gastos_semana ?? 0);
 
+    // Orden por urgencia: pendientes primero, luego pagos por validar, luego
+    // en preparacion, finalmente listos para recoger.
+    const orden: Record<PedidoEstado, number> = {
+      pendiente: 0,
+      pago_enviado: 1,
+      pago_validado: 2,
+      en_preparacion: 3,
+      listo_para_recoger: 4,
+      entregado: 5,
+      cancelado: 6,
+    };
+    const pedidosOrdenados = ((ultimos.data ?? []) as unknown as PedidoResumen[]).sort(
+      (a, b) => (orden[a.estado] ?? 99) - (orden[b.estado] ?? 99),
+    );
+
     setData({
-      ultimosPedidos: (ultimos.data ?? []) as unknown as PedidoResumen[],
+      ultimosPedidos: pedidosOrdenados,
       ventasHoy: ventasHoy.count ?? 0,
       entregadosHoy: entregadosHoy.count ?? 0,
       pagoSemana,
@@ -472,17 +497,37 @@ function WorkerDashboard() {
         </section>
       ) : null}
 
-      <section className="grid gap-3 sm:grid-cols-2">
+      <section className="grid gap-3 sm:grid-cols-3">
         <ActionLink href="/pedidos/nuevo" primary>Agregar venta</ActionLink>
-        <ActionLink href="/almacen">Almacen</ActionLink>
+        <ActionLink href="/almacen/transferencias">Transferencias</ActionLink>
+        <ActionLink href="/almacen/agregar-stock">Stock</ActionLink>
       </section>
 
-      <Panel title="Ultimos 10 pedidos del negocio" action={<Link href="/pedidos" className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Lista de pedidos</Link>}>
+      <Panel
+        title="Pedidos por atender"
+        action={
+          <Link
+            href="/preparacion"
+            className="inline-flex h-9 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Ir a preparacion
+          </Link>
+        }
+      >
         <div className="space-y-2">
           {data.ultimosPedidos.length > 0 ? (
             data.ultimosPedidos.map((pedido) => {
               const cliente = getCliente(pedido.clientes);
               const isPending = pedido.estado === "pendiente";
+              const isListo = pedido.estado === "listo_para_recoger";
+              const isEnPrep = pedido.estado === "en_preparacion";
+              const badgeClass = isPending
+                ? "bg-amber-100 text-amber-800"
+                : isListo
+                  ? "bg-emerald-100 text-emerald-800"
+                  : isEnPrep
+                    ? "bg-blue-100 text-blue-800"
+                    : "bg-slate-100 text-slate-700";
 
               return (
                 <article key={pedido.id} className="rounded-lg border border-slate-200 p-4 text-sm">
@@ -498,7 +543,7 @@ function WorkerDashboard() {
                     </div>
                     <div className="flex flex-col gap-2 sm:items-end">
                       <p className="font-semibold text-slate-950">{formatMoney(pedido.total)}</p>
-                      <span className="inline-flex w-fit rounded-md bg-slate-100 px-2 py-1 text-xs font-medium capitalize text-slate-700">
+                      <span className={`inline-flex w-fit rounded-md px-2 py-1 text-xs font-medium capitalize ${badgeClass}`}>
                         {formatEstado(pedido.estado)}
                       </span>
                       {isPending ? (
@@ -511,8 +556,11 @@ function WorkerDashboard() {
                           {isUpdatingPedido === pedido.id ? "Actualizando..." : "Tomar y preparar"}
                         </button>
                       ) : (
-                        <Link href={`/pedidos/${pedido.id}`} className="text-xs font-medium text-slate-600 underline">
-                          Ver detalle
+                        <Link
+                          href={`/preparacion?pedido=${pedido.id}`}
+                          className="inline-flex h-10 items-center rounded-md border border-slate-300 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          {isListo ? "Entregar" : "Continuar"}
                         </Link>
                       )}
                     </div>
@@ -521,7 +569,9 @@ function WorkerDashboard() {
               );
             })
           ) : (
-            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Aun no hay pedidos registrados.</p>
+            <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
+              No hay pedidos pendientes. Buen trabajo.
+            </p>
           )}
         </div>
       </Panel>
