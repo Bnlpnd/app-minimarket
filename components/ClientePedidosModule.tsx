@@ -5,8 +5,15 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
-import { formatDate } from "@/lib/dateUtils";
-import type { Cliente, DetallePedido, Pedido, Producto } from "@/types/database";
+import { formatDate, formatDateTime } from "@/lib/dateUtils";
+import { getStoredAppUser } from "@/lib/authRoles";
+import type {
+  Cliente,
+  ClienteAbono,
+  DetallePedido,
+  Pedido,
+  Producto,
+} from "@/types/database";
 
 type PedidoCliente = Pedido & {
   detalle_pedido:
@@ -28,6 +35,7 @@ type ManualPedidoForm = {
 type PagoForm = {
   monto: string;
   metodo: "efectivo" | "yape" | "transferencia";
+  fecha_pago: string;
 };
 
 type Message = {
@@ -55,6 +63,7 @@ const emptyManualPedido: ManualPedidoForm = {
 const emptyPagoForm: PagoForm = {
   monto: "",
   metodo: "efectivo",
+  fecha_pago: todayInput(),
 };
 
 function normalizeSpaces(value: string) {
@@ -179,6 +188,7 @@ function allocateAmountFifo(
 export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [pedidos, setPedidos] = useState<PedidoCliente[]>([]);
+  const [abonos, setAbonos] = useState<ClienteAbono[]>([]);
   const [fechaFiltro, setFechaFiltro] = useState("");
   const [debeOnly, setDebeOnly] = useState(false);
   const [selectedPedidoIds, setSelectedPedidoIds] = useState<string[]>([]);
@@ -200,7 +210,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
     }
 
     setIsLoading(true);
-    const [clienteResult, pedidosResult] = await Promise.all([
+    const [clienteResult, pedidosResult, abonosResult] = await Promise.all([
       supabase.from("clientes").select("*").eq("id", clienteId).maybeSingle(),
       supabase
         .from("pedidos")
@@ -212,6 +222,12 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
         )
         .eq("cliente_id", clienteId)
         .order("fecha_pedido", { ascending: false }),
+      supabase
+        .from("cliente_abonos")
+        .select("*")
+        .eq("cliente_id", clienteId)
+        .order("fecha_pago", { ascending: false })
+        .limit(50),
     ]);
     setIsLoading(false);
 
@@ -233,6 +249,9 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
 
     setCliente(clienteResult.data as Cliente);
     setPedidos((pedidosResult.data ?? []) as PedidoCliente[]);
+    if (!abonosResult.error) {
+      setAbonos((abonosResult.data ?? []) as ClienteAbono[]);
+    }
   }
 
   useEffect(() => {
@@ -398,6 +417,30 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
     }
 
     setIsSavingPago(true);
+
+    // Registrar el abono en el historial del cliente antes de aplicar
+    // (asi queda registro aunque algun pedido falle por race condition).
+    const fechaPagoIso = pagoForm.fecha_pago
+      ? new Date(`${pagoForm.fecha_pago}T00:00:00`).toISOString()
+      : new Date().toISOString();
+    const usuarioId = getStoredAppUser()?.id ?? null;
+    const abonoInsert = await supabase.from("cliente_abonos").insert({
+      cliente_id: cliente.id,
+      fecha_pago: fechaPagoIso,
+      monto_total: monto,
+      metodo: pagoForm.metodo,
+      observacion: `Distribuido en ${allocations.length} pedido(s)`,
+      registrado_por_id: usuarioId,
+    });
+    if (abonoInsert.error) {
+      setIsSavingPago(false);
+      setMessage({
+        type: "error",
+        text: `No se pudo registrar el abono: ${abonoInsert.error.message}`,
+      });
+      return;
+    }
+
     // Aplicar allocations en secuencia.
     for (const alloc of allocations) {
       const pedidoUpdate = await supabase
@@ -731,22 +774,34 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                 : "Se aplicara a las cards mas antiguas primero. Tambien puedes marcar cards especificas en la lista."}
             </p>
             <form onSubmit={registerPayment} className="mt-4 space-y-3">
-              <Field label="Metodo">
-                <select
-                  value={pagoForm.metodo}
-                  onChange={(event) =>
-                    setPagoForm((current) => ({
-                      ...current,
-                      metodo: event.target.value as PagoForm["metodo"],
-                    }))
-                  }
-                  className={inputClassName}
-                >
-                  <option value="efectivo">Efectivo</option>
-                  <option value="yape">Yape</option>
-                  <option value="transferencia">Transferencia</option>
-                </select>
-              </Field>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <Field label="Fecha del pago" required>
+                  <input
+                    type="date"
+                    value={pagoForm.fecha_pago}
+                    onChange={(event) =>
+                      setPagoForm((current) => ({ ...current, fecha_pago: event.target.value }))
+                    }
+                    className={inputClassName}
+                  />
+                </Field>
+                <Field label="Metodo">
+                  <select
+                    value={pagoForm.metodo}
+                    onChange={(event) =>
+                      setPagoForm((current) => ({
+                        ...current,
+                        metodo: event.target.value as PagoForm["metodo"],
+                      }))
+                    }
+                    className={inputClassName}
+                  >
+                    <option value="efectivo">Efectivo</option>
+                    <option value="yape">Yape</option>
+                    <option value="transferencia">Transferencia</option>
+                  </select>
+                </Field>
+              </div>
               <Field label="Monto">
                 <input
                   type="number"
@@ -802,6 +857,42 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                 {isSavingPago ? "Guardando..." : "Registrar pago"}
               </button>
             </form>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-950">
+              Historial de pagos del cliente
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Ultimos {abonos.length} pago(s) registrado(s).
+            </p>
+            <ul className="mt-3 space-y-2">
+              {abonos.length === 0 ? (
+                <li className="rounded-md bg-slate-50 p-3 text-xs text-slate-500">
+                  Aun no hay pagos registrados para este cliente.
+                </li>
+              ) : (
+                abonos.map((abono) => (
+                  <li
+                    key={abono.id}
+                    className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-xs"
+                  >
+                    <div>
+                      <p className="font-semibold text-slate-900">
+                        {formatDate(abono.fecha_pago)}
+                      </p>
+                      <p className="text-slate-500 capitalize">{abono.metodo}</p>
+                      <p className="text-[10px] text-slate-400">
+                        Registrado: {formatDateTime(abono.created_at)}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold text-emerald-700">
+                      {formatMoney(Number(abono.monto_total))}
+                    </span>
+                  </li>
+                ))
+              )}
+            </ul>
           </section>
         </aside>
       </section>

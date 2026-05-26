@@ -364,3 +364,15 @@ export interface AbastecimientoItem {
   created_at: string;
   updated_at: string;
 }
+
+export interface ClienteAbono {
+  id: string;
+  cliente_id: string;
+  fecha_pago: string;
+  monto_total: number;
+  metodo: "efectivo" | "yape" | "transferencia" | "otro";
+  observacion: string | null;
+  registrado_por_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
