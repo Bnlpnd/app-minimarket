@@ -7,7 +7,6 @@ import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import {
   combineValidations,
   validatePrice,
-  validateUnits,
 } from "@/lib/validators";
 import type {
   Almacen,
@@ -102,11 +101,7 @@ const emptyValues: ProductoFormValues = {
   stock_cantidad_presentaciones: "0",
   stock_unidades_sueltas: "0",
   stock_inicial_almacen_id: "",
-  precios_mayor: [
-    { cantidad_minima: "3", precio_unitario: "", descripcion: "Mayor x3" },
-    { cantidad_minima: "6", precio_unitario: "", descripcion: "Mayor x6" },
-    { cantidad_minima: "12", precio_unitario: "", descripcion: "Mayor x12" },
-  ],
+  precios_mayor: [],
   producto_base_id: "",
   unidades_equivalentes: "1",
 };
@@ -132,14 +127,11 @@ function getInitialValues({
     presentacionesCompra.find((item) => item.es_principal && item.activo) ??
     presentacionesCompra.find((item) => item.activo) ??
     null;
-  const preciosMayorValues =
-    preciosMayor.length > 0
-      ? preciosMayor.map((precio) => ({
-          cantidad_minima: toInputValue(precio.cantidad_minima),
-          precio_unitario: toInputValue(precio.precio_unitario),
-          descripcion: precio.descripcion ?? "",
-        }))
-      : emptyValues.precios_mayor;
+  const preciosMayorValues = preciosMayor.map((precio) => ({
+    cantidad_minima: toInputValue(precio.cantidad_minima),
+    precio_unitario: toInputValue(precio.precio_unitario),
+    descripcion: precio.descripcion ?? "",
+  }));
 
   return {
     codigo_interno: producto.codigo_interno,
@@ -225,36 +217,14 @@ export function ProductoForm({
       (subcategoria) => subcategoria.categoria_id === values.categoria_id,
     );
   }, [subcategorias, values.categoria_id]);
-  const costoUnitarioCalculado = useMemo(() => {
-    const costoPresentacion = Number(values.precio_compra_presentacion);
-    const unidades = Number(values.unidades_por_presentacion);
-
-    if (
-      !Number.isFinite(costoPresentacion) ||
-      !Number.isFinite(unidades) ||
-      costoPresentacion < 0 ||
-      unidades <= 0
-    ) {
-      return null;
-    }
-
-    return costoPresentacion / unidades;
-  }, [values.precio_compra_presentacion, values.unidades_por_presentacion]);
+  // El stock inicial es ahora directo en unidades. La nocion de
+  // "presentaciones * unidades por presentacion + sueltas" se elimino:
+  // los productos-presentacion (Plancha x6) ya tienen ese factor en
+  // unidades_equivalentes y vinculan al producto base.
   const stockInicialUnidades = useMemo(() => {
-    const cantidadPresentaciones = Number(values.stock_cantidad_presentaciones);
-    const unidadesPresentacion = Number(values.unidades_por_presentacion);
-    const unidadesSueltas = Number(values.stock_unidades_sueltas);
-
-    return (
-      (Number.isFinite(cantidadPresentaciones) ? cantidadPresentaciones : 0) *
-        (Number.isFinite(unidadesPresentacion) ? unidadesPresentacion : 0) +
-      (Number.isFinite(unidadesSueltas) ? unidadesSueltas : 0)
-    );
-  }, [
-    values.stock_cantidad_presentaciones,
-    values.stock_unidades_sueltas,
-    values.unidades_por_presentacion,
-  ]);
+    const valor = Number(values.stock_cantidad_presentaciones);
+    return Number.isFinite(valor) && valor > 0 ? valor : 0;
+  }, [values.stock_cantidad_presentaciones]);
 
   function updateValue<Key extends keyof ProductoFormValues>(
     key: Key,
@@ -386,11 +356,10 @@ export function ProductoForm({
     // Validaciones obligatorias antes de subir imagen y guardar.
     const validations = combineValidations(
       validatePrice(values.precio_venta, { label: "Precio de venta" }),
-      validateUnits(values.unidades_por_presentacion),
     );
     if (values.precio_compra_presentacion !== "") {
       const precioCompra = validatePrice(values.precio_compra_presentacion, {
-        label: "Precio de compra de la presentacion",
+        label: "Precio de compra",
         allowZero: true,
       });
       if (!precioCompra.ok) {
@@ -654,7 +623,7 @@ export function ProductoForm({
           </select>
         </Field>
 
-          <Field label="Precio compra presentacion">
+          <Field label="Precio compra unidad">
             <input
               type="number"
               step="0.01"
@@ -664,31 +633,6 @@ export function ProductoForm({
                 updateValue("precio_compra_presentacion", event.target.value)
               }
               className={inputClassName}
-            />
-          </Field>
-
-          <Field label="Unidades de la presentacion">
-            <input
-              type="number"
-              step="0.01"
-              min="1"
-              value={values.unidades_por_presentacion}
-              onChange={(event) =>
-                updateValue("unidades_por_presentacion", event.target.value)
-              }
-              className={inputClassName}
-            />
-          </Field>
-
-          <Field label="Costo unidad">
-            <input
-              value={
-                costoUnitarioCalculado === null
-                  ? ""
-                  : costoUnitarioCalculado.toFixed(2)
-              }
-              readOnly
-              className={`${inputClassName} bg-slate-50 text-slate-600`}
             />
           </Field>
 
@@ -705,30 +649,6 @@ export function ProductoForm({
 
           {!productoEditando ? (
             <>
-              <Field label="Stock: cantidad de presentaciones">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={values.stock_cantidad_presentaciones}
-                  onChange={(event) =>
-                    updateValue("stock_cantidad_presentaciones", event.target.value)
-                  }
-                  className={inputClassName}
-                />
-              </Field>
-              <Field label="Stock: unidades sueltas o bonificacion">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={values.stock_unidades_sueltas}
-                  onChange={(event) =>
-                    updateValue("stock_unidades_sueltas", event.target.value)
-                  }
-                  className={inputClassName}
-                />
-              </Field>
               <Field label={stockInicialUnidades > 0 ? "Almacen del stock inicial *" : "Almacen del stock inicial (opcional)"}>
                 <select
                   value={values.stock_inicial_almacen_id}
@@ -750,24 +670,22 @@ export function ProductoForm({
                   </p>
                 ) : null}
               </Field>
-              <div className="rounded-md bg-white p-3 lg:col-span-3">
-                <p className="text-xs text-slate-500">Stock inicial en unidades</p>
-                <p className="mt-1 text-lg font-semibold text-slate-950">
-                  {Number.isFinite(stockInicialUnidades)
-                    ? stockInicialUnidades.toFixed(2).replace(/\.00$/, "")
-                    : "0"}
+              <Field label="Stock">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={values.stock_cantidad_presentaciones}
+                  onChange={(event) =>
+                    updateValue("stock_cantidad_presentaciones", event.target.value)
+                  }
+                  className={inputClassName}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Cantidad inicial en unidades. Si dejas 0, lo agregas despues desde
+                  Almacenes &rarr; Agregar stock.
                 </p>
-                {stockInicialUnidades > 0 && values.stock_inicial_almacen_id ? (
-                  <p className="mt-1 text-xs text-emerald-700">
-                    Ira al almacen <strong>{almacenes.find((a) => a.id === values.stock_inicial_almacen_id)?.nombre ?? ""}</strong>.
-                  </p>
-                ) : null}
-                {stockInicialUnidades === 0 ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    El stock arranca en 0. Puedes agregarlo despues desde Almacenes &rarr; Agregar stock.
-                  </p>
-                ) : null}
-              </div>
+              </Field>
             </>
           ) : null}
 

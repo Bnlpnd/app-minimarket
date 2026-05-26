@@ -449,10 +449,11 @@ function ProductoNuevoContent() {
       producto_base_id: productoBaseId,
       unidades_equivalentes: productoBaseId ? unidadesEquivalentes : 1,
     };
-    const unidadesPorPresentacion = parsePositiveNumber(
-      values.unidades_por_presentacion,
-      1,
-    );
+    // Modelo simplificado: el precio compra es por UNIDAD y el stock se
+    // ingresa en UNIDADES. La nocion de "unidades_por_presentacion" se fija
+    // siempre en 1 desde aqui; el factor de presentaciones vive en
+    // unidades_equivalentes cuando el producto vincula a una base.
+    const unidadesPorPresentacion = 1;
     const precioCompraPresentacion = parsePositiveNumber(
       values.precio_compra_presentacion,
       null,
@@ -461,20 +462,10 @@ function ProductoNuevoContent() {
       values.stock_cantidad_presentaciones,
       0,
     );
-    const stockUnidadesSueltas = parsePositiveNumber(values.stock_unidades_sueltas, 0);
-
-    if (!unidadesPorPresentacion || unidadesPorPresentacion <= 0) {
-      setMessage({
-        type: "error",
-        text: "Unidades por presentacion debe ser mayor a cero.",
-      });
-      return false;
-    }
+    const stockUnidadesSueltas = 0;
 
     if (precioCompraPresentacion !== null) {
-      payload.precio_compra_referencial = Number(
-        (precioCompraPresentacion / unidadesPorPresentacion).toFixed(2),
-      );
+      payload.precio_compra_referencial = Number(precioCompraPresentacion.toFixed(2));
     }
 
     setIsSaving(true);
