@@ -202,9 +202,33 @@ function getInitialValues({
       presentacionPrincipal?.unidades_por_presentacion ?? 1,
       "1",
     ),
-    precio_compra_presentacion: toInputValue(
-      presentacionPrincipal?.costo_presentacion ?? producto.precio_compra_referencial,
-    ),
+    // Preferir precio por UNIDAD ya guardado. Si no hay, calcularlo desde
+    // la presentacion principal (costo total / unidades). Antes este campo
+    // tomaba directamente el costo_presentacion, lo que hacia que al
+    // editar y guardar se sobrescribiera precio_compra_referencial con el
+    // costo TOTAL de la presentacion (bug visible: "Precio compra unidad"
+    // = S/31.99 cuando deberia ser S/1.78 para una plancha x18 a S/31.99).
+    precio_compra_presentacion: (() => {
+      if (
+        producto.precio_compra_referencial != null &&
+        Number(producto.precio_compra_referencial) > 0
+      ) {
+        return toInputValue(producto.precio_compra_referencial);
+      }
+      const costoTotal = Number(presentacionPrincipal?.costo_presentacion ?? 0);
+      const unidades = Number(
+        presentacionPrincipal?.unidades_por_presentacion ?? 1,
+      );
+      if (
+        Number.isFinite(costoTotal) &&
+        costoTotal > 0 &&
+        Number.isFinite(unidades) &&
+        unidades > 0
+      ) {
+        return (costoTotal / unidades).toFixed(2);
+      }
+      return "";
+    })(),
     stock_cantidad_presentaciones: "0",
     stock_unidades_sueltas: "0",
     stock_inicial_almacen_id: "",
@@ -779,6 +803,36 @@ export function ProductoForm({
               }
               className={inputClassName}
             />
+            {(() => {
+              // Helper visual: muestra el equivalente por presentacion para
+              // que el usuario no confunda "por unidad" con "por plancha".
+              const principal = values.presentaciones_compra.find(
+                (p) => p.es_principal,
+              );
+              const unidades = Number(principal?.unidades_por_presentacion ?? 0);
+              const porUnidad = Number(values.precio_compra_presentacion);
+              if (
+                principal &&
+                Number.isFinite(unidades) &&
+                unidades > 1 &&
+                Number.isFinite(porUnidad) &&
+                porUnidad > 0
+              ) {
+                const porPresentacion = porUnidad * unidades;
+                const nombre =
+                  principal.nombre_presentacion || `Pres. x${unidades}`;
+                return (
+                  <p className="mt-1 text-xs text-slate-500">
+                    ≡ S/ {porPresentacion.toFixed(2)} por {nombre} (x{unidades}).
+                  </p>
+                );
+              }
+              return (
+                <p className="mt-1 text-xs text-slate-500">
+                  Costo por {values.unidad_base || "unidad"} (no por presentacion).
+                </p>
+              );
+            })()}
           </Field>
 
           <Field label="Precio venta unidad">
