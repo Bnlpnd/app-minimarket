@@ -90,6 +90,19 @@ export default function MisDatosPage() {
     text: string;
   } | null>(null);
   const [isMarking, setIsMarking] = useState<"ingreso" | "salida" | null>(null);
+  // Form manual de asistencia
+  const [manualAsis, setManualAsis] = useState({
+    fecha: "",
+    hora_ingreso: "",
+    hora_salida: "",
+    productividad: "2" as "1" | "2" | "3",
+    observacion: "",
+  });
+  const [isSavingManual, setIsSavingManual] = useState(false);
+  // Form de descuento
+  const [descForm, setDescForm] = useState({ fecha: "", detalle: "", monto: "" });
+  const [isSavingDesc, setIsSavingDesc] = useState(false);
+  const [descMessage, setDescMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     const stored = getStoredAppUser();
@@ -98,6 +111,10 @@ export default function MisDatosPage() {
       return;
     }
     void loadData(stored.id);
+    // Inicializar fechas de los forms a hoy.
+    const hoy = todayIso();
+    setManualAsis((current) => ({ ...current, fecha: hoy }));
+    setDescForm((current) => ({ ...current, fecha: hoy }));
   }, []);
 
   async function loadData(userId: string) {
@@ -315,6 +332,136 @@ export default function MisDatosPage() {
     await loadData(data.trabajador.id);
   }
 
+  /**
+   * Form manual de asistencia. Permite tipear hora exacta + productividad
+   * + observacion. Solo INSERTA o COMPLETA (no sobreescribe campos ya
+   * registrados; el trabajador no puede editar).
+   */
+  async function guardarManual() {
+    if (!supabase || !data.trabajador) return;
+    setActionMessage(null);
+
+    if (!manualAsis.fecha) {
+      setActionMessage({ type: "error", text: "Elige una fecha." });
+      return;
+    }
+    if (manualAsis.fecha > todayIso()) {
+      setActionMessage({ type: "error", text: "No se puede registrar asistencia futura." });
+      return;
+    }
+    if (!manualAsis.hora_ingreso && !manualAsis.hora_salida) {
+      setActionMessage({ type: "error", text: "Ingresa al menos hora de ingreso o salida." });
+      return;
+    }
+    // Validar horario si ambos vienen.
+    if (manualAsis.hora_ingreso && manualAsis.hora_salida) {
+      const check = validateHorarioLaboral(manualAsis.hora_ingreso, manualAsis.hora_salida);
+      if (!check.ok) {
+        setActionMessage({ type: "error", text: check.error });
+        return;
+      }
+    }
+
+    // Buscar registro existente para no sobreescribir.
+    const { data: existing } = await supabase
+      .from("personal_asistencias")
+      .select("*")
+      .eq("usuario_id", data.trabajador.id)
+      .eq("fecha", manualAsis.fecha)
+      .maybeSingle();
+
+    const existingRow = existing as PersonalAsistencia | null;
+
+    // Si ya hay un campo, conservalo (el trabajador no edita).
+    const hora_ingreso = existingRow?.hora_ingreso ?? manualAsis.hora_ingreso ?? null;
+    const hora_salida = existingRow?.hora_salida ?? manualAsis.hora_salida ?? null;
+
+    // Si ambos quedaron, validar horario coherente.
+    if (hora_ingreso && hora_salida) {
+      const check = validateHorarioLaboral(hora_ingreso, hora_salida);
+      if (!check.ok) {
+        setActionMessage({ type: "error", text: check.error });
+        return;
+      }
+    }
+
+    // Resolver turno si aplica (igual que marcarIngreso).
+    let turnoId: string | null = existingRow?.turno_id ?? null;
+    if (!turnoId && turnosDeHoy.length === 1 && manualAsis.fecha === todayIso()) {
+      turnoId = turnosDeHoy[0].id;
+    }
+
+    setIsSavingManual(true);
+    const { error } = await supabase.from("personal_asistencias").upsert(
+      {
+        usuario_id: data.trabajador.id,
+        fecha: manualAsis.fecha,
+        hora_ingreso,
+        hora_salida,
+        productividad: Number(manualAsis.productividad || "2"),
+        observacion: manualAsis.observacion.trim() || existingRow?.observacion || null,
+        turno_id: turnoId,
+      },
+      { onConflict: "usuario_id,fecha" },
+    );
+    setIsSavingManual(false);
+
+    if (error) {
+      setActionMessage({ type: "error", text: `No se guardo: ${error.message}` });
+      return;
+    }
+    setActionMessage({ type: "success", text: "Asistencia registrada." });
+    setManualAsis({
+      fecha: todayIso(),
+      hora_ingreso: "",
+      hora_salida: "",
+      productividad: "2",
+      observacion: "",
+    });
+    await loadData(data.trabajador.id);
+  }
+
+  async function guardarDescuento() {
+    if (!supabase || !data.trabajador) return;
+    setDescMessage(null);
+
+    if (!descForm.fecha) {
+      setDescMessage({ type: "error", text: "Elige fecha." });
+      return;
+    }
+    if (descForm.fecha > todayIso()) {
+      setDescMessage({ type: "error", text: "No puedes registrar un descuento futuro." });
+      return;
+    }
+    const detalle = descForm.detalle.trim();
+    if (!detalle) {
+      setDescMessage({ type: "error", text: "Pon un detalle del descuento." });
+      return;
+    }
+    const monto = Number(descForm.monto);
+    if (!Number.isFinite(monto) || monto <= 0) {
+      setDescMessage({ type: "error", text: "Monto invalido." });
+      return;
+    }
+
+    setIsSavingDesc(true);
+    const { error } = await supabase.from("personal_descuentos").insert({
+      usuario_id: data.trabajador.id,
+      fecha: descForm.fecha,
+      detalle,
+      monto,
+    });
+    setIsSavingDesc(false);
+
+    if (error) {
+      setDescMessage({ type: "error", text: `No se guardo: ${error.message}` });
+      return;
+    }
+    setDescMessage({ type: "success", text: "Descuento registrado." });
+    setDescForm({ fecha: todayIso(), detalle: "", monto: "" });
+    await loadData(data.trabajador.id);
+  }
+
   return (
     <Layout title="Mis datos" description="Tu informacion personal, asistencia, descuentos y pagos.">
       <div className="space-y-5">
@@ -464,6 +611,89 @@ export default function MisDatosPage() {
                   </p>
                 </div>
 
+                {/* Form manual: por si necesitas registrar otra hora,
+                    productividad u observacion. NO sobreescribe campos
+                    ya guardados (preserva ingreso/salida previos). */}
+                <details className="mb-4 rounded-md border border-slate-200">
+                  <summary className="cursor-pointer rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                    Registro manual con observacion / productividad
+                  </summary>
+                  <div className="space-y-3 p-3">
+                    <Field label="Fecha">
+                      <input
+                        type="date"
+                        value={manualAsis.fecha}
+                        max={todayIso()}
+                        onChange={(event) =>
+                          setManualAsis((c) => ({ ...c, fecha: event.target.value }))
+                        }
+                        className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                      />
+                    </Field>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Hora ingreso">
+                        <input
+                          type="time"
+                          value={manualAsis.hora_ingreso}
+                          onChange={(event) =>
+                            setManualAsis((c) => ({ ...c, hora_ingreso: event.target.value }))
+                          }
+                          className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                        />
+                      </Field>
+                      <Field label="Hora salida">
+                        <input
+                          type="time"
+                          value={manualAsis.hora_salida}
+                          onChange={(event) =>
+                            setManualAsis((c) => ({ ...c, hora_salida: event.target.value }))
+                          }
+                          className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Productividad">
+                      <select
+                        value={manualAsis.productividad}
+                        onChange={(event) =>
+                          setManualAsis((c) => ({
+                            ...c,
+                            productividad: event.target.value as "1" | "2" | "3",
+                          }))
+                        }
+                        className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
+                      >
+                        <option value="1">1 — No la dio</option>
+                        <option value="2">2 — Normal</option>
+                        <option value="3">3 — Extra</option>
+                      </select>
+                    </Field>
+                    <Field label="Observacion">
+                      <textarea
+                        value={manualAsis.observacion}
+                        onChange={(event) =>
+                          setManualAsis((c) => ({ ...c, observacion: event.target.value }))
+                        }
+                        rows={2}
+                        placeholder="Ej. llegue tarde por feria, salida temprano por enfermedad..."
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={() => void guardarManual()}
+                      disabled={isSavingManual}
+                      className="h-11 w-full rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
+                    >
+                      {isSavingManual ? "Guardando..." : "Guardar registro manual"}
+                    </button>
+                    <p className="text-[11px] text-slate-500">
+                      Si ya hay ingreso o salida registrados para esa fecha, se
+                      conservan tal cual. Solo se agregan los campos vacios.
+                    </p>
+                  </div>
+                </details>
+
                 {data.asistencias.length === 0 ? (
                   <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
                     Aun no tienes asistencias registradas.
@@ -494,6 +724,73 @@ export default function MisDatosPage() {
                 title="Mis descuentos"
                 subtitle={`Semana actual: ${formatMoney(descuentosSemana)}`}
               >
+                {/* Form para registrar descuento propio (ej. prestamo,
+                    compra en tienda, pago a cuenta del sueldo). */}
+                <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Registrar nuevo descuento
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Fecha">
+                        <input
+                          type="date"
+                          value={descForm.fecha}
+                          max={todayIso()}
+                          onChange={(event) =>
+                            setDescForm((c) => ({ ...c, fecha: event.target.value }))
+                          }
+                          className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                        />
+                      </Field>
+                      <Field label="Monto S/">
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={descForm.monto}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) =>
+                            setDescForm((c) => ({ ...c, monto: event.target.value }))
+                          }
+                          placeholder="0.00"
+                          className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Detalle">
+                      <input
+                        value={descForm.detalle}
+                        onChange={(event) =>
+                          setDescForm((c) => ({ ...c, detalle: event.target.value }))
+                        }
+                        placeholder="Ej. prestamo, compra en tienda, adelanto"
+                        className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                      />
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={() => void guardarDescuento()}
+                      disabled={isSavingDesc}
+                      className="h-11 w-full rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:bg-slate-300"
+                    >
+                      {isSavingDesc ? "Guardando..." : "Registrar descuento"}
+                    </button>
+                    {descMessage ? (
+                      <p
+                        className={`text-xs ${
+                          descMessage.type === "success" ? "text-emerald-700" : "text-red-700"
+                        }`}
+                      >
+                        {descMessage.text}
+                      </p>
+                    ) : null}
+                    <p className="text-[11px] text-slate-500">
+                      Tu admin puede editar o anular descuentos si hay error.
+                    </p>
+                  </div>
+                </div>
+
                 {data.descuentos.length === 0 ? (
                   <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
                     No tienes descuentos registrados. Buen trabajo.
@@ -582,6 +879,15 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="text-xs font-medium uppercase text-slate-500">{label}</p>
       <p className="mt-1 text-lg font-semibold text-slate-900">{value}</p>
     </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-slate-700">{label}</span>
+      <span className="mt-1 block">{children}</span>
+    </label>
   );
 }
 
