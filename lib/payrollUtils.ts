@@ -78,10 +78,21 @@ function horaToMinutos(value: string | null | undefined): number | null {
 
 /**
  * Calcula el pago de UN dia para una asistencia.
- * - Si hay turno: tarifa = monto_pago / horas(inicio, fin), pago = horas_reales × tarifa.
- *   Asi el trabajador gana mas si se queda mas y menos si llega tarde.
- * - Si no hay turno y hay pagoHoraGeneral > 0: pago = horas_reales × pagoHoraGeneral.
- * - Si ninguno: 0.
+ *
+ * Regla:
+ * - Si hay turno: las horas DENTRO del horario del turno pagan tarifa
+ *   del turno (monto/horas_turno). Las horas FUERA del horario (antes
+ *   o despues, "horas extra") pagan a la tarifa hora general del
+ *   trabajador (pagoHoraGeneral).
+ *
+ *   Ejemplo: turno 8a-9a S/20 (tarifa S/20/h). Pago_hora general S/3.
+ *   Si trabaja 6a-11a (5h reales):
+ *     - dentro del turno (8-9): 1h × 20 = S/20
+ *     - fuera (6-8 y 9-11): 4h × 3 = S/12
+ *     - total: S/32
+ *
+ * - Si NO hay turno: todas las horas a pagoHoraGeneral.
+ * - Si tampoco hay pagoHoraGeneral: 0.
  */
 export function pagoPorDia(
   asistencia: PersonalAsistencia,
@@ -90,11 +101,29 @@ export function pagoPorDia(
 ): { horas: number; tarifaHora: number; pago: number; turno: PersonalTurno | null } {
   const horas = hoursBetween(asistencia.hora_ingreso, asistencia.hora_salida);
   if (horas <= 0) return { horas: 0, tarifaHora: 0, pago: 0, turno };
+
   if (turno) {
     const horasTurno = hoursBetween(turno.hora_inicio, turno.hora_fin);
-    const tarifa = horasTurno > 0 ? Number(turno.monto_pago) / horasTurno : 0;
-    return { horas, tarifaHora: tarifa, pago: horas * tarifa, turno };
+    const tarifaTurno = horasTurno > 0 ? Number(turno.monto_pago) / horasTurno : 0;
+
+    // Interseccion entre [ingreso, salida] y [turno.inicio, turno.fin].
+    const ingMin = horaToMinutos(asistencia.hora_ingreso);
+    const salMin = horaToMinutos(asistencia.hora_salida);
+    const tIni = horaToMinutos(turno.hora_inicio);
+    const tFin = horaToMinutos(turno.hora_fin);
+    if (ingMin == null || salMin == null || tIni == null || tFin == null) {
+      // Sin datos suficientes, cae al modelo simple.
+      return { horas, tarifaHora: tarifaTurno, pago: horas * tarifaTurno, turno };
+    }
+    const interInicio = Math.max(ingMin, tIni);
+    const interFin = Math.min(salMin, tFin);
+    const horasDentro = Math.max(0, (interFin - interInicio) / 60);
+    const horasFuera = Math.max(0, horas - horasDentro);
+
+    const pago = horasDentro * tarifaTurno + horasFuera * pagoHoraGeneral;
+    return { horas, tarifaHora: tarifaTurno, pago, turno };
   }
+
   if (pagoHoraGeneral > 0) {
     return { horas, tarifaHora: pagoHoraGeneral, pago: horas * pagoHoraGeneral, turno: null };
   }
