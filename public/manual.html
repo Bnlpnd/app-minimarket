@@ -279,23 +279,122 @@
     <p data-role="admin trabajador">Es el catalogo de todo lo que vendes. Tiene varias vistas:</p>
 
     <details open data-role="admin trabajador">
-      <summary>Nuevo producto</summary>
-      <p>Para registrar un producto que aun no existe.</p>
+      <summary>Nuevo producto — entendiendo el modelo</summary>
+      <p>Cada producto tiene <strong>una unidad atomica</strong> en la que el sistema cuenta el
+      stock (la <em>unidad base</em>: kg, und, lt, ml, g). Aunque tu lo compres por sacos o cajas,
+      el sistema guarda todo en esa unidad y multiplica solo.</p>
+      <p>Regla mental antes de registrar:</p>
+      <ol>
+        <li><strong>¿Cual es la unidad mas pequeña en la que puedes vender?</strong> → eso es la
+            unidad base.</li>
+        <li><strong>¿Como te llegan del proveedor?</strong> → eso son las presentaciones de compra.</li>
+        <li><strong>¿A que cantidades das descuento?</strong> → escalas de mayor.</li>
+      </ol>
       <ol>
         <li>Click en <strong>Productos &rarr; Nuevo producto</strong>.</li>
         <li>Escribe el <strong>nombre</strong>, elige <strong>categoria, subcategoria y marca</strong>.</li>
-        <li>Selecciona la <strong>presentacion</strong> (unidad, paquete, plancha, etc.).</li>
-        <li>Pon el <strong>precio de venta por unidad</strong>.</li>
-        <li>(Opcional) Si ya tienes stock al momento de registrar: llena <em>cantidad de
-            presentaciones</em>, <em>unidades sueltas</em> y elige el <strong>almacen</strong>
-            donde depositarlo. Si no, dejalo en cero y agregalo despues desde "Agregar stock".</li>
-        <li>Sube una imagen (opcional, recomendado).</li>
-        <li>Si este producto es una <strong>presentacion de otro</strong> (ej. plancha x6 del mismo
-            papel), abre la seccion "Vinculo a producto base" y enlazalo.</li>
-        <li>Click en <strong>Crear producto</strong>.</li>
+        <li>Selecciona <strong>Presentacion</strong> textual (Bolsa, Lata, Saco, etc — solo el
+            nombre del envase).</li>
+        <li>Define la <strong>Unidad base</strong>: kg / g / lt / ml / und.</li>
+        <li>Pon el <strong>Precio venta por unidad</strong>. Si vendes a granel el cliente puede
+            pedir decimales (0.5, 0.25, etc.).</li>
+        <li>Sube o toma una <strong>foto</strong>.</li>
+        <li>Baja a <strong>Presentaciones de compra</strong> y agrega como compras al proveedor:
+            <em>Saco | 49 | S/122</em>. Marca una como principal. Si solo compras unidad por
+            unidad, salta esta seccion.</li>
+        <li>En <strong>Precios por mayor</strong>: agrega escalas de descuento al cliente. El
+            campo "S/ total" es lo que cobras (mas natural). El sistema calcula el precio por
+            unidad solo.</li>
+        <li>En <strong>Stock</strong>: el toggle al lado del numero te deja tipear en la unidad
+            que prefieras. "<em>4 Saco x49</em>" se convierte a 196 kg automatico. Lo mismo para
+            stock inicial.</li>
+        <li>Click <strong>Crear producto</strong>.</li>
       </ol>
-      <div class="tip"><strong>Por que vincular presentaciones?</strong> Asi al vender 1 plancha se
-      descuentan automaticamente 6 unidades del producto base. Llevas un solo stock.</div>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Ejemplo 1: Arroz a granel (kg + saco)</summary>
+      <table>
+        <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+        <tbody>
+        <tr><td>Nombre</td><td>Arroz pirata azul</td></tr>
+        <tr><td>Unidad base</td><td><strong>kg</strong></td></tr>
+        <tr><td>Presentacion</td><td>Saco</td></tr>
+        <tr><td>Precio venta unidad</td><td>S/ 3.00 / kg</td></tr>
+        <tr><td>Presentaciones de compra</td><td>Saco | 49 | S/ 122 (principal)</td></tr>
+        <tr><td>Precios por mayor</td>
+          <td>desde 24.5 → S/ 68 (medio saco)<br />desde 49 → S/ 135 (saco entero)</td></tr>
+        <tr><td>Stock minimo</td><td>4 [Saco x49] → 196 kg</td></tr>
+        <tr><td>Stock inicial</td><td>8 [Saco x49] → 392 kg en Tienda</td></tr>
+        </tbody>
+      </table>
+      <p>Asi puedes vender:</p>
+      <ul>
+        <li>1 kg → tipea <code>1</code> → S/ 3.00</li>
+        <li>Medio kg → <code>0.5</code> → S/ 1.50</li>
+        <li>S/ 2.50 de arroz → tap boton <code>S/</code> en el carrito → escribes 2.50 →
+            calcula 0.83 kg</li>
+        <li>1 saco entero → <code>49</code> → aplica precio mayor S/ 135</li>
+      </ul>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Ejemplo 2: Leche en plancha (und + plancha)</summary>
+      <table>
+        <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+        <tbody>
+        <tr><td>Nombre</td><td>Leche Gloria evaporada</td></tr>
+        <tr><td>Unidad base</td><td><strong>und</strong></td></tr>
+        <tr><td>Presentacion</td><td>Lata</td></tr>
+        <tr><td>Precio venta unidad</td><td>S/ 3.50</td></tr>
+        <tr><td>Presentaciones de compra</td><td>Plancha | 12 | S/ 36 (principal)</td></tr>
+        <tr><td>Precios por mayor</td><td>desde 12 → S/ 40 (plancha al cliente)</td></tr>
+        <tr><td>Stock minimo</td><td>2 [Plancha x12] → 24 latas</td></tr>
+        <tr><td>Stock inicial</td><td>5 [Plancha x12] → 60 latas</td></tr>
+        </tbody>
+      </table>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Ejemplo 3: Detergente en bolsa (und + saco)</summary>
+      <table>
+        <thead><tr><th>Campo</th><th>Valor</th></tr></thead>
+        <tbody>
+        <tr><td>Nombre</td><td>Detergente Bolivar 730g</td></tr>
+        <tr><td>Unidad base</td><td><strong>und</strong></td></tr>
+        <tr><td>Presentacion</td><td>Bolsa</td></tr>
+        <tr><td>Precio venta unidad</td><td>S/ 8.00</td></tr>
+        <tr><td>Presentaciones de compra</td><td>Saco | 24 | S/ 170 (principal)</td></tr>
+        <tr><td>Precios por mayor</td>
+          <td>desde 6 → S/ 45<br />desde 12 → S/ 88<br />desde 24 → S/ 170</td></tr>
+        <tr><td>Stock minimo</td><td>1 [Saco x24] → 24 bolsas</td></tr>
+        </tbody>
+      </table>
+      <p class="tip">Si lo vendes individual y por saco, ese es el patron. Si tambien viene
+      caja x12, agrega otra fila en "Presentaciones de compra".</p>
+    </details>
+
+    <details data-role="admin trabajador">
+      <summary>Casos especiales</summary>
+      <table>
+        <thead><tr><th>Caso</th><th>Como configurar</th></tr></thead>
+        <tbody>
+        <tr><td>Chicles sueltos</td>
+            <td>Unidad base <em>und</em>. Sin presentaciones de compra. Compras y vendes unitario.</td></tr>
+        <tr><td>Carne / queso por gramos</td>
+            <td>Unidad base <em>kg</em>. Sin presentaciones. Decimales en venta (0.250, 0.500, etc.).</td></tr>
+        <tr><td>Aceite x 1L</td>
+            <td>Unidad base <em>und</em>. Presentacion compra: Caja x12.</td></tr>
+        <tr><td>Gaseosa 600ml</td>
+            <td>Unidad base <em>und</em> (la botella es la unidad). Pres. compra: Pack x6.</td></tr>
+        <tr><td>Producto sin presentacion</td>
+            <td>Salta la seccion. Solo precio compra y venta unitario. El stock se ingresa por
+                unidad.</td></tr>
+        </tbody>
+      </table>
+      <div class="warn"><strong>NO uses</strong> nombres como "BOLx20" o "CJAx12" en la presentacion
+      textual. El factor (x20, x12) va en <em>Presentaciones de compra</em>. La presentacion
+      textual es solo descriptiva: Bolsa, Caja, Lata, etc.</div>
     </details>
 
     <details data-role="admin trabajador">
@@ -327,15 +426,21 @@
     <strong>Casa</strong> (lo guardado). Tres acciones:</p>
 
     <details open data-role="admin trabajador">
-      <summary>Agregar stock</summary>
+      <summary>Agregar stock (cuando recibes mercaderia)</summary>
       <ol>
         <li>Click en <strong>Almacenes &rarr; Agregar stock</strong>.</li>
-        <li>Elige <strong>producto</strong>, <strong>almacen</strong>, cantidad de
-            <strong>presentaciones</strong> y <strong>unidades sueltas</strong>.</li>
-        <li>Click en <strong>Agregar stock</strong>. El sistema te muestra la conversion.</li>
+        <li>Elige el <strong>producto</strong> y el <strong>almacen</strong> de destino (Tienda o
+            Casa).</li>
+        <li>Si el producto tiene varias presentaciones (Saco, Caja, etc.), aparece un
+            <strong>selector de presentacion</strong>. Elige la que recibiste.</li>
+        <li>Tipea cuantas <strong>presentaciones</strong> recibiste y, si sobra, las
+            <strong>unidades sueltas</strong>.</li>
+        <li>El sistema te muestra abajo: <em>"se agregaran X kg"</em> (o la unidad que
+            corresponda). Confirma con <strong>Agregar stock</strong>.</li>
       </ol>
-      <div class="warn">Si el producto esta vinculado a otro base, el stock se suma al base
-      automaticamente. El sistema te avisa con un cartel verde.</div>
+      <p><strong>Ejemplo</strong>: recibiste 3 sacos de arroz. Producto = Arroz pirata azul,
+      almacen = Casa, presentacion = Saco x49, presentaciones = 3, unidades sueltas = 0. El
+      sistema agrega <strong>147 kg</strong> al stock de Casa.</p>
     </details>
 
     <details data-role="admin trabajador">
@@ -361,7 +466,8 @@
       <p>El sistema te lleva paso a paso. <strong>No te puedes saltear pasos</strong>: si editas uno
       anterior, debes volver a confirmar los siguientes.</p>
       <ol>
-        <li><strong>Productos:</strong> busca y agrega al carrito. Pone cantidad y almacen por fila.</li>
+        <li><strong>Productos:</strong> busca por nombre, codigo o marca. En mobile, la lista
+            aparece al escribir o al elegir subcategoria (no se muestra todo de golpe).</li>
         <li><strong>Cliente:</strong> busca uno existente o crea uno rapido (nombre + WhatsApp).</li>
         <li><strong>Entrega:</strong> <em>Llevar ahora</em>, <em>Recoger despues</em> o
             <em>Enviar</em>. Si aplica, pon fecha y hora.</li>
@@ -371,6 +477,8 @@
             <span class="badge badge-amber">Debe</span>. Si debe, pon cuanto entrego a cuenta y la
             observacion.</li>
       </ol>
+      <p>En cualquier momento (pasos 1-4) puedes tocar <strong>Cancelar pedido</strong> (rojo,
+      en mobile) para anular la venta y liberar el stock reservado.</p>
       <p>Despues de guardar te aparecen 3 botones sin salir de la pantalla:</p>
       <ul>
         <li><strong>Confirmar pago</strong> (solo si quedo deuda): cobra el saldo.</li>
@@ -380,32 +488,104 @@
     </details>
 
     <details data-role="admin trabajador">
+      <summary>El carrito: cantidad, almacen y vender por S/</summary>
+      <p>Cada item del carrito (en mobile) tiene 5 columnas:</p>
+      <ol>
+        <li><strong>Cantidad</strong>: numero de unidades. Acepta decimales (0.5 kg, 0.25
+            kg).</li>
+        <li><strong>Miniatura</strong>: foto del producto.</li>
+        <li><strong>Nombre + chips</strong>:
+          <ul>
+            <li>Chip circular <span class="badge badge-emerald">T</span> = Tienda /
+                <span class="badge badge-blue">C</span> = Casa. <em>Tap para cambiar al otro
+                almacen.</em></li>
+            <li>Boton amarillo <span class="badge badge-amber">S/</span>: te pregunta el monto
+                en S/ y calcula la cantidad. Util para "vendeme S/ 2.50 de arroz".</li>
+            <li>Si el item supera el stock, aparece chip rojo <em>Stock X</em>.</li>
+          </ul>
+        </li>
+        <li><strong>Subtotal</strong> calculado.</li>
+        <li><strong>×</strong> rojo para quitar.</li>
+      </ol>
+      <div class="tip">El sistema reserva el stock al agregar al carrito. Otros trabajadores
+      veran el stock disponible reducido mientras tu vendes. Al guardar el pedido la reserva
+      se mantiene; al cancelar se libera; al entregar se descuenta de verdad.</div>
+    </details>
+
+    <details data-role="admin trabajador">
       <summary>Lista de pedidos</summary>
       <p>Todos los pedidos con su estado. Filtra por estado, busca por cliente y abre el detalle
       para ver productos, monto, observaciones y reenviar WhatsApp.</p>
     </details>
 
     <div class="step" data-role="cliente">
-      <h4>Hacer un pedido</h4>
-      <p>Los pedidos se hacen <strong>con la tienda directamente</strong>: presencial, llamada o
-      WhatsApp al <strong>942 025 999</strong>. El personal de la tienda lo registra en el
-      sistema.</p>
-    </div>
-    <div class="step" data-role="cliente">
-      <h4>Ver mis pedidos</h4>
+      <h4>Como comprar paso a paso</h4>
       <ol>
-        <li>Entra al sistema con tu correo y clave.</li>
-        <li>En el menu lateral, click en <strong>Mis pedidos</strong>.</li>
-        <li>Veras la lista con el estado de cada pedido:
-          <span class="badge badge-amber">pendiente</span>,
-          <span class="badge badge-blue">en preparacion</span>,
-          <span class="badge badge-emerald">listo</span> o
+        <li><strong>Haz tu pedido</strong>. Tres formas:
+          <ul>
+            <li><strong>Presencial</strong>: vas a la tienda y pides lo que necesitas. El
+                trabajador arma el pedido en el sistema.</li>
+            <li><strong>Por WhatsApp</strong>: escribe al <strong>942 025 999</strong> con la
+                lista. Ejemplo: "1 saco arroz, 6 latas leche, S/ 5 de detergente". El
+                trabajador lo registra y te confirma total.</li>
+            <li><strong>Por telefono</strong>: igual, llama al numero de arriba.</li>
+          </ul>
+        </li>
+        <li><strong>Eliges como recibir</strong>:
+          <ul>
+            <li><em>Llevar ahora</em>: te lo entregan en el momento.</li>
+            <li><em>Recoger despues</em>: dices fecha y hora.</li>
+            <li><em>Enviar</em>: das direccion + referencia. Coordina costo y tiempo de envio.</li>
+          </ul>
+        </li>
+        <li><strong>Eliges como pagar</strong>:
+          <ul>
+            <li><strong>Efectivo</strong>: pagas al recoger o al recibir.</li>
+            <li><strong>Yape</strong>: paga al numero <strong>942 025 999</strong> y manda la
+                captura. Tu pago queda en validacion hasta que el admin lo confirme.</li>
+            <li><strong>A credito</strong> (debe): retiras el producto y pagas despues. Queda
+                registrado como deuda en tu cuenta.</li>
+            <li><strong>Pago parcial</strong>: pagas una parte ahora y el resto queda como
+                deuda.</li>
+          </ul>
+        </li>
+        <li><strong>Estado del pedido</strong>: el sistema va marcando cada paso:
+          <span class="badge badge-amber">pendiente</span> →
+          <span class="badge">pago validado</span> →
+          <span class="badge badge-blue">en preparacion</span> →
+          <span class="badge badge-emerald">listo para recoger</span> →
           <span class="badge">entregado</span>.</li>
-        <li>Click en cualquiera para ver el detalle: productos, total, monto a cuenta y saldo pendiente.</li>
+        <li><strong>Cuando lo entregan</strong>, si tenias deuda parcial recuerda completar el
+            pago.</li>
       </ol>
     </div>
-    <div class="info" data-role="cliente">Si tu pedido tiene saldo en <strong>Debe</strong>, recuerda
-    abonar al recoger o al recibir el envio.</div>
+
+    <div class="step" data-role="cliente">
+      <h4>Ver mis pedidos en el sistema</h4>
+      <ol>
+        <li>Entra al sistema con tu correo y clave (la tienda te entrega los datos).</li>
+        <li>En el menu lateral, click en <strong>Mis pedidos</strong>.</li>
+        <li>Cada card te muestra:
+          <ul>
+            <li><strong>Fecha</strong> y resumen del pedido.</li>
+            <li>Total, monto a cuenta y saldo (<strong>Debe</strong>).</li>
+            <li>Estado actual.</li>
+            <li>Si fue manual con foto del papel, puedes verla.</li>
+          </ul>
+        </li>
+        <li>Click en cualquier pedido para ver el detalle completo (productos, precios,
+            cantidades).</li>
+        <li>Para pedidos con deuda: cuando pagues, el trabajador lo registra y el saldo se
+            actualiza. Tambien puedes ver en <strong>"Historial de pagos del cliente"</strong>
+            todos los pagos que has hecho con fecha y monto.</li>
+      </ol>
+      <p class="tip">Si necesitas el mismo pedido otra vez, pide al trabajador que lo
+      <strong>duplique</strong> — sale uno nuevo identico que solo necesitas confirmar.</p>
+    </div>
+
+    <div class="info" data-role="cliente"><strong>Importante</strong>: si tu pedido tiene saldo en
+    <strong>Debe</strong>, recuerda abonar al recoger o al recibir. La tienda lleva el control de
+    tu deuda y la suma de todas tus cards pendientes.</div>
 
     <!-- 6. Preparacion -->
     <h2 id="preparacion" data-role="admin trabajador">6. Preparacion y entrega</h2>
