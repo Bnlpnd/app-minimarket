@@ -30,10 +30,11 @@ export const navigationItems = [
   {
     label: "Almacenes",
     items: [
-      { href: "/almacen/transferencias", label: "Transferencias" },
       { href: "/almacen/agregar-stock", label: "Agregar stock" },
-      { href: "/almacen/vencimientos", label: "Vencimientos" },
+      { href: "/almacen/transferencias", label: "Transferencias" },
       { href: "/almacen/abastecimiento", label: "Abastecimiento" },
+      { href: "/almacen/productos", label: "Productos Almacén" },
+      { href: "/almacen/vencimientos", label: "Vencimientos" },
     ],
   },
   {

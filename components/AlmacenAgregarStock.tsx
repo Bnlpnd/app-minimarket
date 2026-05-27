@@ -69,6 +69,7 @@ function stockForAlmacen(producto: ProductoStockRow | null, almacenId: string) {
 export function AlmacenAgregarStock() {
   const searchParams = useSearchParams();
   const productoQueryId = searchParams.get("producto");
+  const almacenQueryId = searchParams.get("almacen");
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
@@ -290,6 +291,12 @@ export function AlmacenAgregarStock() {
   // Si la URL trae ?producto=ID, preseleccionarlo y filtrar la busqueda
   // para que el listado de abajo tambien lo muestre. Se dispara una sola
   // vez al cambiar el param.
+  useEffect(() => {
+    if (almacenQueryId) {
+      setAlmacenIngresoId(almacenQueryId);
+    }
+  }, [almacenQueryId]);
+
   useEffect(() => {
     if (!productoQueryId) return;
     setProductoIngresoId(productoQueryId);
