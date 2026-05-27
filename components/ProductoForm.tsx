@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { compressImage } from "@/lib/imageUtils";
+import { matchesSearch } from "@/lib/searchUtils";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import {
   combineValidations,
@@ -329,26 +330,22 @@ export function ProductoForm({
 
   // Sugerencias filtradas por el nombre tipeado. Solo en modo "crear nuevo"
   // y cuando el usuario tipeo al menos 2 caracteres.
+  // Usa matchesSearch (lib/searchUtils) que tokeniza el query: cada palabra
+  // debe estar presente en algun lado del producto, en cualquier orden.
+  // Asi "agua cielo" matchea "Cielo Agua Botella 500ml".
   const sugerenciasFiltradas = useMemo(() => {
     if (productoEditando) return [];
     if (!onSelectExisting) return [];
-    const q = values.nombre_producto.trim().toLowerCase();
-    if (q.length < 2) return [];
-    const normalize = (s: string) =>
-      s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-    const nq = normalize(q);
+    if (values.nombre_producto.trim().length < 2) return [];
     return sugerenciasProductos
-      .filter((p) => {
-        const haystack = normalize(
-          [
-            p.nombre_producto,
-            p.presentacion ?? "",
-            p.codigo_interno ?? "",
-            p.marca_nombre ?? "",
-          ].join(" "),
-        );
-        return haystack.includes(nq);
-      })
+      .filter((p) =>
+        matchesSearch(values.nombre_producto, [
+          p.nombre_producto,
+          p.presentacion,
+          p.codigo_interno,
+          p.marca_nombre,
+        ]),
+      )
       .slice(0, 6);
   }, [
     sugerenciasProductos,
