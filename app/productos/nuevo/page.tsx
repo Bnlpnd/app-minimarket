@@ -6,7 +6,12 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Layout } from "@/components/Layout";
 import { ProductoForm } from "@/components/ProductoForm";
-import type { ProductoBaseOption, ProductoFormValues } from "@/components/ProductoForm";
+import type {
+  ProductoBaseOption,
+  ProductoFormValues,
+  ProductoSugerencia,
+} from "@/components/ProductoForm";
+import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import type {
@@ -81,6 +86,10 @@ function ProductoNuevoContent() {
   const [productosBase, setProductosBase] = useState<ProductoBaseOption[]>([]);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [productoEditando, setProductoEditando] = useState<Producto | null>(null);
+  // Sugerencias para autocompletar el nombre (solo en modo crear).
+  const [sugerenciasProductos, setSugerenciasProductos] = useState<
+    ProductoSugerencia[]
+  >([]);
   const [hasAccess, setHasAccess] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [accessMessage, setAccessMessage] = useState("");
@@ -103,7 +112,41 @@ function ProductoNuevoContent() {
       void loadCatalogos();
       void loadProducto();
       void loadProductosBase();
+      void loadSugerenciasProductos();
     }
+  }
+
+  async function loadSugerenciasProductos() {
+    if (!supabase) return;
+    // Solo se necesitan en modo crear, pero se cargan siempre porque al
+    // navegar de crear a editar y volver el componente sigue montado.
+    const { data, error } = await fetchAllRows<{
+      id: string;
+      nombre_producto: string;
+      presentacion: string | null;
+      codigo_interno: string | null;
+      imagen_url: string | null;
+      marcas: { nombre: string } | { nombre: string }[] | null;
+    }>(
+      supabase
+        .from("productos")
+        .select("id, nombre_producto, presentacion, codigo_interno, imagen_url, marcas(nombre)")
+        .eq("activo", true)
+        .order("nombre_producto"),
+    );
+    if (error || !data) return;
+    setSugerenciasProductos(
+      data.map((p) => ({
+        id: p.id,
+        nombre_producto: p.nombre_producto,
+        presentacion: p.presentacion,
+        codigo_interno: p.codigo_interno,
+        imagen_url: p.imagen_url,
+        marca_nombre: Array.isArray(p.marcas)
+          ? p.marcas[0]?.nombre
+          : p.marcas?.nombre ?? null,
+      })),
+    );
   }
 
   async function loadProductosBase() {
@@ -826,6 +869,12 @@ function ProductoNuevoContent() {
           onQuickCreateSubcategoria={quickCreateSubcategoria}
           onQuickCreateMarca={quickCreateMarca}
           onQuickCreatePresentacion={quickCreatePresentacion}
+          sugerenciasProductos={sugerenciasProductos}
+          onSelectExisting={(id) => {
+            // Navega a la misma URL pero con ?id=, lo que dispara la
+            // carga del producto existente y rellena el form completo.
+            router.push(`/productos/nuevo?id=${id}`);
+          }}
         />
           </>
         ) : null}

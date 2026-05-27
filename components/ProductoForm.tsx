@@ -80,6 +80,16 @@ export type ProductoBaseOption = {
   codigo_interno: string | null;
 };
 
+/** Sugerencias mostradas debajo del campo "Nombre producto" en modo crear. */
+export type ProductoSugerencia = {
+  id: string;
+  nombre_producto: string;
+  presentacion: string | null;
+  codigo_interno: string | null;
+  imagen_url: string | null;
+  marca_nombre?: string | null;
+};
+
 type ProductoFormProps = {
   categorias: Categoria[];
   subcategorias: Subcategoria[];
@@ -101,6 +111,12 @@ type ProductoFormProps = {
   ) => Promise<Subcategoria | null>;
   onQuickCreateMarca?: (nombre: string) => Promise<Marca | null>;
   onQuickCreatePresentacion?: (nombre: string) => Promise<Presentacion | null>;
+  /** Lista de productos existentes para mostrar sugerencias mientras se
+   *  tipea el nombre. Si no se provee, no se muestran sugerencias. */
+  sugerenciasProductos?: ProductoSugerencia[];
+  /** Callback al hacer click en una sugerencia: el padre decide si
+   *  navegar a editarlo o rellenar el form. */
+  onSelectExisting?: (productoId: string) => void;
 };
 
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
@@ -259,10 +275,13 @@ export function ProductoForm({
   onQuickCreateSubcategoria,
   onQuickCreateMarca,
   onQuickCreatePresentacion,
+  sugerenciasProductos = [],
+  onSelectExisting,
 }: ProductoFormProps) {
   const [values, setValues] = useState<ProductoFormValues>(() =>
     getInitialValues({ producto: productoEditando, presentacionesCompra, preciosMayor }),
   );
+  const [showSugerencias, setShowSugerencias] = useState(false);
   const [quickCatalogOpen, setQuickCatalogOpen] = useState(false);
   const [quickCategoria, setQuickCategoria] = useState("");
   const [quickSubcategoria, setQuickSubcategoria] = useState("");
@@ -305,6 +324,36 @@ export function ProductoForm({
       }
     };
   }, [imagePreview]);
+
+  // Sugerencias filtradas por el nombre tipeado. Solo en modo "crear nuevo"
+  // y cuando el usuario tipeo al menos 2 caracteres.
+  const sugerenciasFiltradas = useMemo(() => {
+    if (productoEditando) return [];
+    if (!onSelectExisting) return [];
+    const q = values.nombre_producto.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const normalize = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const nq = normalize(q);
+    return sugerenciasProductos
+      .filter((p) => {
+        const haystack = normalize(
+          [
+            p.nombre_producto,
+            p.presentacion ?? "",
+            p.codigo_interno ?? "",
+            p.marca_nombre ?? "",
+          ].join(" "),
+        );
+        return haystack.includes(nq);
+      })
+      .slice(0, 6);
+  }, [
+    sugerenciasProductos,
+    values.nombre_producto,
+    productoEditando,
+    onSelectExisting,
+  ]);
 
   const subcategoriasDisponibles = useMemo(() => {
     if (!values.categoria_id) {
@@ -720,14 +769,74 @@ export function ProductoForm({
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Field label="Nombre producto" required>
-          <input
-            type="text"
-            value={values.nombre_producto}
-            onChange={(event) =>
-              updateValue("nombre_producto", event.target.value)
-            }
-            className={inputClassName}
-          />
+          <div className="relative">
+            <input
+              type="text"
+              value={values.nombre_producto}
+              onChange={(event) => {
+                updateValue("nombre_producto", event.target.value);
+                if (!productoEditando) setShowSugerencias(true);
+              }}
+              onFocus={() => {
+                if (!productoEditando) setShowSugerencias(true);
+              }}
+              onBlur={() => {
+                // Delay para que el click en sugerencia funcione antes del blur.
+                setTimeout(() => setShowSugerencias(false), 180);
+              }}
+              autoComplete="off"
+              className={inputClassName}
+              placeholder={
+                !productoEditando ? "Empeza a escribir y revisa sugerencias..." : ""
+              }
+            />
+            {!productoEditando && showSugerencias && sugerenciasFiltradas.length > 0 ? (
+              <ul className="absolute left-0 right-0 z-30 mt-1 max-h-72 overflow-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                <li className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  Productos similares ya registrados (click para editar):
+                </li>
+                {sugerenciasFiltradas.map((p) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        // mousedown para ganar al blur del input.
+                        e.preventDefault();
+                        onSelectExisting?.(p.id);
+                      }}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-emerald-50"
+                    >
+                      {p.imagen_url ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={p.imagen_url}
+                          alt=""
+                          className="h-9 w-9 shrink-0 rounded border border-slate-200 object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-200 bg-slate-50 text-[9px] text-slate-400">
+                          sin img
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-slate-900">
+                          {p.nombre_producto}
+                        </span>
+                        <span className="block truncate text-xs text-slate-500">
+                          {[p.marca_nombre, p.presentacion, p.codigo_interno]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+                <li className="border-t border-slate-100 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                  Si ninguno es el que buscas, segui tipeando y se crea como nuevo.
+                </li>
+              </ul>
+            ) : null}
+          </div>
         </Field>
 
         <Field label="Categoria" required>
