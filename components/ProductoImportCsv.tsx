@@ -33,6 +33,7 @@ import type {
   Almacen,
   Categoria,
   Marca,
+  Presentacion,
   Producto,
   Subcategoria,
 } from "@/types/database";
@@ -172,6 +173,7 @@ type ProductoImportCsvProps = {
   initialCategorias: Categoria[];
   initialSubcategorias: Subcategoria[];
   initialMarcas: Marca[];
+  initialPresentaciones?: Presentacion[];
 };
 
 // ============================================================================
@@ -237,9 +239,14 @@ function parseCsv(text: string) {
     rows.push(row);
   }
 
-  return rows.filter((csvRow) =>
-    csvRow.some((cell) => normalizeSpaces(cell) !== ""),
-  );
+  return rows.filter((csvRow) => {
+    // Ignorar filas totalmente vacias
+    if (!csvRow.some((cell) => normalizeSpaces(cell) !== "")) return false;
+    // Ignorar lineas comentadas: primera celda no vacia empieza con "#"
+    const firstNonEmpty = csvRow.find((cell) => normalizeSpaces(cell) !== "");
+    if (firstNonEmpty && firstNonEmpty.trim().startsWith("#")) return false;
+    return true;
+  });
 }
 
 // Overloads para que TS sepa que el tipo del retorno sigue al del fallback.
@@ -423,22 +430,77 @@ function buildImportRows(rows: CsvRow[]) {
 // Plantilla descargable
 // ============================================================================
 
-function buildPlantillaCsv(): string {
-  const headers = ALL_OFFICIAL_HEADERS.join(",");
-  const example = ALL_OFFICIAL_HEADERS.map((h) => {
-    const v = PLANTILLA_EJEMPLO[h] ?? "";
-    // Si tiene coma o comilla, encerrar entre comillas.
-    if (/[",\n]/.test(v)) {
-      return `"${v.replace(/"/g, '""')}"`;
-    }
-    return v;
-  }).join(",");
-  // BOM UTF-8 para que Excel lo abra con tildes bien.
-  return "﻿" + headers + "\n" + example + "\n";
+function escapeCsv(v: string): string {
+  if (/[",\n;]/.test(v)) {
+    return `"${v.replace(/"/g, '""')}"`;
+  }
+  return v;
 }
 
-function downloadPlantilla() {
-  const csv = buildPlantillaCsv();
+function buildPlantillaCsv(
+  categorias: Categoria[],
+  subcategorias: Subcategoria[],
+  marcas: Marca[],
+  presentaciones: Presentacion[],
+): string {
+  const headers = ALL_OFFICIAL_HEADERS.join(",");
+  const example = ALL_OFFICIAL_HEADERS.map((h) =>
+    escapeCsv(PLANTILLA_EJEMPLO[h] ?? ""),
+  ).join(",");
+
+  // Listado de valores disponibles, como comentarios "#" para que sean
+  // ignorados al importar pero el usuario los vea al abrir el archivo.
+  // Agrupamos subcategorias bajo su categoria para que sepa cual va con cual.
+  const subsByCat = new Map<string, string[]>();
+  for (const s of subcategorias) {
+    const cat = categorias.find((c) => c.id === s.categoria_id);
+    if (!cat) continue;
+    const arr = subsByCat.get(cat.nombre) ?? [];
+    arr.push(s.nombre);
+    subsByCat.set(cat.nombre, arr);
+  }
+
+  const lines: string[] = [];
+  // BOM UTF-8 para Excel
+  lines.push("﻿" + headers);
+  lines.push(example);
+  lines.push("");
+  lines.push("# =====================================================================");
+  lines.push("# VALORES DISPONIBLES EN TU SISTEMA (las lineas con # se ignoran)");
+  lines.push("# Si escribes una categoria/subcategoria/marca/presentacion que NO");
+  lines.push("# este en estas listas, al importar se crea automaticamente.");
+  lines.push("# =====================================================================");
+  lines.push("");
+  lines.push(`# CATEGORIAS (${categorias.length}):`);
+  for (const c of categorias) lines.push(`# - ${c.nombre}`);
+  lines.push("");
+  lines.push(`# SUBCATEGORIAS POR CATEGORIA:`);
+  for (const [cat, subs] of subsByCat.entries()) {
+    lines.push(`# ${cat}:`);
+    for (const s of subs.sort()) lines.push(`#   - ${s}`);
+  }
+  lines.push("");
+  lines.push(`# MARCAS (${marcas.length}):`);
+  for (const m of marcas) lines.push(`# - ${m.nombre}`);
+  lines.push("");
+  lines.push(`# PRESENTACIONES (${presentaciones.length}):`);
+  for (const p of presentaciones) lines.push(`# - ${p.nombre}`);
+  lines.push("");
+  lines.push("# UNIDADES BASE TIPICAS: und, kg, g, lt, ml");
+  lines.push("# LOTE ALMACEN: tienda | casa");
+  lines.push("# ACTIVO: si | no");
+  lines.push("");
+
+  return lines.join("\n") + "\n";
+}
+
+function downloadPlantilla(
+  categorias: Categoria[],
+  subcategorias: Subcategoria[],
+  marcas: Marca[],
+  presentaciones: Presentacion[],
+) {
+  const csv = buildPlantillaCsv(categorias, subcategorias, marcas, presentaciones);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -763,6 +825,7 @@ export function ProductoImportCsv({
   initialCategorias,
   initialSubcategorias,
   initialMarcas,
+  initialPresentaciones = [],
 }: ProductoImportCsvProps) {
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [rawHeaders, setRawHeaders] = useState<string[]>([]);
@@ -1141,7 +1204,14 @@ export function ProductoImportCsv({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={downloadPlantilla}
+              onClick={() =>
+                downloadPlantilla(
+                  initialCategorias,
+                  initialSubcategorias,
+                  initialMarcas,
+                  initialPresentaciones,
+                )
+              }
               className="inline-flex h-10 items-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800"
             >
               Descargar plantilla
@@ -1156,6 +1226,18 @@ export function ProductoImportCsv({
               />
             </label>
           </div>
+        </div>
+
+        {/* Aviso destacado de alta automatica */}
+        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          <strong>Tip:</strong> la plantilla descargable incluye al final una
+          lista de las {initialCategorias.length} categorias,{" "}
+          {initialSubcategorias.length} subcategorias,{" "}
+          {initialMarcas.length} marcas y{" "}
+          {initialPresentaciones.length} presentaciones ya creadas (como
+          comentarios <code>#</code> que se ignoran al importar). Si escribis
+          una que no existe, <strong>se crea automaticamente</strong> al
+          importar — no necesitas darla de alta antes.
         </div>
 
         {/* Columnas: toggle para ver definicion completa */}
