@@ -46,6 +46,7 @@ type ProductoConStock = Producto & {
   subcategorias: Pick<Subcategoria, "nombre"> | null;
   producto_almacen: Array<
     Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
+      unidades_sueltas?: number | null;
       almacenes: Pick<Almacen, "id" | "nombre"> | null;
     }
   >;
@@ -53,6 +54,7 @@ type ProductoConStock = Producto & {
     id: string;
     producto_almacen: Array<
       Pick<ProductoAlmacen, "almacen_id" | "stock_actual"> & {
+        unidades_sueltas?: number | null;
         almacenes: Pick<Almacen, "id" | "nombre"> | null;
       }
     >;
@@ -63,6 +65,14 @@ type ProductoConStock = Producto & {
       "id" | "nombre_presentacion" | "unidades_por_presentacion" | "es_principal" | "activo"
     >
   >;
+};
+
+/** Cantidad guardada por presentacion en producto_almacen_presentacion. */
+type DesgloseRow = {
+  producto_id: string;
+  almacen_id: string;
+  presentacion_compra_id: string;
+  cantidad: number;
 };
 
 const inputClassName =
@@ -76,6 +86,8 @@ function formatNum(n: number) {
 
 export function AlmacenProductos() {
   const [productos, setProductos] = useState<ProductoConStock[]>([]);
+  // Desglose por (producto_id, almacen_id, presentacion_id) -> cantidad
+  const [desgloseMap, setDesgloseMap] = useState<Map<string, number>>(new Map());
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
@@ -116,7 +128,7 @@ export function AlmacenProductos() {
         marcas(nombre),
         categorias(nombre),
         subcategorias(nombre),
-        producto_almacen(almacen_id,stock_actual,almacenes(id,nombre)),
+        producto_almacen(almacen_id,stock_actual,unidades_sueltas,almacenes(id,nombre)),
         producto_presentaciones_compra(id,nombre_presentacion,unidades_por_presentacion,es_principal,activo)`,
       )
       .eq("activo", true)
@@ -150,7 +162,7 @@ export function AlmacenProductos() {
     if (baseIds.length > 0) {
       const { data: baseRows } = await supabase
         .from("productos")
-        .select("id,producto_almacen(almacen_id,stock_actual,almacenes(id,nombre))")
+        .select("id,producto_almacen(almacen_id,stock_actual,unidades_sueltas,almacenes(id,nombre))")
         .in("id", baseIds);
       ((baseRows ?? []) as unknown as Array<{
         id: string;
@@ -165,6 +177,27 @@ export function AlmacenProductos() {
     });
 
     setProductos(merged);
+
+    // Cargar desglose por presentacion para todos los productos visibles.
+    // Indexamos por "producto_id|almacen_id|presentacion_id".
+    const productoIds = [
+      ...new Set(merged.flatMap((p) => [p.id, p.producto_base_id].filter(Boolean) as string[])),
+    ];
+    if (productoIds.length > 0) {
+      const { data: desgloseData } = await supabase
+        .from("producto_almacen_presentacion")
+        .select("producto_id, almacen_id, presentacion_compra_id, cantidad")
+        .in("producto_id", productoIds);
+      const map = new Map<string, number>();
+      for (const row of (desgloseData ?? []) as DesgloseRow[]) {
+        map.set(
+          `${row.producto_id}|${row.almacen_id}|${row.presentacion_compra_id}`,
+          Number(row.cantidad),
+        );
+      }
+      setDesgloseMap(map);
+    }
+
     setIsLoading(false);
   }
 
@@ -273,6 +306,7 @@ export function AlmacenProductos() {
               key={producto.id}
               producto={producto}
               almacenes={almacenes}
+              desgloseMap={desgloseMap}
               onMessage={setMessage}
               onSaved={() => void loadProductos()}
             />
@@ -291,11 +325,13 @@ export function AlmacenProductos() {
 function ProductoCard({
   producto,
   almacenes,
+  desgloseMap,
   onMessage,
   onSaved,
 }: {
   producto: ProductoConStock;
   almacenes: Almacen[];
+  desgloseMap: Map<string, number>;
   onMessage: (m: ToastMessage) => void;
   onSaved: () => void;
 }) {
@@ -354,6 +390,7 @@ function ProductoCard({
             unidadBase={unidadBase}
             stockProductoId={stockProductoId}
             presentacionesActivas={presentacionesActivas}
+            desgloseMap={desgloseMap}
             onMessage={onMessage}
             onSaved={onSaved}
           />
@@ -369,6 +406,7 @@ function AlmacenSection({
   unidadBase,
   stockProductoId,
   presentacionesActivas,
+  desgloseMap,
   onMessage,
   onSaved,
 }: {
@@ -377,6 +415,7 @@ function AlmacenSection({
   unidadBase: string;
   stockProductoId: string;
   presentacionesActivas: ProductoConStock["producto_presentaciones_compra"];
+  desgloseMap: Map<string, number>;
   onMessage: (m: ToastMessage) => void;
   onSaved: () => void;
 }) {
@@ -385,32 +424,66 @@ function AlmacenSection({
   const almacenColors = colorsForAlmacen(almacen.nombre);
   const chipClass = stockChipClass(stockBase, minimo);
 
-  // Deltas por presentacion (en unidades de esa presentacion) + delta en
-  // unidad base. Al guardar: nuevo_stock = stockBase + Σ(delta_i × factor_i).
-  // Permite que el usuario diga "agregar 1 caja y 5 sueltas" sin pensar.
-  const [deltas, setDeltas] = useState<Record<string, string>>({});
-  const [deltaBase, setDeltaBase] = useState("");
+  // Leer desglose REAL guardado en BD. Si no hay registro para una
+  // presentacion, se asume 0 (no se calcula desde el total — eso era
+  // el comportamiento viejo que confundia al usuario).
+  const desgloseGuardado = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const pres of presentacionesActivas) {
+      const key = `${stockProductoId}|${almacen.id}|${pres.id}`;
+      map[pres.id] = desgloseMap.get(key) ?? 0;
+    }
+    return map;
+  }, [desgloseMap, presentacionesActivas, stockProductoId, almacen.id]);
+
+  // Sueltas guardadas en producto_almacen.unidades_sueltas
+  const sueltasGuardadas = useMemo(() => {
+    const rows =
+      producto.producto_base?.producto_almacen ?? producto.producto_almacen ?? [];
+    const row = rows.find((r) => r.almacen_id === almacen.id);
+    return Number(row?.unidades_sueltas ?? 0);
+  }, [producto, almacen.id]);
+
+  // Valores ABSOLUTOS editables (no deltas). Arrancan con lo guardado.
+  const [cantidades, setCantidades] = useState<Record<string, string>>({});
+  const [sueltasInput, setSueltasInput] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Calcular el cambio total proyectado en unidades base.
-  const cambioTotalBase = useMemo(() => {
+  // Reset cuando cambia el desglose desde el padre (despues de guardar/recargar)
+  useEffect(() => {
+    const init: Record<string, string> = {};
+    for (const pres of presentacionesActivas) {
+      init[pres.id] = String(desgloseGuardado[pres.id] ?? 0);
+    }
+    setCantidades(init);
+    setSueltasInput(String(sueltasGuardadas));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desgloseMap, sueltasGuardadas, presentacionesActivas.length]);
+
+  // Total proyectado = SUM(cantidad x factor) + sueltas
+  const totalProyectado = useMemo(() => {
     let suma = 0;
     for (const pres of presentacionesActivas) {
-      const v = deltas[pres.id];
-      const n = Number(v);
-      if (Number.isFinite(n) && v && v.trim() !== "") {
+      const n = Number(cantidades[pres.id] ?? 0);
+      if (Number.isFinite(n) && n > 0) {
         suma += n * Number(pres.unidades_por_presentacion);
       }
     }
-    const nBase = Number(deltaBase);
-    if (Number.isFinite(nBase) && deltaBase.trim() !== "") {
-      suma += nBase;
-    }
+    const nSueltas = Number(sueltasInput ?? 0);
+    if (Number.isFinite(nSueltas) && nSueltas > 0) suma += nSueltas;
     return suma;
-  }, [deltas, deltaBase, presentacionesActivas]);
+  }, [cantidades, sueltasInput, presentacionesActivas]);
 
-  const stockProyectado = stockBase + cambioTotalBase;
-  const hayCambios = cambioTotalBase !== 0;
+  // Si todo coincide con lo guardado, no hay cambios.
+  const hayCambios = useMemo(() => {
+    for (const pres of presentacionesActivas) {
+      const actual = desgloseGuardado[pres.id] ?? 0;
+      const editado = Number(cantidades[pres.id] ?? 0);
+      if (actual !== editado) return true;
+    }
+    if (Number(sueltasInput ?? 0) !== sueltasGuardadas) return true;
+    return false;
+  }, [cantidades, sueltasInput, desgloseGuardado, sueltasGuardadas, presentacionesActivas]);
 
   async function guardar() {
     if (!supabase) return;
@@ -418,33 +491,36 @@ function AlmacenSection({
       onMessage({ type: "warning", text: "No hay cambios para guardar." });
       return;
     }
-    if (stockProyectado < 0) {
-      onMessage({
-        type: "error",
-        text: `El resultado daria stock negativo (${stockProyectado}). Stock actual: ${stockBase}.`,
-      });
+    // Validar todas las cantidades >= 0
+    const presPayload: Array<{ id: string; cantidad: number }> = [];
+    for (const pres of presentacionesActivas) {
+      const n = Number(cantidades[pres.id] ?? 0);
+      if (!Number.isFinite(n) || n < 0) {
+        onMessage({
+          type: "error",
+          text: `Cantidad invalida en ${pres.nombre_presentacion}: ${cantidades[pres.id]}`,
+        });
+        return;
+      }
+      presPayload.push({ id: pres.id, cantidad: n });
+    }
+    const nSueltas = Number(sueltasInput ?? 0);
+    if (!Number.isFinite(nSueltas) || nSueltas < 0) {
+      onMessage({ type: "error", text: "Unidades sueltas invalidas." });
       return;
     }
+
     setIsSaving(true);
-    // Construir observacion descriptiva (Saco +2, Caja -1, etc.)
     const detallesObs = presentacionesActivas
-      .filter((p) => {
-        const n = Number(deltas[p.id]);
-        return Number.isFinite(n) && n !== 0;
-      })
-      .map((p) => {
-        const n = Number(deltas[p.id]);
-        return `${p.nombre_presentacion} ${n > 0 ? "+" : ""}${n}`;
-      });
-    const nBase = Number(deltaBase);
-    if (Number.isFinite(nBase) && nBase !== 0) {
-      detallesObs.push(`${unidadBase} ${nBase > 0 ? "+" : ""}${nBase}`);
-    }
-    const obs = `Edicion por presentacion: ${detallesObs.join(", ")} (= ${cambioTotalBase > 0 ? "+" : ""}${cambioTotalBase} ${unidadBase})`;
-    const { error } = await supabase.rpc("ajustar_stock", {
+      .map((p) => `${p.nombre_presentacion}=${cantidades[p.id] ?? 0}`)
+      .join(", ");
+    const obs = `Desglose guardado: ${detallesObs}, sueltas=${nSueltas} (total ${totalProyectado} ${unidadBase})`;
+
+    const { error } = await supabase.rpc("guardar_stock_desglosado", {
       p_producto_id: stockProductoId,
       p_almacen_id: almacen.id,
-      p_stock_contado: stockProyectado,
+      p_presentaciones: presPayload,
+      p_unidades_sueltas: nSueltas,
       p_observacion: obs,
       p_usuario_id: null,
     });
@@ -455,10 +531,8 @@ function AlmacenSection({
     }
     onMessage({
       type: "success",
-      text: `${almacen.nombre}: ${stockBase} → ${stockProyectado} ${unidadBase} (${cambioTotalBase > 0 ? "+" : ""}${cambioTotalBase})`,
+      text: `${almacen.nombre}: ${stockBase} → ${totalProyectado} ${unidadBase}`,
     });
-    setDeltas({});
-    setDeltaBase("");
     onSaved();
   }
 
@@ -476,10 +550,11 @@ function AlmacenSection({
           <span className="text-sm font-medium text-slate-500">{unidadBase}</span>
         </p>
         {hayCambios ? (
-          <p className={`text-sm font-semibold ${stockProyectado < 0 ? "text-rose-700" : "text-emerald-700"}`}>
-            → {formatNum(stockProyectado)} {unidadBase}
+          <p className="text-sm font-semibold text-emerald-700">
+            → {formatNum(totalProyectado)} {unidadBase}
             <span className="ml-1 text-xs">
-              ({cambioTotalBase > 0 ? "+" : ""}{formatNum(cambioTotalBase)})
+              ({totalProyectado - stockBase >= 0 ? "+" : ""}
+              {formatNum(totalProyectado - stockBase)})
             </span>
           </p>
         ) : null}
@@ -488,7 +563,9 @@ function AlmacenSection({
         </span>
       </div>
 
-      {/* Desglose editable por presentacion (centro) */}
+      {/* Cantidad ABSOLUTA editable por presentacion (centro).
+          Lo que tipea el usuario es lo que se guarda — no se recalcula
+          entre presentaciones. */}
       <div className="space-y-1.5">
         {presentacionesActivas.length === 0 ? (
           <p className="rounded bg-slate-50 px-3 py-2 text-xs text-slate-500">
@@ -498,11 +575,10 @@ function AlmacenSection({
         ) : (
           presentacionesActivas.map((pres) => {
             const factor = Number(pres.unidades_por_presentacion);
-            const enteras = factor > 0 ? Math.floor(stockBase / factor) : 0;
-            const sueltas = factor > 0 ? stockBase - enteras * factor : stockBase;
-            const deltaVal = deltas[pres.id] ?? "";
-            const deltaNum = Number(deltaVal);
-            const validDelta = deltaVal.trim() !== "" && Number.isFinite(deltaNum);
+            const valGuardado = desgloseGuardado[pres.id] ?? 0;
+            const valEditado = cantidades[pres.id] ?? "0";
+            const numEditado = Number(valEditado);
+            const cambio = Number.isFinite(numEditado) && numEditado !== valGuardado;
             return (
               <div
                 key={pres.id}
@@ -512,27 +588,25 @@ function AlmacenSection({
                   {pres.nombre_presentacion}{" "}
                   <span className="text-xs text-slate-400">(x{factor})</span>
                 </span>
-                <span className="text-xs text-slate-700">
-                  <strong>{enteras}</strong> ent.{" "}
-                  <span className="text-slate-500">
-                    + {formatNum(sueltas)} {unidadBase}
-                  </span>
+                <span className="text-xs text-slate-500">
+                  {factor > 0 && Number.isFinite(numEditado)
+                    ? `= ${formatNum(numEditado * factor)} ${unidadBase}`
+                    : ""}
                 </span>
                 <input
                   type="number"
-                  step="0.01"
-                  value={deltaVal}
+                  min="0"
+                  step="1"
+                  value={valEditado}
                   onChange={(e) =>
-                    setDeltas((curr) => ({ ...curr, [pres.id]: e.target.value }))
+                    setCantidades((curr) => ({ ...curr, [pres.id]: e.target.value }))
                   }
                   onFocus={selectOnFocus}
-                  placeholder="+1 / -1"
-                  title={`Sumar/restar ${pres.nombre_presentacion}. +1 = +${factor} ${unidadBase}`}
-                  className={`h-8 w-full rounded border px-2 text-right text-sm ${
-                    validDelta && deltaNum !== 0
-                      ? deltaNum > 0
-                        ? "border-emerald-300 bg-emerald-50"
-                        : "border-rose-300 bg-rose-50"
+                  placeholder="0"
+                  title={`Cantidad real de ${pres.nombre_presentacion} (no se mezcla con otras)`}
+                  className={`h-8 w-full rounded border px-2 text-right text-sm font-semibold ${
+                    cambio
+                      ? "border-emerald-400 bg-emerald-50 text-emerald-900"
                       : "border-slate-300"
                   }`}
                 />
@@ -540,25 +614,24 @@ function AlmacenSection({
             );
           })
         )}
-        {/* Unidad base siempre al final, tambien editable */}
+        {/* Unidades sueltas (las que NO estan en ninguna presentacion) */}
         <div className="grid items-center gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-sm sm:grid-cols-[1fr_auto_110px]">
-          <span className="text-slate-700">Unidad base ({unidadBase})</span>
-          <span className="text-xs font-semibold text-slate-700">
-            {formatNum(stockBase)}
+          <span className="text-slate-700">
+            Sueltas <span className="text-xs text-slate-400">({unidadBase})</span>
           </span>
+          <span className="text-xs text-slate-500">unidades sueltas</span>
           <input
             type="number"
+            min="0"
             step="0.01"
-            value={deltaBase}
-            onChange={(e) => setDeltaBase(e.target.value)}
+            value={sueltasInput}
+            onChange={(e) => setSueltasInput(e.target.value)}
             onFocus={selectOnFocus}
-            placeholder="+5 / -2"
-            title={`Sumar/restar ${unidadBase} sueltas`}
-            className={`h-8 w-full rounded border px-2 text-right text-sm ${
-              deltaBase.trim() !== "" && Number(deltaBase) !== 0
-                ? Number(deltaBase) > 0
-                  ? "border-emerald-300 bg-emerald-50"
-                  : "border-rose-300 bg-rose-50"
+            placeholder="0"
+            title={`Unidades sueltas en ${unidadBase} (fuera de presentaciones)`}
+            className={`h-8 w-full rounded border px-2 text-right text-sm font-semibold ${
+              Number(sueltasInput ?? 0) !== sueltasGuardadas
+                ? "border-emerald-400 bg-emerald-50 text-emerald-900"
                 : "border-slate-300"
             }`}
           />
@@ -572,7 +645,7 @@ function AlmacenSection({
           >
             {isSaving
               ? "Guardando..."
-              : `Guardar (${cambioTotalBase > 0 ? "+" : ""}${formatNum(cambioTotalBase)} ${unidadBase})`}
+              : `Guardar (total ${formatNum(totalProyectado)} ${unidadBase})`}
           </button>
         ) : null}
       </div>
