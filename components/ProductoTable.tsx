@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { getBaseStockByName } from "@/lib/inventoryUtils";
 import type {
   Almacen,
   Categoria,
@@ -61,27 +62,21 @@ function formatStock(value: number | null) {
   return Number(value ?? 0).toFixed(2).replace(/\.00$/, "");
 }
 
-function getStockTotal(producto: ProductoConRelaciones) {
-  return (producto.producto_almacen ?? []).reduce(
-    (sum, stock) => sum + Number(stock.stock_actual ?? 0),
-    0,
-  );
-}
-
+/**
+ * Suma actual + delta de cada almacen para mostrar el total proyectado.
+ * Si el usuario aun no edito, devuelve el stock total actual sumando filas.
+ */
 function quickStockTotal(
   values: QuickValues[string] | undefined,
   producto: ProductoConRelaciones,
 ) {
-  if (!values) {
-    return getStockTotal(producto);
-  }
-
-  const tienda = Number(values.stock_tienda);
-  const casa = Number(values.stock_casa);
-  return (
-    (Number.isFinite(tienda) ? tienda : 0) +
-    (Number.isFinite(casa) ? casa : 0)
-  );
+  const tiendaActual = getBaseStockByName(producto, "Tienda");
+  const casaActual = getBaseStockByName(producto, "Casa");
+  const deltaT = values?.stock_tienda ? Number(values.stock_tienda) : 0;
+  const deltaC = values?.stock_casa ? Number(values.stock_casa) : 0;
+  const t = tiendaActual + (Number.isFinite(deltaT) ? deltaT : 0);
+  const c = casaActual + (Number.isFinite(deltaC) ? deltaC : 0);
+  return t + c;
 }
 
 /**
@@ -150,8 +145,18 @@ export function ProductoTable({
               <th className="px-3 py-3 font-medium">Producto</th>
               <th className="px-3 py-3 font-medium">Marca</th>
               <th className="px-3 py-3 font-medium">Stock total</th>
-              <th className="px-3 py-3 font-medium">Stock tienda</th>
-              <th className="px-3 py-3 font-medium">Stock casa</th>
+              <th className="px-3 py-3 font-medium">
+                Tienda
+                <span className="ml-1 text-[10px] font-normal normal-case text-slate-400">
+                  (actual · sumar/restar)
+                </span>
+              </th>
+              <th className="px-3 py-3 font-medium">
+                Casa
+                <span className="ml-1 text-[10px] font-normal normal-case text-slate-400">
+                  (actual · sumar/restar)
+                </span>
+              </th>
               <th className="px-3 py-3 font-medium">Stock minimo</th>
               <th className="px-3 py-3 font-medium">Costo unidad</th>
               <th className="px-3 py-3 font-medium">Precio venta</th>
@@ -201,16 +206,18 @@ export function ProductoTable({
                     {formatStock(quickStockTotal(quickValues[producto.id], producto))}
                   </td>
                   <td className="px-3 py-3">
-                    <StockInput
-                      value={quickValues[producto.id]?.stock_tienda ?? ""}
+                    <DeltaStockCell
+                      actual={getBaseStockByName(producto, "Tienda")}
+                      delta={quickValues[producto.id]?.stock_tienda ?? ""}
                       onChange={(value) =>
                         onQuickValueChange(producto.id, "stock_tienda", value)
                       }
                     />
                   </td>
                   <td className="px-3 py-3">
-                    <StockInput
-                      value={quickValues[producto.id]?.stock_casa ?? ""}
+                    <DeltaStockCell
+                      actual={getBaseStockByName(producto, "Casa")}
+                      delta={quickValues[producto.id]?.stock_casa ?? ""}
                       onChange={(value) =>
                         onQuickValueChange(producto.id, "stock_casa", value)
                       }
@@ -347,19 +354,21 @@ export function ProductoTable({
               </dl>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <StockInput
-                  value={quickValues[producto.id]?.stock_tienda ?? ""}
+                <DeltaStockCell
+                  actual={getBaseStockByName(producto, "Tienda")}
+                  delta={quickValues[producto.id]?.stock_tienda ?? ""}
                   onChange={(value) =>
                     onQuickValueChange(producto.id, "stock_tienda", value)
                   }
-                  placeholder="Stock Tienda"
+                  almacenLabel="Tienda"
                 />
-                <StockInput
-                  value={quickValues[producto.id]?.stock_casa ?? ""}
+                <DeltaStockCell
+                  actual={getBaseStockByName(producto, "Casa")}
+                  delta={quickValues[producto.id]?.stock_casa ?? ""}
                   onChange={(value) =>
                     onQuickValueChange(producto.id, "stock_casa", value)
                   }
-                  placeholder="Stock Casa"
+                  almacenLabel="Casa"
                 />
                 <StockInput
                   value={quickValues[producto.id]?.stock_minimo ?? ""}
@@ -418,6 +427,62 @@ function StockInput({
       placeholder={placeholder}
       className="h-9 w-full rounded-md border border-slate-300 px-2 text-sm lg:w-24"
     />
+  );
+}
+
+/**
+ * Celda de stock con SUMA/RESTA explicita.
+ * Muestra arriba el stock actual (no-editable) y debajo un input para
+ * sumar (positivo) o restar (negativo). Cuando el usuario escribe,
+ * muestra el TOTAL proyectado para que sepa que va a quedar al guardar.
+ *
+ * Esto evita el bug clasico de "puse 10 pero reemplazo los 60 que ya
+ * tenia" — ahora poner "10" significa "sumo 10, queda 70".
+ */
+function DeltaStockCell({
+  actual,
+  delta,
+  onChange,
+  almacenLabel,
+}: {
+  actual: number;
+  delta: string;
+  onChange: (value: string) => void;
+  almacenLabel?: string;
+}) {
+  const deltaNum = Number(delta);
+  const valid = delta.trim() !== "" && Number.isFinite(deltaNum);
+  const proyectado = valid ? actual + deltaNum : actual;
+  const showProyeccion = valid && deltaNum !== 0;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline gap-1 text-xs text-slate-500">
+        <span className="font-medium text-slate-700">
+          {almacenLabel ? almacenLabel + " " : ""}Actual:
+        </span>
+        <span className="font-bold text-slate-950">{actual}</span>
+        {showProyeccion ? (
+          <span className={proyectado < 0 ? "text-red-700" : "text-emerald-700"}>
+            → {proyectado}
+          </span>
+        ) : null}
+      </div>
+      <input
+        type="number"
+        step="0.01"
+        value={delta}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={`+5 o -2`}
+        title="Cantidad a sumar (positivo) o restar (negativo). Dejar vacio = no tocar."
+        className={`h-9 w-full rounded-md border px-2 text-sm lg:w-24 ${
+          showProyeccion
+            ? proyectado < 0
+              ? "border-red-300 bg-red-50"
+              : "border-emerald-300 bg-emerald-50"
+            : "border-slate-300"
+        }`}
+      />
+    </div>
   );
 }
 

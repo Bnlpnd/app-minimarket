@@ -397,14 +397,18 @@ export function AlmacenAgregarStock() {
       setIsSaving(false);
     }
 
+    const almacenNombre =
+      almacenes.find((a) => a.id === almacenIngresoId)?.nombre ?? "almacen";
+    const stockNuevo = actual + totalIngreso;
     setCantidadPresentaciones("1");
     setUnidadesSueltas("0");
     setFechaVencimiento("");
     setMessage({
       type: "success",
-      text: fechaVencimiento
-        ? `Se agregaron ${formatStock(totalIngreso)} unidades base y se registro el lote.`
-        : `Se agregaron ${formatStock(totalIngreso)} unidades base.`,
+      text:
+        `✓ Se agregaron ${formatStock(totalIngreso)} ${productoIngreso.unidad_base ?? "und"} a ${almacenNombre} ` +
+        `(${actual} → ${stockNuevo})` +
+        (fechaVencimiento ? " · lote registrado" : ""),
     });
     await loadProductos();
   }
@@ -433,16 +437,33 @@ export function AlmacenAgregarStock() {
               placeholder="Buscar producto..."
             />
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Almacen</span>
-            <select value={almacenIngresoId} onChange={(event) => setAlmacenIngresoId(event.target.value)} className={inputClassName}>
-              {almacenes.map((almacen) => (
-                <option key={almacen.id} value={almacen.id}>
-                  {almacen.nombre}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="block">
+            <span className="mb-1 block text-xs font-semibold text-slate-700">
+              Almacen destino <span className="text-red-600">*</span>
+            </span>
+            <div className="flex gap-1 rounded-md border border-slate-300 bg-white p-1">
+              {almacenes.map((almacen) => {
+                const isSelected = almacen.id === almacenIngresoId;
+                const isCasa = almacen.nombre.toLowerCase() === "casa";
+                return (
+                  <button
+                    key={almacen.id}
+                    type="button"
+                    onClick={() => setAlmacenIngresoId(almacen.id)}
+                    className={`flex-1 h-9 rounded text-sm font-semibold transition ${
+                      isSelected
+                        ? isCasa
+                          ? "bg-blue-600 text-white shadow"
+                          : "bg-emerald-600 text-white shadow"
+                        : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {almacen.nombre}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           {presentacionesCompraOrdenadas.length > 1 ? (
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Presentacion</span>
@@ -481,10 +502,35 @@ export function AlmacenAgregarStock() {
             Agregar stock
           </button>
         </div>
-        <p className="mt-3 text-sm text-slate-500">
-          Presentacion: {productoIngreso?.presentacion ?? "sin producto"} | unidades por presentacion: {formatStock(unidadesPorPresentacion)} | se agregaran {formatStock(totalIngreso)} {productoIngreso?.unidad_base?.trim() || "unidades base"}
-          {fechaVencimiento ? ` | vence ${fechaVencimiento.split("-").reverse().join("/")}` : ""}.
-        </p>
+        {productoIngreso && almacenIngresoId ? (() => {
+          const almacenNombre =
+            almacenes.find((a) => a.id === almacenIngresoId)?.nombre ?? "?";
+          const actual = stockForAlmacen(productoIngreso, almacenIngresoId);
+          const nuevo = actual + totalIngreso;
+          const isCasa = almacenNombre.toLowerCase() === "casa";
+          return (
+            <p
+              className={`mt-3 rounded-md border p-3 text-sm ${
+                isCasa
+                  ? "border-blue-200 bg-blue-50 text-blue-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
+              }`}
+            >
+              <strong>Se sumara a {almacenNombre}:</strong>{" "}
+              {formatStock(totalIngreso)} {productoIngreso.unidad_base?.trim() || "unidades"}
+              {" "}
+              ({cantidadPresentaciones} pres. × {formatStock(unidadesPorPresentacion)}
+              {" + "}{unidadesSueltas} sueltas)
+              {" · "}
+              Stock {almacenNombre}: <strong>{formatStock(actual)} → {formatStock(nuevo)}</strong>
+              {fechaVencimiento ? ` · vence ${fechaVencimiento.split("-").reverse().join("/")}` : ""}
+            </p>
+          );
+        })() : (
+          <p className="mt-3 text-sm text-slate-500">
+            Selecciona producto y almacen para ver la previsualizacion.
+          </p>
+        )}
         {productoIngreso?.producto_base_id && productoIngreso.producto_base ? (
           <p className="mt-2 text-sm text-emerald-700">
             Stock se suma al producto base &quot;{productoIngreso.producto_base.nombre_producto ?? "(base)"}&quot;.

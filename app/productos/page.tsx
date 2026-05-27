@@ -9,7 +9,10 @@ import { ProductoTable } from "@/components/ProductoTable";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import type { ProductoConRelaciones } from "@/components/ProductoTable";
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
-import { getBaseStockByName } from "@/lib/inventoryUtils";
+import {
+  getBaseStockByName,
+  getStockProductId,
+} from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
@@ -45,6 +48,10 @@ const inputClassName =
   "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
 function buildQuickValues(productos: ProductoConRelaciones[]) {
+  // stock_tienda y stock_casa son DELTAS (sumar/restar), no totales.
+  // Arrancan vacios para que el usuario solo tipee lo que quiere agregar.
+  // Los demas campos arrancan con valor actual porque son reemplazos
+  // logicos (precio, stock minimo).
   return Object.fromEntries(
     productos.map((producto) => [
       producto.id,
@@ -55,8 +62,8 @@ function buildQuickValues(productos: ProductoConRelaciones[]) {
             : "",
         precio_venta: String(Number(producto.precio_venta ?? 1).toFixed(2)),
         stock_minimo: String(Number(producto.stock_minimo ?? 10)),
-        stock_tienda: String(getBaseStockByName(producto, "Tienda")),
-        stock_casa: String(getBaseStockByName(producto, "Casa")),
+        stock_tienda: "",
+        stock_casa: "",
       },
     ]),
   );
@@ -319,8 +326,12 @@ export default function ProductosPage() {
     const values = quickValues[producto.id];
     const precioVenta = Number(values?.precio_venta);
     const stockMinimo = Number(values?.stock_minimo);
-    const stockTienda = Number(values?.stock_tienda);
-    const stockCasa = Number(values?.stock_casa);
+    // stock_tienda/casa son DELTAS (lo que se SUMA). Vacio = no tocar.
+    const deltaTiendaRaw = values?.stock_tienda ?? "";
+    const deltaCasaRaw = values?.stock_casa ?? "";
+    const deltaTienda = deltaTiendaRaw.trim() === "" ? null : Number(deltaTiendaRaw);
+    const deltaCasa = deltaCasaRaw.trim() === "" ? null : Number(deltaCasaRaw);
+
     // Costo unidad puede quedar vacio (se guarda como null).
     const precioCompraRaw = values?.precio_compra ?? "";
     let precioCompra: number | null = null;
@@ -343,23 +354,31 @@ export default function ProductosPage() {
       return;
     }
 
-    if (!Number.isFinite(stockTienda) || stockTienda < 0) {
-      setMessage({ type: "error", text: "Stock Tienda invalido." });
+    if (deltaTienda !== null && !Number.isFinite(deltaTienda)) {
+      setMessage({ type: "error", text: "Ajuste Tienda invalido." });
+      return;
+    }
+    if (deltaCasa !== null && !Number.isFinite(deltaCasa)) {
+      setMessage({ type: "error", text: "Ajuste Casa invalido." });
       return;
     }
 
-    if (!Number.isFinite(stockCasa) || stockCasa < 0) {
-      setMessage({ type: "error", text: "Stock Casa invalido." });
-      return;
-    }
-
+    // Resolver al producto base para escribir el stock real (si el producto
+    // es una presentacion vinculada, el stock vive en el base).
+    const stockProductoId = getStockProductId(producto);
     const tiendaId = getAlmacenIdByName(producto, "Tienda", almacenes);
     const casaId = getAlmacenIdByName(producto, "Casa", almacenes);
 
-    for (const [almacenId, stockContado, label] of [
-      [tiendaId, stockTienda, "Tienda"],
-      [casaId, stockCasa, "Casa"],
-    ] as Array<[string | null, number, string]>) {
+    // Stock actual desde el producto base (no del producto si es presentacion).
+    const stockActualTienda = getBaseStockByName(producto, "Tienda");
+    const stockActualCasa = getBaseStockByName(producto, "Casa");
+    const cambios: string[] = [];
+
+    for (const [almacenId, delta, actual, label] of [
+      [tiendaId, deltaTienda, stockActualTienda, "Tienda"],
+      [casaId, deltaCasa, stockActualCasa, "Casa"],
+    ] as Array<[string | null, number | null, number, string]>) {
+      if (delta === null || delta === 0) continue; // nada que hacer
       if (!almacenId) {
         setMessage({
           type: "error",
@@ -368,11 +387,23 @@ export default function ProductosPage() {
         return;
       }
 
+      const nuevoStock = actual + delta;
+      if (nuevoStock < 0) {
+        setMessage({
+          type: "error",
+          text: `Ajuste ${label} dejaria stock en negativo (${nuevoStock}). Actual: ${actual}.`,
+        });
+        return;
+      }
+
       const stockResult = await supabase.rpc("ajustar_stock", {
-        p_producto_id: producto.id,
+        p_producto_id: stockProductoId,
         p_almacen_id: almacenId,
-        p_stock_contado: stockContado,
-        p_observacion: `Ajuste rapido desde productos (${label})`,
+        p_stock_contado: nuevoStock,
+        p_observacion:
+          (delta > 0 ? "+" : "") +
+          `${delta} desde productos (${label}). ` +
+          `${actual} -> ${nuevoStock}.`,
         p_usuario_id: null,
       });
 
@@ -383,6 +414,7 @@ export default function ProductosPage() {
         });
         return;
       }
+      cambios.push(`${label} ${actual} -> ${nuevoStock} (${delta > 0 ? "+" : ""}${delta})`);
     }
 
     const { error } = await supabase
@@ -402,7 +434,13 @@ export default function ProductosPage() {
       return;
     }
 
-    setMessage({ type: "success", text: "Producto actualizado." });
+    setMessage({
+      type: "success",
+      text:
+        cambios.length > 0
+          ? `Producto actualizado. ${cambios.join(" · ")}`
+          : "Producto actualizado.",
+    });
     await loadProductos(page);
   }
 
