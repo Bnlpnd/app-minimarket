@@ -21,6 +21,7 @@ import type {
 import { AttendanceWeekBlock } from "@/components/personal/AttendanceWeekBlock";
 import { DiscountWeekBlock } from "@/components/personal/DiscountWeekBlock";
 import { PaymentHistoryBlock } from "@/components/personal/PaymentHistoryBlock";
+import { Toast } from "@/components/ui/Toast";
 
 type InternalRole = "admin" | "trabajador";
 type ActiveTab = "listado" | "pagos";
@@ -925,17 +926,7 @@ export function PersonalModule() {
 
   return (
     <div className="space-y-5">
-      {message ? (
-        <div
-          className={`rounded-lg border p-4 text-sm ${
-            message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
-      ) : null}
+      <Toast message={message} onDismiss={() => setMessage(null)} />
 
       {tab === "listado" ? (
         <>

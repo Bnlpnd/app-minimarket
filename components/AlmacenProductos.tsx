@@ -28,6 +28,7 @@ import {
 } from "@/lib/inventoryUtils";
 import { colors, colorsForAlmacen, stockChipClass } from "@/lib/theme";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { Toast } from "@/components/ui/Toast";
 import type {
   Almacen,
   Categoria,
@@ -210,13 +211,7 @@ export function AlmacenProductos() {
 
   return (
     <div className="space-y-5">
-      {message ? (
-        <div className={`rounded-lg border p-4 text-sm ${
-          message.type === "success" ? colors.feedbackSuccess : colors.feedbackError
-        }`}>
-          {message.text}
-        </div>
-      ) : null}
+      <Toast message={message} onDismiss={() => setMessage(null)} />
 
       <section className={`rounded-lg border ${colors.panelBorder} ${colors.panelBg} p-4 shadow-sm`}>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">

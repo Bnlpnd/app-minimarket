@@ -7,6 +7,7 @@ import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import { normalizePhonePe, validatePhonePe } from "@/lib/validators";
+import { Toast } from "@/components/ui/Toast";
 import type { Proveedor } from "@/types/database";
 
 type FormValues = {
@@ -208,17 +209,7 @@ export function ProveedoresModule() {
 
   return (
     <div className="space-y-5">
-      {message ? (
-        <div
-          className={`rounded-lg border p-4 text-sm ${
-            message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
-      ) : null}
+      <Toast message={message} onDismiss={() => setMessage(null)} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-1">

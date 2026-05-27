@@ -13,6 +13,7 @@ import {
   labelOrigenLote,
 } from "@/lib/loteUtils";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
+import { Toast } from "@/components/ui/Toast";
 import type {
   Almacen,
   LoteEstadoVencimiento,
@@ -153,17 +154,7 @@ export function AlmacenVencimientos() {
 
   return (
     <div className="space-y-5">
-      {message ? (
-        <div
-          className={`rounded-lg border p-4 text-sm ${
-            message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          {message.text}
-        </div>
-      ) : null}
+      <Toast message={message} onDismiss={() => setMessage(null)} />
 
       {/* Resumen rapido con chips por estado. */}
       <section className="grid gap-3 sm:grid-cols-3">
