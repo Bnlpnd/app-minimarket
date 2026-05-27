@@ -450,6 +450,13 @@ function AlmacenSection({
         >
           Agregar stock
         </Link>
+        <Link
+          href={`/almacen/ajustes?producto=${stockProductoId}&almacen=${almacen.id}`}
+          className="inline-flex h-9 items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-3 text-xs font-medium text-amber-800 hover:bg-amber-100"
+          title="Corregir stock por conteo fisico"
+        >
+          Corregir
+        </Link>
       </div>
     </div>
   );

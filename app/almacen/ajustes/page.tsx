@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AlmacenAjustes } from "@/components/AlmacenAjustes";
 import { Layout } from "@/components/Layout";
 
@@ -6,10 +7,12 @@ export const dynamic = "force-dynamic";
 export default function AjustesAlmacenPage() {
   return (
     <Layout
-      title="Ajustes de inventario"
-      description="Corrige stock segun conteo fisico y registra el movimiento."
+      title="Corregir / Ajustar stock"
+      description="Corrige el stock real contado y queda registrado como ajuste en el historial."
     >
-      <AlmacenAjustes />
+      <Suspense fallback={<p className="text-sm text-slate-500">Cargando...</p>}>
+        <AlmacenAjustes />
+      </Suspense>
     </Layout>
   );
 }

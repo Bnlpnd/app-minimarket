@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getBaseStockByAlmacen, getStockProductId } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
@@ -40,6 +41,10 @@ function formatStock(value: number) {
 }
 
 export function AlmacenAjustes() {
+  const searchParams = useSearchParams();
+  const productoQueryId = searchParams.get("producto");
+  const almacenQueryId = searchParams.get("almacen");
+
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [productos, setProductos] = useState<ProductoRow[]>([]);
   const [search, setSearch] = useState("");
@@ -143,7 +148,46 @@ export function AlmacenAjustes() {
     void loadAlmacenes();
   }, []);
 
+  // Si la URL trae ?producto=ID, precargarlo (busca por id, no por texto).
   useEffect(() => {
+    if (!productoQueryId || !supabase) return;
+    void (async () => {
+      const { data } = await supabase!
+        .from("productos")
+        .select("id,codigo_interno,nombre_producto,producto_base_id,producto_almacen(almacen_id,stock_actual)")
+        .eq("id", productoQueryId)
+        .maybeSingle();
+      if (!data) return;
+      const row = data as ProductoRow;
+      // Resolver base si corresponde
+      if (row.producto_base_id) {
+        const { data: baseRow } = await supabase!
+          .from("productos")
+          .select("id,nombre_producto,producto_almacen(almacen_id,stock_actual)")
+          .eq("id", row.producto_base_id)
+          .maybeSingle();
+        if (baseRow) {
+          row.producto_base = baseRow as unknown as ProductoRow["producto_base"];
+        }
+      }
+      setProductos([row]);
+      setProductoId(row.id);
+      setSearch(row.nombre_producto);
+      setMessage({
+        type: "success",
+        text: "Producto preseleccionado. Conta lo que hay realmente y guarda el ajuste.",
+      });
+    })();
+  }, [productoQueryId]);
+
+  useEffect(() => {
+    if (almacenQueryId) setAlmacenId(almacenQueryId);
+  }, [almacenQueryId]);
+
+  useEffect(() => {
+    // Si vino preseleccionado por URL, no re-buscar al setear search
+    // (porque setSearch puede dispararlo y romper la seleccion).
+    if (productoQueryId && productoId === productoQueryId) return;
     const timeoutId = window.setTimeout(() => {
       void searchProductos();
     }, 350);
