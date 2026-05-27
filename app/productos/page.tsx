@@ -14,6 +14,10 @@ import {
   getStockProductId,
 } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
+import {
+  deleteProducto,
+  fetchProductosNoEliminables,
+} from "@/lib/productoDelete";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import type { Almacen, Categoria, Marca, Subcategoria } from "@/types/database";
@@ -98,8 +102,14 @@ export default function ProductosPage() {
   const [marcaId, setMarcaId] = useState("");
   const [estadoFilter, setEstadoFilter] = useState<EstadoFilter>("todos");
   const [hasAccess, setHasAccess] = useState(false);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [accessMessage, setAccessMessage] = useState("");
+  // Productos que NO se pueden eliminar (porque tienen ventas o son base).
+  const [productosNoEliminables, setProductosNoEliminables] = useState<Set<string>>(
+    new Set(),
+  );
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [quickValues, setQuickValues] = useState<QuickValues>({});
@@ -158,6 +168,7 @@ export default function ProductosPage() {
     const { profile } = await getCurrentUserProfile();
     const allowed = isAdmin(profile) || isTrabajador(profile);
 
+    setIsAdminUser(isAdmin(profile));
     setHasAccess(allowed);
     setAccessMessage(
       allowed
@@ -288,6 +299,16 @@ export default function ProductosPage() {
     setTotalCount(allRows.length);
     setQuickValues(buildQuickValues(rows));
     setIsLoading(false);
+
+    // Precargar set de productos no eliminables (admin only).
+    if (isAdminUser) {
+      void loadProductosNoEliminables();
+    }
+  }
+
+  async function loadProductosNoEliminables() {
+    const set = await fetchProductosNoEliminables();
+    setProductosNoEliminables(set);
   }
 
   useEffect(() => {
@@ -469,10 +490,39 @@ export default function ProductosPage() {
     await loadProductos(page);
   }
 
+  async function handleDelete(producto: ProductoConRelaciones) {
+    if (!isAdminUser) {
+      setMessage({ type: "error", text: "Solo administradores pueden eliminar." });
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const ok = window.confirm(
+        `¿Eliminar "${producto.nombre_producto}"? Esta accion es permanente y borra stock, lotes e imagen.`,
+      );
+      if (!ok) return;
+    }
+    setDeletingId(producto.id);
+    setMessage(null);
+    const result = await deleteProducto(producto.id, producto.imagen_url);
+    setDeletingId(null);
+    if (!result.ok) {
+      setMessage({ type: "error", text: result.reason });
+      // Recargar set por si cambio el estado (alguien creo una venta)
+      void loadProductosNoEliminables();
+      return;
+    }
+    setMessage({
+      type: "success",
+      text: `Producto "${producto.nombre_producto}" eliminado.`,
+    });
+    await loadProductos(page);
+  }
+
   return (
     <Layout
       title="Productos"
       description="Busca, filtra y edita datos rapidos del catalogo."
+      wide
     >
       <div className="space-y-5">
         {isCheckingAccess ? (
@@ -597,6 +647,13 @@ export default function ProductosPage() {
               onQuickValueChange={handleQuickValueChange}
               onQuickSave={(producto) => void handleQuickSave(producto)}
               onToggleActivo={(producto) => void handleToggleActivo(producto)}
+              onDelete={
+                isAdminUser
+                  ? (producto) => void handleDelete(producto)
+                  : undefined
+              }
+              productosNoEliminables={productosNoEliminables}
+              deletingId={deletingId}
             />
 
             <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">

@@ -52,6 +52,12 @@ type ProductoTableProps = {
   onQuickValueChange: (productoId: string, key: QuickKey, value: string) => void;
   onQuickSave: (producto: ProductoConRelaciones) => void;
   onToggleActivo: (producto: ProductoConRelaciones) => void;
+  /** Solo se muestra el boton eliminar si esta callback esta presente (admin). */
+  onDelete?: (producto: ProductoConRelaciones) => void;
+  /** IDs de productos con ventas o que son base de otra presentacion -> no eliminables. */
+  productosNoEliminables?: Set<string>;
+  /** ID del producto que se esta borrando en este momento (para deshabilitar el boton). */
+  deletingId?: string | null;
 };
 
 function formatMoney(value: number | null) {
@@ -123,6 +129,9 @@ export function ProductoTable({
   onQuickValueChange,
   onQuickSave,
   onToggleActivo,
+  onDelete,
+  productosNoEliminables,
+  deletingId,
 }: ProductoTableProps) {
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -282,6 +291,9 @@ export function ProductoTable({
                       producto={producto}
                       onQuickSave={onQuickSave}
                       onToggleActivo={onToggleActivo}
+                      onDelete={onDelete}
+                      productosNoEliminables={productosNoEliminables}
+                      deletingId={deletingId}
                     />
                   </td>
                 </tr>
@@ -398,6 +410,9 @@ export function ProductoTable({
                   producto={producto}
                   onQuickSave={onQuickSave}
                   onToggleActivo={onToggleActivo}
+                  onDelete={onDelete}
+                  productosNoEliminables={productosNoEliminables}
+                  deletingId={deletingId}
                 />
               </div>
             </article>
@@ -490,11 +505,19 @@ function Actions({
   producto,
   onQuickSave,
   onToggleActivo,
+  onDelete,
+  productosNoEliminables,
+  deletingId,
 }: {
   producto: ProductoConRelaciones;
   onQuickSave: (producto: ProductoConRelaciones) => void;
   onToggleActivo: (producto: ProductoConRelaciones) => void;
+  onDelete?: (producto: ProductoConRelaciones) => void;
+  productosNoEliminables?: Set<string>;
+  deletingId?: string | null;
 }) {
+  const noEliminable = productosNoEliminables?.has(producto.id) ?? false;
+  const isDeleting = deletingId === producto.id;
   return (
     <div className="flex flex-wrap gap-2">
       <button
@@ -523,6 +546,25 @@ function Actions({
       >
         {producto.activo ? "Desactivar" : "Activar"}
       </button>
+      {onDelete ? (
+        <button
+          type="button"
+          onClick={() => onDelete(producto)}
+          disabled={noEliminable || isDeleting}
+          title={
+            noEliminable
+              ? "No se puede eliminar: tiene ventas asociadas o es base de otra presentacion. Usa Desactivar."
+              : "Eliminar permanentemente (admin)"
+          }
+          className={`h-9 rounded-md border px-3 text-xs font-medium transition ${
+            noEliminable || isDeleting
+              ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+              : "border-red-200 bg-white text-red-700 hover:bg-red-50"
+          }`}
+        >
+          {isDeleting ? "Borrando..." : "Eliminar"}
+        </button>
+      ) : null}
     </div>
   );
 }

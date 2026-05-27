@@ -8,9 +8,11 @@ type LayoutProps = {
   title: string;
   description?: string;
   children: React.ReactNode;
+  /** Si true, usa ancho extra-amplio (95vw) en lugar del default (max-w-6xl). */
+  wide?: boolean;
 };
 
-export function Layout({ title, description, children }: LayoutProps) {
+export function Layout({ title, description, children, wide = false }: LayoutProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
@@ -41,7 +43,11 @@ export function Layout({ title, description, children }: LayoutProps) {
         <Header title={title} onMenuClick={() => setIsMenuOpen(true)} />
 
         <main className="min-h-screen">
-          <section className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <section
+            className={`mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 ${
+              wide ? "max-w-[1600px]" : "max-w-6xl"
+            }`}
+          >
             <div className="hidden md:block">
               <p className="text-sm font-medium uppercase tracking-wide text-emerald-700">
                 Minimarket Santa Ana
