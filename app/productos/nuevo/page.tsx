@@ -224,7 +224,10 @@ function ProductoNuevoContent() {
 
   async function loadProducto() {
     if (!supabase || !productoId) {
+      // Vista limpia: tanto al entrar sin ?id como al volver tras editar.
       setProductoEditando(null);
+      setPresentacionesCompra([]);
+      setPreciosMayor([]);
       return;
     }
 
@@ -716,9 +719,17 @@ function ProductoNuevoContent() {
     if (productoEditando) {
       setMessage({
         type: "success",
-        text: "Producto actualizado correctamente.",
+        text: "Producto actualizado. Abriendo formulario vacio para el siguiente...",
       });
-      await loadProducto();
+      // Despues de editar, llevar a vista limpia para registrar otro
+      // producto. Si el usuario queria ver el editado, vuelve desde el
+      // listado /productos. Pero el caso comun es "actualizo varios
+      // seguidos" o "cree -> edite -> ahora otro nuevo".
+      // Usamos replace para que "Atras" del navegador no vuelva a la
+      // edicion ya guardada.
+      setTimeout(() => {
+        router.replace(`/productos/nuevo`);
+      }, 900);
       return true;
     }
 
