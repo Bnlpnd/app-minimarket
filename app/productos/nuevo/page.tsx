@@ -722,13 +722,21 @@ function ProductoNuevoContent() {
         text: "Producto actualizado. Abriendo formulario vacio para el siguiente...",
       });
       // Despues de editar, llevar a vista limpia para registrar otro
-      // producto. Si el usuario queria ver el editado, vuelve desde el
-      // listado /productos. Pero el caso comun es "actualizo varios
-      // seguidos" o "cree -> edite -> ahora otro nuevo".
-      // Usamos replace para que "Atras" del navegador no vuelva a la
-      // edicion ya guardada.
+      // producto. Reseteamos state local INMEDIATAMENTE (no esperamos
+      // a que router.replace dispare el useEffect, que en Next 16 a
+      // veces no reacciona si solo cambia el query string).
+      // El cambio de productoEditando a null hace que el `key` del
+      // ProductoForm cambie y se re-monte con valores vacios.
+      // router.replace solo ajusta la URL para reflejar el nuevo estado.
       setTimeout(() => {
+        setProductoEditando(null);
+        setPresentacionesCompra([]);
+        setPreciosMayor([]);
         router.replace(`/productos/nuevo`);
+        // Refocus al inicio del form / scroll arriba para que se note.
+        if (typeof window !== "undefined") {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
       }, 900);
       return true;
     }
