@@ -118,20 +118,23 @@ function ProductoNuevoContent() {
 
   async function loadSugerenciasProductos() {
     if (!supabase) return;
-    // Solo se necesitan en modo crear, pero se cargan siempre porque al
-    // navegar de crear a editar y volver el componente sigue montado.
+    // Incluye activos E inactivos: si el usuario va a crear un producto
+    // que ya existe pero esta desactivado, mejor que lo vea y lo reactive
+    // en lugar de duplicarlo.
     const { data, error } = await fetchAllRows<{
       id: string;
       nombre_producto: string;
       presentacion: string | null;
       codigo_interno: string | null;
       imagen_url: string | null;
+      activo: boolean;
       marcas: { nombre: string } | { nombre: string }[] | null;
     }>(
       supabase
         .from("productos")
-        .select("id, nombre_producto, presentacion, codigo_interno, imagen_url, marcas(nombre)")
-        .eq("activo", true)
+        .select(
+          "id, nombre_producto, presentacion, codigo_interno, imagen_url, activo, marcas(nombre)",
+        )
         .order("nombre_producto"),
     );
     if (error || !data) return;
@@ -142,6 +145,7 @@ function ProductoNuevoContent() {
         presentacion: p.presentacion,
         codigo_interno: p.codigo_interno,
         imagen_url: p.imagen_url,
+        activo: p.activo,
         marca_nombre: Array.isArray(p.marcas)
           ? p.marcas[0]?.nombre
           : p.marcas?.nombre ?? null,

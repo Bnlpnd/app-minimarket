@@ -87,6 +87,8 @@ export type ProductoSugerencia = {
   presentacion: string | null;
   codigo_interno: string | null;
   imagen_url: string | null;
+  /** Si false, el producto esta desactivado (se puede reactivar editandolo). */
+  activo?: boolean;
   marca_nombre?: string | null;
 };
 
@@ -819,8 +821,15 @@ export function ProductoForm({
                         </span>
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-slate-900">
-                          {p.nombre_producto}
+                        <span className="flex items-center gap-2">
+                          <span className="block truncate font-medium text-slate-900">
+                            {p.nombre_producto}
+                          </span>
+                          {p.activo === false ? (
+                            <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-700">
+                              Inactivo
+                            </span>
+                          ) : null}
                         </span>
                         <span className="block truncate text-xs text-slate-500">
                           {[p.marca_nombre, p.presentacion, p.codigo_interno]
