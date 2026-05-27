@@ -424,25 +424,78 @@ function AlmacenSection({
   const almacenColors = colorsForAlmacen(almacen.nombre);
   const chipClass = stockChipClass(stockBase, minimo);
 
-  // Leer desglose REAL guardado en BD. Si no hay registro para una
-  // presentacion, se asume 0 (no se calcula desde el total — eso era
-  // el comportamiento viejo que confundia al usuario).
-  const desgloseGuardado = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const pres of presentacionesActivas) {
-      const key = `${stockProductoId}|${almacen.id}|${pres.id}`;
-      map[pres.id] = desgloseMap.get(key) ?? 0;
-    }
-    return map;
+  // ¿Hay desglose REAL guardado en BD para este producto+almacen?
+  // (alguna fila en producto_almacen_presentacion para esta tupla)
+  const tieneDesgloseGuardado = useMemo(() => {
+    return presentacionesActivas.some((p) =>
+      desgloseMap.has(`${stockProductoId}|${almacen.id}|${p.id}`),
+    );
   }, [desgloseMap, presentacionesActivas, stockProductoId, almacen.id]);
 
-  // Sueltas guardadas en producto_almacen.unidades_sueltas
-  const sueltasGuardadas = useMemo(() => {
+  // Sueltas guardadas en producto_almacen.unidades_sueltas (puede ser 0/null
+  // para productos legacy que nunca usaron el desglose).
+  const sueltasEnDB = useMemo(() => {
     const rows =
       producto.producto_base?.producto_almacen ?? producto.producto_almacen ?? [];
     const row = rows.find((r) => r.almacen_id === almacen.id);
     return Number(row?.unidades_sueltas ?? 0);
   }, [producto, almacen.id]);
+
+  // Cantidad "guardada" por presentacion. Si hay registros en la tabla
+  // nueva, los usa. Si no (caso legacy), CALCULA un desglose razonable
+  // desde stock_actual usando la presentacion principal/mas grande,
+  // para que el usuario no vea todo en 0 cuando si hay stock real.
+  // El calculo es solo para mostrar — al guardar, queda persistido tal
+  // cual lo tipee el usuario.
+  const desgloseGuardado = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (tieneDesgloseGuardado) {
+      for (const pres of presentacionesActivas) {
+        const key = `${stockProductoId}|${almacen.id}|${pres.id}`;
+        map[pres.id] = desgloseMap.get(key) ?? 0;
+      }
+      return map;
+    }
+    // Legacy: distribuir stock_actual usando la presentacion principal
+    // (la primera, que viene ordenada principal -> mayor factor).
+    if (presentacionesActivas.length === 0 || stockBase <= 0) {
+      for (const pres of presentacionesActivas) map[pres.id] = 0;
+      return map;
+    }
+    const principal = presentacionesActivas[0];
+    const factor = Number(principal.unidades_por_presentacion);
+    let asignadas = 0;
+    if (factor > 0) {
+      asignadas = Math.floor(stockBase / factor);
+      map[principal.id] = asignadas;
+    } else {
+      map[principal.id] = 0;
+    }
+    for (const pres of presentacionesActivas) {
+      if (!(pres.id in map)) map[pres.id] = 0;
+    }
+    return map;
+  }, [
+    tieneDesgloseGuardado,
+    desgloseMap,
+    presentacionesActivas,
+    stockProductoId,
+    almacen.id,
+    stockBase,
+  ]);
+
+  // Sueltas "guardadas" para mostrar. Si hay desglose real, usa la columna.
+  // Si no (legacy), es el RESIDUO de stock_actual menos lo que se asigno a
+  // la presentacion principal.
+  const sueltasGuardadas = useMemo(() => {
+    if (tieneDesgloseGuardado) return sueltasEnDB;
+    if (presentacionesActivas.length === 0) return stockBase;
+    const principal = presentacionesActivas[0];
+    const factor = Number(principal.unidades_por_presentacion);
+    if (factor <= 0) return stockBase;
+    const enteras = Math.floor(stockBase / factor);
+    return stockBase - enteras * factor;
+  }, [tieneDesgloseGuardado, sueltasEnDB, presentacionesActivas, stockBase]);
 
   // Valores ABSOLUTOS editables (no deltas). Arrancan con lo guardado.
   const [cantidades, setCantidades] = useState<Record<string, string>>({});
