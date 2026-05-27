@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   getBaseStockByAlmacen,
@@ -66,6 +67,8 @@ function stockForAlmacen(producto: ProductoStockRow | null, almacenId: string) {
 }
 
 export function AlmacenAgregarStock() {
+  const searchParams = useSearchParams();
+  const productoQueryId = searchParams.get("producto");
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
@@ -283,6 +286,30 @@ export function AlmacenAgregarStock() {
   useEffect(() => {
     void loadCatalogos();
   }, []);
+
+  // Si la URL trae ?producto=ID, preseleccionarlo y filtrar la busqueda
+  // para que el listado de abajo tambien lo muestre. Se dispara una sola
+  // vez al cambiar el param.
+  useEffect(() => {
+    if (!productoQueryId) return;
+    setProductoIngresoId(productoQueryId);
+    // Cargar nombre del producto para filtrar visualmente la lista de abajo.
+    if (supabase) {
+      void supabase
+        .from("productos")
+        .select("nombre_producto")
+        .eq("id", productoQueryId)
+        .maybeSingle()
+        .then(({ data }) => {
+          const nombre = (data as { nombre_producto?: string } | null)?.nombre_producto;
+          if (nombre) setSearch(nombre);
+        });
+    }
+    setMessage({
+      type: "success",
+      text: "Producto preseleccionado. Elige almacen y cantidad para sumar stock.",
+    });
+  }, [productoQueryId]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {

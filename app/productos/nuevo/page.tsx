@@ -713,16 +713,28 @@ function ProductoNuevoContent() {
       }
     }
 
+    if (productoEditando) {
+      setMessage({
+        type: "success",
+        text: "Producto actualizado correctamente.",
+      });
+      await loadProducto();
+      return true;
+    }
+
+    // Producto NUEVO: mostrar toast y redirigir a Agregar stock con el
+    // producto preseleccionado para que el usuario cargue stock sin
+    // tener que buscarlo otra vez.
+    const codigoCreado =
+      (result.data as { codigo_interno?: string } | null)?.codigo_interno ??
+      "autogenerado";
     setMessage({
       type: "success",
-      text: productoEditando
-        ? "Producto actualizado correctamente."
-        : `Producto creado correctamente con codigo ${
-            (result.data as { codigo_interno?: string } | null)?.codigo_interno ??
-            "autogenerado"
-          }.`,
+      text: `Producto creado (${codigoCreado}). Abriendo Agregar stock...`,
     });
-    await loadProducto();
+    setTimeout(() => {
+      router.push(`/almacen/agregar-stock?producto=${savedProductId}`);
+    }, 900);
     return true;
   }
 
@@ -844,15 +856,30 @@ function ProductoNuevoContent() {
         {hasAccess ? (
           <>
         {message ? (
-          <div
-            className={`rounded-lg border p-4 text-sm ${
-              message.type === "success"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-red-200 bg-red-50 text-red-700"
-            }`}
-          >
-            {message.text}
-          </div>
+          <>
+            {/* Banner inline (desktop) */}
+            <div
+              className={`hidden rounded-lg border p-4 text-sm sm:block ${
+                message.type === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-red-200 bg-red-50 text-red-700"
+              }`}
+            >
+              {message.text}
+            </div>
+            {/* Toast flotante (mobile) */}
+            <div
+              role="status"
+              aria-live="polite"
+              className={`fixed inset-x-3 top-3 z-50 rounded-lg border p-3 text-sm shadow-lg sm:hidden ${
+                message.type === "success"
+                  ? "border-emerald-300 bg-emerald-600 text-white"
+                  : "border-red-300 bg-red-600 text-white"
+              }`}
+            >
+              {message.text}
+            </div>
+          </>
         ) : null}
 
         <ProductoForm

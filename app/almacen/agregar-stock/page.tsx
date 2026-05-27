@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AlmacenAgregarStock } from "@/components/AlmacenAgregarStock";
 import { Layout } from "@/components/Layout";
 
@@ -9,7 +10,9 @@ export default function AgregarStockPage() {
       title="Agregar stock"
       description="Actualiza stock por almacen o registra ingresos segun presentacion."
     >
-      <AlmacenAgregarStock />
+      <Suspense fallback={<p className="text-sm text-slate-500">Cargando...</p>}>
+        <AlmacenAgregarStock />
+      </Suspense>
     </Layout>
   );
 }
