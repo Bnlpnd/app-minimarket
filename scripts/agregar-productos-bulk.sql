@@ -27,8 +27,10 @@
 --   precio_compra     (numero, opcional)          - costo por unidad base
 --   precio_venta      (numero, OBLIGATORIO)       - precio venta por unidad
 --   stock_minimo      (numero, default 10)
---   stock_tienda      (numero, default 0)
---   stock_casa        (numero, default 0)
+--   stock_tienda      (numero, default 0)         - en UNIDAD BASE (kg, und, lt...)
+--   stock_casa        (numero, default 0)         - en UNIDAD BASE
+--   stock_tienda_pres (numero, opcional)          - en PRESENTACIONES (sacos, cajas)
+--   stock_casa_pres   (numero, opcional)          - en PRESENTACIONES
 --   imagen_url        (texto, opcional)
 --   activo            (bool, default true)
 --   codigo_interno    (texto, opcional - si lo dejas vacio se autogenera)
@@ -37,6 +39,18 @@
 --   pres_compra_nombre        (texto)             - "Saco", "Caja", "Plancha"
 --   pres_compra_unidades      (numero)            - 49 (saco trae 49 kg)
 --   pres_compra_costo_total   (numero)            - 122.00 (costo de un saco)
+--
+-- COMO CARGAR STOCK POR PRESENTACION:
+--   Si vendes arroz por kg pero compras por saco (49 kg cada uno) y tenes
+--   3 sacos en Casa, podes cargar:
+--       "pres_compra_nombre": "Saco x49",
+--       "pres_compra_unidades": 49,
+--       "stock_casa_pres": 3,
+--       "stock_casa": 0   <-- o un sobrante en kg sueltos
+--   El script suma:  3 sacos x 49 kg + 0 kg = 147 kg en Casa.
+--
+--   Tambien podes mezclar: "stock_casa_pres": 3 y "stock_casa": 5
+--   -> 3 x 49 + 5 = 152 kg en Casa.
 --
 --   -- Lote inicial opcional (para tracking de vencimiento):
 --   lote_fecha_vto    (texto YYYY-MM-DD)
@@ -100,6 +114,24 @@ declare
       "pres_compra_nombre": "Paquete 10und",
       "pres_compra_unidades": 10,
       "pres_compra_costo_total": 2.50
+    },
+    {
+      "nombre": "Arroz pirata azul",
+      "categoria": "Abarrotes",
+      "subcategoria": "Arroz",
+      "marca": "Pirata",
+      "presentacion": "Granel",
+      "unidad_base": "kg",
+      "precio_compra": 2.49,
+      "precio_venta": 3.00,
+      "stock_minimo": 20,
+      "stock_tienda_pres": 1,
+      "stock_tienda": 5,
+      "stock_casa_pres": 3,
+      "stock_casa": 0,
+      "pres_compra_nombre": "Saco x49",
+      "pres_compra_unidades": 49,
+      "pres_compra_costo_total": 122.00
     }
   ]'::jsonb;
 
@@ -249,25 +281,53 @@ begin
       raise notice '[ACTUALIZADO] %', prod->>'nombre';
     end if;
 
-    -- ---- Stock por almacen ----
-    if coalesce((prod->>'stock_tienda')::numeric, 0) > 0 or
-       (prod ? 'stock_tienda') then
-      insert into public.producto_almacen (producto_id, almacen_id, stock_actual)
-        values (v_producto_id, v_almacen_tienda, coalesce((prod->>'stock_tienda')::numeric, 0))
-        on conflict (producto_id, almacen_id)
-        do update set stock_actual = excluded.stock_actual, updated_at = now();
-    end if;
+    -- ---- Stock por almacen (en unidad base) ----
+    -- Soporta dos formas en paralelo y las suma:
+    --   stock_<almacen>       -> ya en unidad base (kg, und, lt)
+    --   stock_<almacen>_pres  -> en presentaciones (sacos, cajas),
+    --                            se multiplica por pres_compra_unidades.
+    v_pres_unidades := nullif(prod->>'pres_compra_unidades', '')::numeric;
+    declare
+      v_stock_tienda_final numeric;
+      v_stock_casa_final   numeric;
+      v_tienda_base numeric := coalesce((prod->>'stock_tienda')::numeric, 0);
+      v_casa_base   numeric := coalesce((prod->>'stock_casa')::numeric, 0);
+      v_tienda_pres numeric := coalesce((prod->>'stock_tienda_pres')::numeric, 0);
+      v_casa_pres   numeric := coalesce((prod->>'stock_casa_pres')::numeric, 0);
+    begin
+      if (v_tienda_pres > 0 or v_casa_pres > 0) and (v_pres_unidades is null or v_pres_unidades <= 0) then
+        raise warning 'Producto % usa stock_*_pres pero no definio pres_compra_unidades; se ignoran las presentaciones.', prod->>'nombre';
+      end if;
 
-    if v_almacen_casa is not null and
-       (coalesce((prod->>'stock_casa')::numeric, 0) > 0 or (prod ? 'stock_casa')) then
-      insert into public.producto_almacen (producto_id, almacen_id, stock_actual)
-        values (v_producto_id, v_almacen_casa, coalesce((prod->>'stock_casa')::numeric, 0))
-        on conflict (producto_id, almacen_id)
-        do update set stock_actual = excluded.stock_actual, updated_at = now();
-    end if;
+      v_stock_tienda_final := v_tienda_base + (
+        case when v_pres_unidades is not null and v_pres_unidades > 0
+             then v_tienda_pres * v_pres_unidades else 0 end
+      );
+      v_stock_casa_final := v_casa_base + (
+        case when v_pres_unidades is not null and v_pres_unidades > 0
+             then v_casa_pres * v_pres_unidades else 0 end
+      );
+
+      if v_stock_tienda_final > 0
+         or (prod ? 'stock_tienda') or (prod ? 'stock_tienda_pres') then
+        insert into public.producto_almacen (producto_id, almacen_id, stock_actual)
+          values (v_producto_id, v_almacen_tienda, v_stock_tienda_final)
+          on conflict (producto_id, almacen_id)
+          do update set stock_actual = excluded.stock_actual, updated_at = now();
+      end if;
+
+      if v_almacen_casa is not null and (
+         v_stock_casa_final > 0
+         or (prod ? 'stock_casa') or (prod ? 'stock_casa_pres')) then
+        insert into public.producto_almacen (producto_id, almacen_id, stock_actual)
+          values (v_producto_id, v_almacen_casa, v_stock_casa_final)
+          on conflict (producto_id, almacen_id)
+          do update set stock_actual = excluded.stock_actual, updated_at = now();
+      end if;
+    end;
 
     -- ---- Presentacion de compra (opcional) ----
-    v_pres_unidades := nullif(prod->>'pres_compra_unidades', '')::numeric;
+    -- v_pres_unidades ya fue asignada arriba (seccion stock).
     v_pres_costo := nullif(prod->>'pres_compra_costo_total', '')::numeric;
     if coalesce(prod->>'pres_compra_nombre', '') <> ''
        and v_pres_unidades is not null
