@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { selectOnFocus } from "@/lib/inputUtils";
 import { fetchAllRows } from "@/lib/supabaseQueryUtils";
 import {
   getBaseStockByAlmacen,
@@ -28,7 +29,7 @@ import {
 } from "@/lib/inventoryUtils";
 import { colors, colorsForAlmacen, stockChipClass } from "@/lib/theme";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
-import { Toast } from "@/components/ui/Toast";
+import { Toast, type ToastMessage } from "@/components/ui/Toast";
 import type {
   Almacen,
   Categoria,
@@ -67,7 +68,7 @@ type ProductoConStock = Producto & {
 const inputClassName =
   "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
-type Message = { type: "success" | "error"; text: string };
+type Message = ToastMessage;
 
 function formatNum(n: number) {
   return Number(n ?? 0).toFixed(2).replace(/\.00$/, "");
@@ -272,6 +273,8 @@ export function AlmacenProductos() {
               key={producto.id}
               producto={producto}
               almacenes={almacenes}
+              onMessage={setMessage}
+              onSaved={() => void loadProductos()}
             />
           ))
         )}
@@ -288,9 +291,13 @@ export function AlmacenProductos() {
 function ProductoCard({
   producto,
   almacenes,
+  onMessage,
+  onSaved,
 }: {
   producto: ProductoConStock;
   almacenes: Almacen[];
+  onMessage: (m: ToastMessage) => void;
+  onSaved: () => void;
 }) {
   const unidadBase = (producto.unidad_base ?? "und").trim() || "und";
   const stockProductoId = getStockProductId(producto);
@@ -347,6 +354,8 @@ function ProductoCard({
             unidadBase={unidadBase}
             stockProductoId={stockProductoId}
             presentacionesActivas={presentacionesActivas}
+            onMessage={onMessage}
+            onSaved={onSaved}
           />
         ))}
       </div>
@@ -360,20 +369,101 @@ function AlmacenSection({
   unidadBase,
   stockProductoId,
   presentacionesActivas,
+  onMessage,
+  onSaved,
 }: {
   almacen: Almacen;
   producto: ProductoConStock;
   unidadBase: string;
   stockProductoId: string;
   presentacionesActivas: ProductoConStock["producto_presentaciones_compra"];
+  onMessage: (m: ToastMessage) => void;
+  onSaved: () => void;
 }) {
   const stockBase = getBaseStockByAlmacen(producto, almacen.id);
   const minimo = Number(producto.stock_minimo ?? 10);
   const almacenColors = colorsForAlmacen(almacen.nombre);
   const chipClass = stockChipClass(stockBase, minimo);
 
+  // Deltas por presentacion (en unidades de esa presentacion) + delta en
+  // unidad base. Al guardar: nuevo_stock = stockBase + Σ(delta_i × factor_i).
+  // Permite que el usuario diga "agregar 1 caja y 5 sueltas" sin pensar.
+  const [deltas, setDeltas] = useState<Record<string, string>>({});
+  const [deltaBase, setDeltaBase] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Calcular el cambio total proyectado en unidades base.
+  const cambioTotalBase = useMemo(() => {
+    let suma = 0;
+    for (const pres of presentacionesActivas) {
+      const v = deltas[pres.id];
+      const n = Number(v);
+      if (Number.isFinite(n) && v && v.trim() !== "") {
+        suma += n * Number(pres.unidades_por_presentacion);
+      }
+    }
+    const nBase = Number(deltaBase);
+    if (Number.isFinite(nBase) && deltaBase.trim() !== "") {
+      suma += nBase;
+    }
+    return suma;
+  }, [deltas, deltaBase, presentacionesActivas]);
+
+  const stockProyectado = stockBase + cambioTotalBase;
+  const hayCambios = cambioTotalBase !== 0;
+
+  async function guardar() {
+    if (!supabase) return;
+    if (!hayCambios) {
+      onMessage({ type: "warning", text: "No hay cambios para guardar." });
+      return;
+    }
+    if (stockProyectado < 0) {
+      onMessage({
+        type: "error",
+        text: `El resultado daria stock negativo (${stockProyectado}). Stock actual: ${stockBase}.`,
+      });
+      return;
+    }
+    setIsSaving(true);
+    // Construir observacion descriptiva (Saco +2, Caja -1, etc.)
+    const detallesObs = presentacionesActivas
+      .filter((p) => {
+        const n = Number(deltas[p.id]);
+        return Number.isFinite(n) && n !== 0;
+      })
+      .map((p) => {
+        const n = Number(deltas[p.id]);
+        return `${p.nombre_presentacion} ${n > 0 ? "+" : ""}${n}`;
+      });
+    const nBase = Number(deltaBase);
+    if (Number.isFinite(nBase) && nBase !== 0) {
+      detallesObs.push(`${unidadBase} ${nBase > 0 ? "+" : ""}${nBase}`);
+    }
+    const obs = `Edicion por presentacion: ${detallesObs.join(", ")} (= ${cambioTotalBase > 0 ? "+" : ""}${cambioTotalBase} ${unidadBase})`;
+    const { error } = await supabase.rpc("ajustar_stock", {
+      p_producto_id: stockProductoId,
+      p_almacen_id: almacen.id,
+      p_stock_contado: stockProyectado,
+      p_observacion: obs,
+      p_usuario_id: null,
+    });
+    setIsSaving(false);
+    if (error) {
+      onMessage({ type: "error", text: `No se pudo guardar: ${error.message}` });
+      return;
+    }
+    onMessage({
+      type: "success",
+      text: `${almacen.nombre}: ${stockBase} → ${stockProyectado} ${unidadBase} (${cambioTotalBase > 0 ? "+" : ""}${cambioTotalBase})`,
+    });
+    setDeltas({});
+    setDeltaBase("");
+    onSaved();
+  }
+
   return (
-    <div className="grid gap-3 p-4 md:grid-cols-[140px_minmax(0,1fr)_auto] md:items-center">
+    <div className="grid gap-3 p-4 md:grid-cols-[140px_minmax(0,1fr)_auto] md:items-start">
       {/* Almacen (izquierda) */}
       <div>
         <span
@@ -385,13 +475,21 @@ function AlmacenSection({
           {formatNum(stockBase)}{" "}
           <span className="text-sm font-medium text-slate-500">{unidadBase}</span>
         </p>
+        {hayCambios ? (
+          <p className={`text-sm font-semibold ${stockProyectado < 0 ? "text-rose-700" : "text-emerald-700"}`}>
+            → {formatNum(stockProyectado)} {unidadBase}
+            <span className="ml-1 text-xs">
+              ({cambioTotalBase > 0 ? "+" : ""}{formatNum(cambioTotalBase)})
+            </span>
+          </p>
+        ) : null}
         <span className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${chipClass}`}>
           {stockBase <= 0 ? "Sin stock" : stockBase <= minimo ? "Stock bajo" : "OK"}
         </span>
       </div>
 
-      {/* Desglose por presentacion (centro) */}
-      <div className="space-y-1">
+      {/* Desglose editable por presentacion (centro) */}
+      <div className="space-y-1.5">
         {presentacionesActivas.length === 0 ? (
           <p className="rounded bg-slate-50 px-3 py-2 text-xs text-slate-500">
             Sin presentaciones de compra registradas. Solo se cuenta en{" "}
@@ -402,32 +500,81 @@ function AlmacenSection({
             const factor = Number(pres.unidades_por_presentacion);
             const enteras = factor > 0 ? Math.floor(stockBase / factor) : 0;
             const sueltas = factor > 0 ? stockBase - enteras * factor : stockBase;
+            const deltaVal = deltas[pres.id] ?? "";
+            const deltaNum = Number(deltaVal);
+            const validDelta = deltaVal.trim() !== "" && Number.isFinite(deltaNum);
             return (
               <div
                 key={pres.id}
-                className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-1.5 text-sm"
+                className="grid items-center gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-sm sm:grid-cols-[1fr_auto_110px]"
               >
                 <span className="text-slate-700">
                   {pres.nombre_presentacion}{" "}
                   <span className="text-xs text-slate-400">(x{factor})</span>
                 </span>
-                <span className="text-slate-900">
+                <span className="text-xs text-slate-700">
                   <strong>{enteras}</strong> ent.{" "}
-                  <span className="text-xs text-slate-500">
+                  <span className="text-slate-500">
                     + {formatNum(sueltas)} {unidadBase}
                   </span>
                 </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={deltaVal}
+                  onChange={(e) =>
+                    setDeltas((curr) => ({ ...curr, [pres.id]: e.target.value }))
+                  }
+                  onFocus={selectOnFocus}
+                  placeholder="+1 / -1"
+                  title={`Sumar/restar ${pres.nombre_presentacion}. +1 = +${factor} ${unidadBase}`}
+                  className={`h-8 w-full rounded border px-2 text-right text-sm ${
+                    validDelta && deltaNum !== 0
+                      ? deltaNum > 0
+                        ? "border-emerald-300 bg-emerald-50"
+                        : "border-rose-300 bg-rose-50"
+                      : "border-slate-300"
+                  }`}
+                />
               </div>
             );
           })
         )}
-        {/* Unidad base siempre al final */}
-        <div className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-1.5 text-sm">
+        {/* Unidad base siempre al final, tambien editable */}
+        <div className="grid items-center gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-sm sm:grid-cols-[1fr_auto_110px]">
           <span className="text-slate-700">Unidad base ({unidadBase})</span>
-          <span className="font-semibold text-slate-900">
+          <span className="text-xs font-semibold text-slate-700">
             {formatNum(stockBase)}
           </span>
+          <input
+            type="number"
+            step="0.01"
+            value={deltaBase}
+            onChange={(e) => setDeltaBase(e.target.value)}
+            onFocus={selectOnFocus}
+            placeholder="+5 / -2"
+            title={`Sumar/restar ${unidadBase} sueltas`}
+            className={`h-8 w-full rounded border px-2 text-right text-sm ${
+              deltaBase.trim() !== "" && Number(deltaBase) !== 0
+                ? Number(deltaBase) > 0
+                  ? "border-emerald-300 bg-emerald-50"
+                  : "border-rose-300 bg-rose-50"
+                : "border-slate-300"
+            }`}
+          />
         </div>
+        {hayCambios ? (
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => void guardar()}
+            className={`mt-1 h-9 w-full rounded-md text-xs font-semibold ${colors.btnPrimary}`}
+          >
+            {isSaving
+              ? "Guardando..."
+              : `Guardar (${cambioTotalBase > 0 ? "+" : ""}${formatNum(cambioTotalBase)} ${unidadBase})`}
+          </button>
+        ) : null}
       </div>
 
       {/* Acciones (derecha) */}
@@ -445,17 +592,11 @@ function AlmacenSection({
           Abastecer
         </Link>
         <Link
-          href={`/almacen/agregar-stock?producto=${stockProductoId}&almacen=${almacen.id}`}
-          className={`inline-flex h-9 items-center justify-center rounded-md px-3 text-xs font-semibold ${colors.btnPrimary}`}
-        >
-          Agregar stock
-        </Link>
-        <Link
           href={`/almacen/ajustes?producto=${stockProductoId}&almacen=${almacen.id}`}
           className="inline-flex h-9 items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-3 text-xs font-medium text-amber-800 hover:bg-amber-100"
-          title="Corregir stock por conteo fisico"
+          title="Conteo fisico completo (reemplaza el total)"
         >
-          Corregir
+          Conteo físico
         </Link>
       </div>
     </div>
