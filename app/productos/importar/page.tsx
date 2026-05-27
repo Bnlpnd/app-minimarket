@@ -58,7 +58,7 @@ export default async function ImportarProductosPage() {
   return (
     <Layout
       title="Importar productos"
-      description="Carga productos desde un archivo CSV exportado desde Excel."
+      description="Carga masiva de productos desde una plantilla XLSX (o CSV)."
     >
       <AdminOnly>
         <ProductoImportCsv

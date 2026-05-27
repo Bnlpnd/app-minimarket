@@ -16,7 +16,7 @@ export const navigationItems = [
       { href: "/productos/nuevo", label: "Nuevo producto" },
       { href: "/productos", label: "Listado" },
       { href: "/productos/mantenimiento", label: "Mantenimiento" },
-      { href: "/productos/importar", label: "Importar CSV" },
+      { href: "/productos/importar", label: "Importar productos" },
     ],
   },
   {

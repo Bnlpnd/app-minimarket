@@ -430,84 +430,205 @@ function buildImportRows(rows: CsvRow[]) {
 // Plantilla descargable
 // ============================================================================
 
-function escapeCsv(v: string): string {
-  if (/[",\n;]/.test(v)) {
-    return `"${v.replace(/"/g, '""')}"`;
-  }
-  return v;
-}
-
-function buildPlantillaCsv(
-  categorias: Categoria[],
-  subcategorias: Subcategoria[],
-  marcas: Marca[],
-  presentaciones: Presentacion[],
-): string {
-  const headers = ALL_OFFICIAL_HEADERS.join(",");
-  const example = ALL_OFFICIAL_HEADERS.map((h) =>
-    escapeCsv(PLANTILLA_EJEMPLO[h] ?? ""),
-  ).join(",");
-
-  // Listado de valores disponibles, como comentarios "#" para que sean
-  // ignorados al importar pero el usuario los vea al abrir el archivo.
-  // Agrupamos subcategorias bajo su categoria para que sepa cual va con cual.
-  const subsByCat = new Map<string, string[]>();
-  for (const s of subcategorias) {
-    const cat = categorias.find((c) => c.id === s.categoria_id);
-    if (!cat) continue;
-    const arr = subsByCat.get(cat.nombre) ?? [];
-    arr.push(s.nombre);
-    subsByCat.set(cat.nombre, arr);
-  }
-
-  const lines: string[] = [];
-  // BOM UTF-8 para Excel
-  lines.push("﻿" + headers);
-  lines.push(example);
-  lines.push("");
-  lines.push("# =====================================================================");
-  lines.push("# VALORES DISPONIBLES EN TU SISTEMA (las lineas con # se ignoran)");
-  lines.push("# Si escribes una categoria/subcategoria/marca/presentacion que NO");
-  lines.push("# este en estas listas, al importar se crea automaticamente.");
-  lines.push("# =====================================================================");
-  lines.push("");
-  lines.push(`# CATEGORIAS (${categorias.length}):`);
-  for (const c of categorias) lines.push(`# - ${c.nombre}`);
-  lines.push("");
-  lines.push(`# SUBCATEGORIAS POR CATEGORIA:`);
-  for (const [cat, subs] of subsByCat.entries()) {
-    lines.push(`# ${cat}:`);
-    for (const s of subs.sort()) lines.push(`#   - ${s}`);
-  }
-  lines.push("");
-  lines.push(`# MARCAS (${marcas.length}):`);
-  for (const m of marcas) lines.push(`# - ${m.nombre}`);
-  lines.push("");
-  lines.push(`# PRESENTACIONES (${presentaciones.length}):`);
-  for (const p of presentaciones) lines.push(`# - ${p.nombre}`);
-  lines.push("");
-  lines.push("# UNIDADES BASE TIPICAS: und, kg, g, lt, ml");
-  lines.push("# LOTE ALMACEN: tienda | casa");
-  lines.push("# ACTIVO: si | no");
-  lines.push("");
-
-  return lines.join("\n") + "\n";
-}
-
-function downloadPlantilla(
+/**
+ * Genera un XLSX con 5 pestanas:
+ *   - "Productos": headers + 1 fila de ejemplo (es la unica que se importa)
+ *   - "Categorias": lista limpia para copiar/pegar
+ *   - "Subcategorias": Categoria | Subcategoria (asi sabes cual va con cual)
+ *   - "Marcas": lista limpia
+ *   - "Presentaciones": lista limpia
+ *
+ * exceljs se carga dinamicamente para no inflar el bundle inicial de
+ * la pagina (~250KB que solo aplican al admin que importa).
+ */
+async function downloadPlantilla(
   categorias: Categoria[],
   subcategorias: Subcategoria[],
   marcas: Marca[],
   presentaciones: Presentacion[],
 ) {
-  const csv = buildPlantillaCsv(categorias, subcategorias, marcas, presentaciones);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Minimarket Santa Ana";
+  wb.created = new Date();
+
+  // ===== Hoja 1: Productos =====
+  const wsProd = wb.addWorksheet("Productos");
+  wsProd.columns = ALL_OFFICIAL_HEADERS.map((h) => ({
+    header: h,
+    key: h,
+    width: Math.max(12, h.length + 2),
+  }));
+  // Estilo header
+  wsProd.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  wsProd.getRow(1).fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF1E40AF" },
+  };
+  wsProd.getRow(1).alignment = { vertical: "middle", horizontal: "center" };
+  // Fila de ejemplo
+  wsProd.addRow(
+    ALL_OFFICIAL_HEADERS.reduce<Record<string, string>>((acc, h) => {
+      acc[h] = PLANTILLA_EJEMPLO[h] ?? "";
+      return acc;
+    }, {}),
+  );
+  // Comentario en la fila de ejemplo
+  wsProd.getRow(2).font = { italic: true, color: { argb: "FF6B7280" } };
+  // Fila instructiva
+  wsProd.addRow({});
+  wsProd.addRow({
+    nombre_producto:
+      "↑ Borra esta fila de ejemplo y agrega tus productos. Mira las otras pestañas para ver los valores válidos.",
+  });
+  wsProd.getRow(4).font = { italic: true, color: { argb: "FFDC2626" } };
+
+  // ===== Hoja 2: Categorias =====
+  const wsCat = wb.addWorksheet("Categorias");
+  wsCat.columns = [{ header: "categoria", key: "categoria", width: 30 }];
+  styleHeader(wsCat.getRow(1));
+  for (const c of categorias) wsCat.addRow({ categoria: c.nombre });
+
+  // ===== Hoja 3: Subcategorias (con su categoria padre) =====
+  const wsSub = wb.addWorksheet("Subcategorias");
+  wsSub.columns = [
+    { header: "categoria", key: "categoria", width: 25 },
+    { header: "subcategoria", key: "subcategoria", width: 35 },
+  ];
+  styleHeader(wsSub.getRow(1));
+  // Ordenar: categoria asc, subcategoria asc
+  const subsOrdenadas = [...subcategorias].sort((a, b) => {
+    const catA = categorias.find((c) => c.id === a.categoria_id)?.nombre ?? "";
+    const catB = categorias.find((c) => c.id === b.categoria_id)?.nombre ?? "";
+    return catA.localeCompare(catB) || a.nombre.localeCompare(b.nombre);
+  });
+  for (const s of subsOrdenadas) {
+    const cat = categorias.find((c) => c.id === s.categoria_id);
+    if (!cat) continue;
+    wsSub.addRow({ categoria: cat.nombre, subcategoria: s.nombre });
+  }
+
+  // ===== Hoja 4: Marcas =====
+  const wsMar = wb.addWorksheet("Marcas");
+  wsMar.columns = [{ header: "marca", key: "marca", width: 30 }];
+  styleHeader(wsMar.getRow(1));
+  for (const m of marcas) wsMar.addRow({ marca: m.nombre });
+
+  // ===== Hoja 5: Presentaciones =====
+  const wsPres = wb.addWorksheet("Presentaciones");
+  wsPres.columns = [{ header: "presentacion", key: "presentacion", width: 20 }];
+  styleHeader(wsPres.getRow(1));
+  for (const p of presentaciones) wsPres.addRow({ presentacion: p.nombre });
+
+  // ===== Hoja 6: Instrucciones =====
+  const wsInfo = wb.addWorksheet("Instrucciones");
+  wsInfo.columns = [
+    { header: "Campo", key: "k", width: 30 },
+    { header: "Descripcion", key: "v", width: 80 },
+  ];
+  styleHeader(wsInfo.getRow(1));
+  const info: Array<[string, string]> = [
+    ["Como llenar", "Edita solo la pestaña 'Productos'. Las otras pestañas son referencia: copia el nombre exacto."],
+    ["Crear nuevas", "Si escribes una categoria/marca/etc que no esta en la lista, al importar se crea automaticamente."],
+    ["", ""],
+    ["nombre_producto", "OBLIGATORIO. Nombre completo del producto."],
+    ["categoria", "OBLIGATORIO. Ver pestaña 'Categorias'."],
+    ["subcategoria", "OBLIGATORIO. Ver pestaña 'Subcategorias'."],
+    ["marca", "OBLIGATORIO. Ver pestaña 'Marcas'."],
+    ["presentacion", "OBLIGATORIO. Ver pestaña 'Presentaciones'."],
+    ["precio_venta", "OBLIGATORIO. Precio por unidad base."],
+    ["unidad_base", "Opcional. und / kg / g / lt / ml. Default: und."],
+    ["precio_compra", "Opcional. Costo por unidad base."],
+    ["stock_minimo", "Opcional. Default 10."],
+    ["stock_tienda", "Opcional. Cantidad en unidad base (kg, und) en Tienda."],
+    ["stock_casa", "Opcional. Cantidad en unidad base en Casa."],
+    ["stock_tienda_pres", "Opcional. Cantidad en presentaciones (sacos, cajas) en Tienda. Se multiplica por pres_compra_unidades."],
+    ["stock_casa_pres", "Opcional. Cantidad en presentaciones en Casa."],
+    ["pres_compra_nombre", "Opcional. Nombre de la presentacion de compra (ej. Saco x49, Caja x12)."],
+    ["pres_compra_unidades", "Opcional. Cuantas unidades base trae 1 presentacion. Ej: 49 (kg en saco)."],
+    ["pres_compra_costo_total", "Opcional. Costo total de 1 presentacion."],
+    ["lote_fecha_vto", "Opcional. Fecha vto YYYY-MM-DD. Si la pones, se crea un lote."],
+    ["lote_almacen", "Opcional. tienda | casa. Default tienda."],
+    ["imagen_url", "Opcional. URL completa https://..."],
+    ["activo", "Opcional. si | no. Default si."],
+    ["codigo_interno", "Opcional. Si lo dejas vacio, se autogenera."],
+    ["", ""],
+    ["EJEMPLO DE STOCK", "Arroz se compra en sacos de 49kg. Si tienes 3 sacos en Casa y 1 saco + 5kg en Tienda:"],
+    [" - stock_tienda", "5  (los 5 kg sueltos)"],
+    [" - stock_tienda_pres", "1  (el saco completo)"],
+    [" - stock_casa", "0"],
+    [" - stock_casa_pres", "3  (los 3 sacos)"],
+    [" - pres_compra_nombre", "Saco x49"],
+    [" - pres_compra_unidades", "49"],
+    [" - Resultado", "Tienda: 1*49 + 5 = 54 kg | Casa: 3*49 = 147 kg"],
+  ];
+  for (const [k, v] of info) wsInfo.addRow({ k, v });
+
+  // Generar y descargar
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "plantilla-productos.csv";
+  link.download = "plantilla-productos.xlsx";
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function styleHeader(row: { font: unknown; fill: unknown; alignment: unknown }) {
+  row.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  row.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF1E40AF" },
+  };
+  row.alignment = { vertical: "middle", horizontal: "left" };
+}
+
+/**
+ * Lee un archivo (CSV o XLSX) y devuelve filas como objetos.
+ * Si es XLSX, lee solo la hoja "Productos" (o la primera).
+ */
+async function readSpreadsheet(
+  file: File,
+): Promise<{ headers: string[]; normalizedHeaders: string[]; rows: CsvRow[] }> {
+  const isExcel =
+    /\.xlsx$/i.test(file.name) ||
+    file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  if (isExcel) {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    const buffer = await file.arrayBuffer();
+    await wb.xlsx.load(buffer);
+    // Buscar hoja "Productos" o la primera con datos
+    const sheet =
+      wb.getWorksheet("Productos") ?? wb.worksheets[0];
+    if (!sheet) {
+      return { headers: [], normalizedHeaders: [], rows: [] };
+    }
+    const rawRows: string[][] = [];
+    sheet.eachRow({ includeEmpty: false }, (row) => {
+      const cells: string[] = [];
+      // row.values es 1-indexed; el slot 0 es undefined.
+      const values = row.values as Array<unknown>;
+      for (let i = 1; i < values.length; i++) {
+        const v = values[i];
+        cells.push(v == null ? "" : String(v));
+      }
+      rawRows.push(cells);
+    });
+    return csvRowsToObjects(rawRows);
+  }
+
+  // CSV (comportamiento previo)
+  const buffer = await file.arrayBuffer();
+  const text = decodeCsv(buffer);
+  const parsedRows = parseCsv(text);
+  return csvRowsToObjects(parsedRows);
 }
 
 function buildReportText(report: ImportReportItem[], summary: ImportSummary) {
@@ -851,11 +972,8 @@ export function ProductoImportCsv({
 
     if (!file) return;
 
-    const buffer = await file.arrayBuffer();
-    const text = decodeCsv(buffer);
-    const parsedRows = parseCsv(text);
     const { headers: parsed, normalizedHeaders, rows: objectRows } =
-      csvRowsToObjects(parsedRows);
+      await readSpreadsheet(file);
 
     setRawHeaders(parsed);
 
@@ -1194,18 +1312,18 @@ export function ProductoImportCsv({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-base font-semibold text-slate-950">
-              Importar productos desde CSV
+              Importar productos
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">
-              Descarga la plantilla, llenala en Excel/Sheets, exportala como
-              CSV (UTF-8) y subila aqui. Soporta separador coma o punto y coma.
+              Descarga la plantilla XLSX, edita la pestaña <strong>Productos</strong>{" "}
+              en Excel/Sheets y subi el mismo archivo. Tambien acepta CSV.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() =>
-                downloadPlantilla(
+                void downloadPlantilla(
                   initialCategorias,
                   initialSubcategorias,
                   initialMarcas,
@@ -1217,10 +1335,10 @@ export function ProductoImportCsv({
               Descargar plantilla
             </button>
             <label className="inline-flex h-10 cursor-pointer items-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              Seleccionar CSV
+              Seleccionar archivo
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 onChange={handleFileChange}
                 className="sr-only"
               />
@@ -1228,16 +1346,18 @@ export function ProductoImportCsv({
           </div>
         </div>
 
-        {/* Aviso destacado de alta automatica */}
+        {/* Aviso destacado */}
         <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          <strong>Tip:</strong> la plantilla descargable incluye al final una
-          lista de las {initialCategorias.length} categorias,{" "}
-          {initialSubcategorias.length} subcategorias,{" "}
-          {initialMarcas.length} marcas y{" "}
-          {initialPresentaciones.length} presentaciones ya creadas (como
-          comentarios <code>#</code> que se ignoran al importar). Si escribis
-          una que no existe, <strong>se crea automaticamente</strong> al
-          importar — no necesitas darla de alta antes.
+          <strong>Tip:</strong> la plantilla XLSX trae 6 pestañas: en{" "}
+          <strong>Productos</strong> cargas tus datos, y en{" "}
+          <strong>Categorias</strong>, <strong>Subcategorias</strong>,{" "}
+          <strong>Marcas</strong> y <strong>Presentaciones</strong> tenes los
+          {" "}
+          {initialCategorias.length} / {initialSubcategorias.length} /{" "}
+          {initialMarcas.length} / {initialPresentaciones.length} valores ya
+          creados, listos para copiar y pegar. Si escribís uno que no existe,{" "}
+          <strong>se crea automáticamente</strong> al importar. Acepta XLSX o
+          CSV al subir.
         </div>
 
         {/* Columnas: toggle para ver definicion completa */}
