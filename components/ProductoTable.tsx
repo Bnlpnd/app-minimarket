@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { getBaseStockByName } from "@/lib/inventoryUtils";
+import { colors } from "@/lib/theme";
 import type {
   Almacen,
   Categoria,
@@ -33,17 +34,10 @@ type QuickValues = Record<
     precio_compra: string;
     precio_venta: string;
     stock_minimo: string;
-    stock_tienda: string;
-    stock_casa: string;
   }
 >;
 
-type QuickKey =
-  | "precio_compra"
-  | "precio_venta"
-  | "stock_minimo"
-  | "stock_tienda"
-  | "stock_casa";
+type QuickKey = "precio_compra" | "precio_venta" | "stock_minimo";
 
 type ProductoTableProps = {
   productos: ProductoConRelaciones[];
@@ -66,23 +60,6 @@ function formatMoney(value: number | null) {
 
 function formatStock(value: number | null) {
   return Number(value ?? 0).toFixed(2).replace(/\.00$/, "");
-}
-
-/**
- * Suma actual + delta de cada almacen para mostrar el total proyectado.
- * Si el usuario aun no edito, devuelve el stock total actual sumando filas.
- */
-function quickStockTotal(
-  values: QuickValues[string] | undefined,
-  producto: ProductoConRelaciones,
-) {
-  const tiendaActual = getBaseStockByName(producto, "Tienda");
-  const casaActual = getBaseStockByName(producto, "Casa");
-  const deltaT = values?.stock_tienda ? Number(values.stock_tienda) : 0;
-  const deltaC = values?.stock_casa ? Number(values.stock_casa) : 0;
-  const t = tiendaActual + (Number.isFinite(deltaT) ? deltaT : 0);
-  const c = casaActual + (Number.isFinite(deltaC) ? deltaC : 0);
-  return t + c;
 }
 
 /**
@@ -139,7 +116,8 @@ export function ProductoTable({
         <div>
           <h2 className="text-base font-semibold text-slate-950">Productos</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Listado paginado con imagen y stock editable por almacen.
+            Listado paginado con stock por almacen. Para ajustar stock ve a{" "}
+            <strong>Productos Almacén</strong> o <strong>Corregir stock</strong>.
           </p>
         </div>
         <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700">
@@ -153,19 +131,13 @@ export function ProductoTable({
             <tr>
               <th className="px-3 py-3 font-medium">Producto</th>
               <th className="px-3 py-3 font-medium">Marca</th>
-              <th className="px-3 py-3 font-medium">Stock total</th>
-              <th className="px-3 py-3 font-medium">
+              <th className={`px-3 py-3 font-medium ${colors.tienda.bg} ${colors.tienda.text}`}>
                 Tienda
-                <span className="ml-1 text-[10px] font-normal normal-case text-slate-400">
-                  (actual · sumar/restar)
-                </span>
               </th>
-              <th className="px-3 py-3 font-medium">
+              <th className={`px-3 py-3 font-medium ${colors.casa.bg} ${colors.casa.text}`}>
                 Casa
-                <span className="ml-1 text-[10px] font-normal normal-case text-slate-400">
-                  (actual · sumar/restar)
-                </span>
               </th>
+              <th className="px-3 py-3 font-medium">Stock total</th>
               <th className="px-3 py-3 font-medium">Stock minimo</th>
               <th className="px-3 py-3 font-medium">Costo unidad</th>
               <th className="px-3 py-3 font-medium">Precio venta</th>
@@ -211,26 +183,21 @@ export function ProductoTable({
                   <td className="px-3 py-3 text-slate-600">
                     {producto.marcas?.nombre ?? "Sin marca"}
                   </td>
-                  <td className="px-3 py-3 font-semibold text-slate-950">
-                    {formatStock(quickStockTotal(quickValues[producto.id], producto))}
+                  <td className={`px-3 py-3 ${colors.tienda.bg}`}>
+                    <span className={`text-sm font-semibold ${colors.tienda.text}`}>
+                      {formatStock(getBaseStockByName(producto, "Tienda"))}
+                    </span>
                   </td>
-                  <td className="px-3 py-3">
-                    <DeltaStockCell
-                      actual={getBaseStockByName(producto, "Tienda")}
-                      delta={quickValues[producto.id]?.stock_tienda ?? ""}
-                      onChange={(value) =>
-                        onQuickValueChange(producto.id, "stock_tienda", value)
-                      }
-                    />
+                  <td className={`px-3 py-3 ${colors.casa.bg}`}>
+                    <span className={`text-sm font-semibold ${colors.casa.text}`}>
+                      {formatStock(getBaseStockByName(producto, "Casa"))}
+                    </span>
                   </td>
-                  <td className="px-3 py-3">
-                    <DeltaStockCell
-                      actual={getBaseStockByName(producto, "Casa")}
-                      delta={quickValues[producto.id]?.stock_casa ?? ""}
-                      onChange={(value) =>
-                        onQuickValueChange(producto.id, "stock_casa", value)
-                      }
-                    />
+                  <td className="px-3 py-3 text-sm font-bold text-slate-950">
+                    {formatStock(
+                      getBaseStockByName(producto, "Tienda") +
+                        getBaseStockByName(producto, "Casa"),
+                    )}
                   </td>
                   <td className="px-3 py-3">
                     <StockInput
@@ -339,69 +306,69 @@ export function ProductoTable({
                 </span>
               </div>
 
-              <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              {/* Stock por almacen y total (READONLY) */}
+              <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                <div className={`rounded-md p-2 ${colors.tienda.bg}`}>
+                  <dt className={`text-xs font-medium ${colors.tienda.text}`}>Tienda</dt>
+                  <dd className={`mt-1 text-sm font-bold ${colors.tienda.text}`}>
+                    {formatStock(getBaseStockByName(producto, "Tienda"))}
+                  </dd>
+                </div>
+                <div className={`rounded-md p-2 ${colors.casa.bg}`}>
+                  <dt className={`text-xs font-medium ${colors.casa.text}`}>Casa</dt>
+                  <dd className={`mt-1 text-sm font-bold ${colors.casa.text}`}>
+                    {formatStock(getBaseStockByName(producto, "Casa"))}
+                  </dd>
+                </div>
                 <Info
                   label="Stock total"
-                  value={formatStock(quickStockTotal(quickValues[producto.id], producto))}
+                  value={formatStock(
+                    getBaseStockByName(producto, "Tienda") +
+                      getBaseStockByName(producto, "Casa"),
+                  )}
                 />
-                {(() => {
-                  const compra = Number(quickValues[producto.id]?.precio_compra);
-                  const venta = Number(quickValues[producto.id]?.precio_venta);
-                  const margen = calcMargen(compra, venta);
-                  if (margen === null) {
-                    return <Info label="Margen" value="—" />;
-                  }
-                  return (
-                    <div className="rounded-md bg-slate-50 p-2">
-                      <dt className="text-xs text-slate-500">Margen</dt>
-                      <dd className={`mt-1 text-sm ${margenClass(margen)}`}>
-                        {margen.toFixed(1)}%{" "}
-                        <span className="text-xs text-slate-500">
-                          ({formatMoney(venta - compra)})
-                        </span>
-                      </dd>
-                    </div>
-                  );
-                })()}
               </dl>
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <DeltaStockCell
-                  actual={getBaseStockByName(producto, "Tienda")}
-                  delta={quickValues[producto.id]?.stock_tienda ?? ""}
-                  onChange={(value) =>
-                    onQuickValueChange(producto.id, "stock_tienda", value)
-                  }
-                  almacenLabel="Tienda"
-                />
-                <DeltaStockCell
-                  actual={getBaseStockByName(producto, "Casa")}
-                  delta={quickValues[producto.id]?.stock_casa ?? ""}
-                  onChange={(value) =>
-                    onQuickValueChange(producto.id, "stock_casa", value)
-                  }
-                  almacenLabel="Casa"
-                />
+              {(() => {
+                const compra = Number(quickValues[producto.id]?.precio_compra);
+                const venta = Number(quickValues[producto.id]?.precio_venta);
+                const margen = calcMargen(compra, venta);
+                if (margen === null) return null;
+                return (
+                  <div className="mt-2 rounded-md bg-slate-50 p-2 text-sm">
+                    <span className="text-xs text-slate-500">Margen: </span>
+                    <span className={`text-sm ${margenClass(margen)}`}>
+                      {margen.toFixed(1)}%{" "}
+                      <span className="text-xs text-slate-500">
+                        ({formatMoney(venta - compra)})
+                      </span>
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* Solo editables: minimo, costo, precio */}
+              <div className="mt-3 grid grid-cols-3 gap-2">
                 <StockInput
                   value={quickValues[producto.id]?.stock_minimo ?? ""}
                   onChange={(value) =>
                     onQuickValueChange(producto.id, "stock_minimo", value)
                   }
-                  placeholder="Stock minimo"
+                  placeholder="Stock min"
                 />
                 <StockInput
                   value={quickValues[producto.id]?.precio_compra ?? ""}
                   onChange={(value) =>
                     onQuickValueChange(producto.id, "precio_compra", value)
                   }
-                  placeholder="Costo unidad"
+                  placeholder="Costo"
                 />
                 <StockInput
                   value={quickValues[producto.id]?.precio_venta ?? ""}
                   onChange={(value) =>
                     onQuickValueChange(producto.id, "precio_venta", value)
                   }
-                  placeholder="Precio venta"
+                  placeholder="Precio"
                 />
               </div>
 
@@ -442,62 +409,6 @@ function StockInput({
       placeholder={placeholder}
       className="h-9 w-full rounded-md border border-slate-300 px-2 text-sm lg:w-24"
     />
-  );
-}
-
-/**
- * Celda de stock con SUMA/RESTA explicita.
- * Muestra arriba el stock actual (no-editable) y debajo un input para
- * sumar (positivo) o restar (negativo). Cuando el usuario escribe,
- * muestra el TOTAL proyectado para que sepa que va a quedar al guardar.
- *
- * Esto evita el bug clasico de "puse 10 pero reemplazo los 60 que ya
- * tenia" — ahora poner "10" significa "sumo 10, queda 70".
- */
-function DeltaStockCell({
-  actual,
-  delta,
-  onChange,
-  almacenLabel,
-}: {
-  actual: number;
-  delta: string;
-  onChange: (value: string) => void;
-  almacenLabel?: string;
-}) {
-  const deltaNum = Number(delta);
-  const valid = delta.trim() !== "" && Number.isFinite(deltaNum);
-  const proyectado = valid ? actual + deltaNum : actual;
-  const showProyeccion = valid && deltaNum !== 0;
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline gap-1 text-xs text-slate-500">
-        <span className="font-medium text-slate-700">
-          {almacenLabel ? almacenLabel + " " : ""}Actual:
-        </span>
-        <span className="font-bold text-slate-950">{actual}</span>
-        {showProyeccion ? (
-          <span className={proyectado < 0 ? "text-red-700" : "text-emerald-700"}>
-            → {proyectado}
-          </span>
-        ) : null}
-      </div>
-      <input
-        type="number"
-        step="0.01"
-        value={delta}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={`+5 o -2`}
-        title="Cantidad a sumar (positivo) o restar (negativo). Dejar vacio = no tocar."
-        className={`h-9 w-full rounded-md border px-2 text-sm lg:w-24 ${
-          showProyeccion
-            ? proyectado < 0
-              ? "border-red-300 bg-red-50"
-              : "border-emerald-300 bg-emerald-50"
-            : "border-slate-300"
-        }`}
-      />
-    </div>
   );
 }
 

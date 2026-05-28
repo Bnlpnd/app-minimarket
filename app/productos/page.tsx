@@ -9,10 +9,7 @@ import { ProductoTable } from "@/components/ProductoTable";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import type { ProductoConRelaciones } from "@/components/ProductoTable";
 import { getCurrentUserProfile, isAdmin, isTrabajador } from "@/lib/authRoles";
-import {
-  getBaseStockByName,
-  getStockProductId,
-} from "@/lib/inventoryUtils";
+import { getBaseStockByName } from "@/lib/inventoryUtils";
 import { matchesSearch } from "@/lib/searchUtils";
 import {
   deleteProducto,
@@ -35,8 +32,6 @@ type QuickValues = Record<
     precio_compra: string;
     precio_venta: string;
     stock_minimo: string;
-    stock_tienda: string;
-    stock_casa: string;
   }
 >;
 
@@ -52,10 +47,9 @@ const inputClassName =
   "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
 function buildQuickValues(productos: ProductoConRelaciones[]) {
-  // stock_tienda y stock_casa son DELTAS (sumar/restar), no totales.
-  // Arrancan vacios para que el usuario solo tipee lo que quiere agregar.
-  // Los demas campos arrancan con valor actual porque son reemplazos
-  // logicos (precio, stock minimo).
+  // El listado NO edita stock — solo metadata del producto (precio,
+  // minimo, costo). El stock se ajusta desde Productos Almacen o
+  // Corregir / Ajustar stock para evitar duplicar logica.
   return Object.fromEntries(
     productos.map((producto) => [
       producto.id,
@@ -66,27 +60,8 @@ function buildQuickValues(productos: ProductoConRelaciones[]) {
             : "",
         precio_venta: String(Number(producto.precio_venta ?? 1).toFixed(2)),
         stock_minimo: String(Number(producto.stock_minimo ?? 10)),
-        stock_tienda: "",
-        stock_casa: "",
       },
     ]),
-  );
-}
-
-function getAlmacenIdByName(
-  producto: ProductoConRelaciones,
-  name: string,
-  almacenes: Almacen[],
-) {
-  const row = producto.producto_almacen?.find(
-    (stock) => stock.almacenes?.nombre.toLowerCase() === name.toLowerCase(),
-  );
-  return (
-    row?.almacen_id ??
-    row?.almacenes?.id ??
-    almacenes.find((almacen) => almacen.nombre.toLowerCase() === name.toLowerCase())
-      ?.id ??
-    null
   );
 }
 
@@ -95,7 +70,10 @@ export default function ProductosPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
   const [marcas, setMarcas] = useState<Marca[]>([]);
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  // Almacenes se cargan para el query de productos pero no se usa en UI
+  // (el stock se ajusta desde otras pantallas). Mantenemos el state por
+  // si en el futuro se agrega un filtro por almacen.
+  const [, setAlmacenes] = useState<Almacen[]>([]);
   const [search, setSearch] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
   const [subcategoriaId, setSubcategoriaId] = useState("");
@@ -347,11 +325,6 @@ export default function ProductosPage() {
     const values = quickValues[producto.id];
     const precioVenta = Number(values?.precio_venta);
     const stockMinimo = Number(values?.stock_minimo);
-    // stock_tienda/casa son DELTAS (lo que se SUMA). Vacio = no tocar.
-    const deltaTiendaRaw = values?.stock_tienda ?? "";
-    const deltaCasaRaw = values?.stock_casa ?? "";
-    const deltaTienda = deltaTiendaRaw.trim() === "" ? null : Number(deltaTiendaRaw);
-    const deltaCasa = deltaCasaRaw.trim() === "" ? null : Number(deltaCasaRaw);
 
     // Costo unidad puede quedar vacio (se guarda como null).
     const precioCompraRaw = values?.precio_compra ?? "";
@@ -375,69 +348,6 @@ export default function ProductosPage() {
       return;
     }
 
-    if (deltaTienda !== null && !Number.isFinite(deltaTienda)) {
-      setMessage({ type: "error", text: "Ajuste Tienda invalido." });
-      return;
-    }
-    if (deltaCasa !== null && !Number.isFinite(deltaCasa)) {
-      setMessage({ type: "error", text: "Ajuste Casa invalido." });
-      return;
-    }
-
-    // Resolver al producto base para escribir el stock real (si el producto
-    // es una presentacion vinculada, el stock vive en el base).
-    const stockProductoId = getStockProductId(producto);
-    const tiendaId = getAlmacenIdByName(producto, "Tienda", almacenes);
-    const casaId = getAlmacenIdByName(producto, "Casa", almacenes);
-
-    // Stock actual desde el producto base (no del producto si es presentacion).
-    const stockActualTienda = getBaseStockByName(producto, "Tienda");
-    const stockActualCasa = getBaseStockByName(producto, "Casa");
-    const cambios: string[] = [];
-
-    for (const [almacenId, delta, actual, label] of [
-      [tiendaId, deltaTienda, stockActualTienda, "Tienda"],
-      [casaId, deltaCasa, stockActualCasa, "Casa"],
-    ] as Array<[string | null, number | null, number, string]>) {
-      if (delta === null || delta === 0) continue; // nada que hacer
-      if (!almacenId) {
-        setMessage({
-          type: "error",
-          text: `No se encontro el almacen ${label} para ajustar stock.`,
-        });
-        return;
-      }
-
-      const nuevoStock = actual + delta;
-      if (nuevoStock < 0) {
-        setMessage({
-          type: "error",
-          text: `Ajuste ${label} dejaria stock en negativo (${nuevoStock}). Actual: ${actual}.`,
-        });
-        return;
-      }
-
-      const stockResult = await supabase.rpc("ajustar_stock", {
-        p_producto_id: stockProductoId,
-        p_almacen_id: almacenId,
-        p_stock_contado: nuevoStock,
-        p_observacion:
-          (delta > 0 ? "+" : "") +
-          `${delta} desde productos (${label}). ` +
-          `${actual} -> ${nuevoStock}.`,
-        p_usuario_id: null,
-      });
-
-      if (stockResult.error) {
-        setMessage({
-          type: "error",
-          text: `No se pudo actualizar stock ${label}: ${stockResult.error.message}`,
-        });
-        return;
-      }
-      cambios.push(`${label} ${actual} -> ${nuevoStock} (${delta > 0 ? "+" : ""}${delta})`);
-    }
-
     const { error } = await supabase
       .from("productos")
       .update({
@@ -450,18 +360,12 @@ export default function ProductosPage() {
     if (error) {
       setMessage({
         type: "error",
-        text: `El stock se actualizo, pero no se pudo guardar precio/minimo: ${error.message}`,
+        text: `No se pudo guardar: ${error.message}`,
       });
       return;
     }
 
-    setMessage({
-      type: "success",
-      text:
-        cambios.length > 0
-          ? `Producto actualizado. ${cambios.join(" · ")}`
-          : "Producto actualizado.",
-    });
+    setMessage({ type: "success", text: "Producto actualizado." });
     await loadProductos(page);
   }
 
