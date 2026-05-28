@@ -538,6 +538,37 @@ function AlmacenSection({
     return false;
   }, [cantidades, sueltasInput, desgloseGuardado, sueltasGuardadas, presentacionesActivas]);
 
+  /**
+   * Distribuye un total de unidades base entre las presentaciones,
+   * usando la presentacion principal (la primera) para llenar lo mas
+   * posible y poner el residuo en sueltas. Si solo hay una sin
+   * presentaciones, todo va a sueltas.
+   *
+   * Util cuando el usuario sabe el total contado pero no quiere
+   * pensar la distribucion. Despues puede ajustar manualmente.
+   */
+  function distribuirTotal(totalDeseado: number) {
+    if (!Number.isFinite(totalDeseado) || totalDeseado < 0) return;
+    const init: Record<string, string> = {};
+    if (presentacionesActivas.length === 0) {
+      setSueltasInput(String(totalDeseado));
+      return;
+    }
+    const principal = presentacionesActivas[0];
+    const factor = Number(principal.unidades_por_presentacion);
+    let asignadas = 0;
+    let restoSueltas = totalDeseado;
+    if (factor > 0) {
+      asignadas = Math.floor(totalDeseado / factor);
+      restoSueltas = totalDeseado - asignadas * factor;
+    }
+    for (const pres of presentacionesActivas) {
+      init[pres.id] = pres.id === principal.id ? String(asignadas) : "0";
+    }
+    setCantidades(init);
+    setSueltasInput(String(restoSueltas));
+  }
+
   async function guardar() {
     if (!supabase) return;
     if (!hayCambios) {
@@ -689,6 +720,45 @@ function AlmacenSection({
             }`}
           />
         </div>
+        {/* Atajo: setear el TOTAL en unidades base y se distribuye
+            automaticamente entre presentaciones (principal + sueltas).
+            Util para no estar pensando "cuantas cajas + cuantas sueltas"
+            cuando ya sabes el total contado. */}
+        {presentacionesActivas.length > 0 ? (
+          <div className="grid items-center gap-2 rounded-md border border-dashed border-slate-300 bg-white px-3 py-1.5 text-sm sm:grid-cols-[1fr_auto_110px]">
+            <span className="text-slate-700">
+              Total <span className="text-xs text-slate-400">({unidadBase})</span>
+            </span>
+            <span className="text-xs text-slate-400">distribuir automatico</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              placeholder={`Ej. ${stockBase || 100}`}
+              onFocus={selectOnFocus}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const n = Number((e.target as HTMLInputElement).value);
+                  if (Number.isFinite(n) && n >= 0) {
+                    distribuirTotal(n);
+                    (e.target as HTMLInputElement).value = "";
+                  }
+                }
+              }}
+              onBlur={(e) => {
+                const raw = e.target.value.trim();
+                if (raw === "") return;
+                const n = Number(raw);
+                if (Number.isFinite(n) && n >= 0) {
+                  distribuirTotal(n);
+                  e.target.value = "";
+                }
+              }}
+              title={`Setear total contado. Distribuye en ${presentacionesActivas[0]?.nombre_presentacion ?? "principal"} + sueltas.`}
+              className="h-8 w-full rounded border border-slate-300 px-2 text-right text-sm"
+            />
+          </div>
+        ) : null}
         {hayCambios ? (
           <button
             type="button"
