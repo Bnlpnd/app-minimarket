@@ -22,6 +22,18 @@ export const supabaseConfigError: string | null
 - Auth config: `persistSession: true, autoRefreshToken: true`
 - Env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
+## Gotchas / trampas verificadas
+
+Leer esto ANTES de tocar stock, compras o autorizacion. Todo confirmado en el codigo / migraciones.
+
+- ⚠️ **SEGURIDAD: NINGUNA tabla tiene RLS.** Todos los grants son `to anon, authenticated` (cualquier usuario logueado). La proteccion admin/trabajador es SOLO client-side: ocultar botones/links en el Sidebar + `checkAccess()` que redirige. Cualquiera con sesion (o el anon key) puede llamar cualquier tabla/RPC directo. Los RPC son `SECURITY DEFINER` (corren como owner, ignoran permisos del caller). NO confiar en el cliente para autorizacion; cualquier validacion real tendria que ir en el RPC.
+- ⚠️ **Columnas GENERATED (no escribirlas, fallan o se ignoran):**
+  - `proveedor_compras.saldo` = `total - monto_pagado` (`generated always ... stored`).
+  - `proveedor_compra_items.subtotal` = `cantidad * precio_unitario` (`generated always ... stored`).
+  - `proveedor_compras.monto_pagado` y `estado_pago` los setea un TRIGGER al insertar/actualizar/borrar en `proveedor_pagos` (`recalcular_pago_compra`) y al cambiar `total`/`monto_pagado` de la cabecera (`recalcular_estado_compra`). **Re-leer la fila despues de escribir**, no asumir el valor calculado en el cliente.
+- ⚠️ **`stock_movimientos` tiene DOS columnas de tipo:** `tipo` (legacy, NOT NULL) y `tipo_movimiento` (la actual). Todo INSERT debe llenar AMBAS o falla con `null value in column "tipo" violates not-null constraint`. Esto rompio `guardar_stock_desglosado` y se arreglo en `20260527040000`. Mismo valor en ambas (ej. `'ajuste', 'ajuste'`).
+- ⚠️ **`ajustar_stock` hace SET ABSOLUTO** de `producto_almacen.stock_actual = p_stock_contado` (NO incrementa) y **NO toca** `producto_almacen_presentacion` ni `unidades_sueltas`. Resultado: tras un ajuste, el desglose por presentacion queda desincronizado del total. Para mantener el desglose coherente usar `guardar_stock_desglosado` en vez de `ajustar_stock`.
+
 ## Tablas y tipos (types/database.ts)
 
 ### Enums como union types
@@ -34,6 +46,11 @@ export const supabaseConfigError: string | null
 | `StockMovimientoTipo` | `ingreso`, `salida_venta`, `salida_pedido`, `ajuste`, `transferencia`, `merma`, `devolucion` |
 | `TipoEntrega` | `llevar_ahora`, `recoger_despues`, `enviar` |
 | `PedidoEstadoPago` | `pagado`, `debe` |
+| `ProveedorCompraEstadoPago` | `pagado`, `parcial`, `pendiente` |
+| `ProveedorCompraTipoDoc` | `boleta`, `factura`, `nota`, `sin_documento` |
+| `ProveedorPagoMetodo` | `efectivo`, `yape`, `transferencia`, `otro` |
+| `ProductoLoteOrigen` | `inicial`, `compra`, `transferencia`, `ajuste` |
+| `LoteEstadoVencimiento` | `vencido`, `urgente`, `proximo`, `ok`, `null` |
 
 ### Interfaces principales
 
@@ -48,8 +65,23 @@ export const supabaseConfigError: string | null
 - `created_at`, `updated_at`
 
 **ProductoAlmacen** (tabla `producto_almacen`)
-- `id`, `producto_id`, `almacen_id`, `stock_actual: number`
+- `id`, `producto_id`, `almacen_id` (unique `producto_id,almacen_id`), `stock_actual: number` (fuente de verdad del total)
+- `unidades_sueltas: number` -- unidades fuera de cualquier presentacion. `stock_actual = SUM(pres x factor) + unidades_sueltas` (lo mantiene `guardar_stock_desglosado`)
 - `stock_minimo_local: number | null`, `costo_promedio: number | null`, `ubicacion_interna: string | null`
+
+**ProductoAlmacenPresentacion** (tabla `producto_almacen_presentacion`) -- NUEVA (`20260527030000`)
+- `id`, `producto_id`, `almacen_id`
+- `presentacion_compra_id` -> `producto_presentaciones_compra.id`
+- `cantidad: number` -- cantidad REAL de esa presentacion en ese almacen (lo que cargas es lo que ves; ya no se recalcula partiendo el total)
+- `updated_at`
+- Unique: `(producto_id, almacen_id, presentacion_compra_id)`
+
+**ProductoLote** (tabla `producto_lotes`) -- NUEVA (`20260526150000`)
+- `id`, `producto_id`, `almacen_id`
+- `cantidad_inicial: number` (check > 0), `cantidad_actual: number` (check >= 0; se ajusta al descartar)
+- `fecha_ingreso: string` (default current_date), `fecha_vencimiento: string | null`
+- `origen: ProductoLoteOrigen`, `notas: string | null`, `activo: boolean`
+- Lotes = metadata para alertas de vencimiento. Las ventas NO descuentan de lote (sin FIFO); `producto_almacen.stock_actual` sigue siendo la verdad del "cuanto hay".
 
 **ProductoPresentacionCompra** (tabla `producto_presentaciones_compra`)
 - `id`, `producto_id`, `proveedor_id: string | null`
@@ -93,7 +125,7 @@ export const supabaseConfigError: string | null
 **StockMovimiento** (tabla `stock_movimientos`)
 - `id`, `producto_id`, `pedido_id: string | null`
 - `almacen_origen_id`, `almacen_destino_id`
-- `tipo: string`, `tipo_movimiento: StockMovimientoTipo` (ambos campos coexisten)
+- `tipo: string` (legacy NOT NULL) + `tipo_movimiento: StockMovimientoTipo` -- AMBOS obligatorios al insertar (ver Gotchas)
 - `cantidad`, `costo_unitario`, `stock_anterior`, `stock_nuevo`
 - `referencia`, `motivo`, `observacion`, `usuario_id`, `registrado_por_id`
 
@@ -105,22 +137,60 @@ export const supabaseConfigError: string | null
 - `id`, `email`, `rol: "admin" | "trabajador" | "cliente"`
 - `nombres`, `apellidos: string | null`, `telefono: string | null`
 - `pago_hora: number`, `horas_semana: number`, `gastos_semana: number`
-- `horario_laboral: string | null`, `activo`
+- `horario_laboral: string | null`
+- `bono_asistencia_completa: number` -- bono semanal si asiste completo (default 0; `20260526100000`)
+- `activo`
+
+**PersonalTurno** (tabla `personal_turnos`) -- NUEVA (`20260526100000`)
+- `id`, `usuario_id`, `nombre`
+- `dias_aplica: number[]` -- dias JS de la semana: 0=Dom, 1=Lun, ..., 6=Sab (smallint[], check cardinality > 0)
+- `hora_inicio: string`, `hora_fin: string` (time; check `hora_fin > hora_inicio`)
+- `monto_pago: number` -- lo que cobra el dia si cumple el turno; `tarifa_hora = monto_pago / horas(inicio, fin)` se calcula en runtime
+- `activo: boolean`, `created_at`, `updated_at`
 
 **PersonalAsistencia** (tabla `personal_asistencias`)
-- `id`, `usuario_id`, `fecha`, `hora_ingreso`, `hora_salida`
+- `id`, `usuario_id`, `fecha` (unique `usuario_id,fecha`), `hora_ingreso`, `hora_salida`
 - `productividad: 1 | 2 | 3` (1=No la dio, 2=Normal, 3=Extra)
+- `turno_id: string | null` -- turno que cubrio (NULL = usa tarifa general `pago_hora`)
 - `observacion`
+- Trigger `no_asistencia_futura`: rechaza INSERT/UPDATE con `fecha > current_date`
 
 **PersonalDescuento** (tabla `personal_descuentos`)
 - `id`, `usuario_id`, `fecha`, `detalle`, `monto`
 
 **PersonalPago** (tabla `personal_pagos`)
-- `id`, `usuario_id`, `semana_inicio`, `semana_fin`
+- `id`, `usuario_id`, `semana_inicio` (unique `usuario_id,semana_inicio`), `semana_fin`
 - `horas_trabajadas`, `pago_hora`, `descuentos`, `monto_pagado`
 - `estado: "pendiente" | "pagado"`, `observacion`
 
 **Tablas de catalogo**: `Categoria`, `Subcategoria` (con `categoria_id`), `Marca`, `Almacen`, `Presentacion`, `UnidadBase`, `Proveedor`, `Rol`, `UsuarioPerfil`
+
+### Proveedores: compras y pagos (NUEVO -- 20260526180000)
+
+**ProveedorCompra** (tabla `proveedor_compras`)
+- `id`, `proveedor_id`, `fecha_compra` (default current_date)
+- `numero_documento: string | null`, `tipo_documento: ProveedorCompraTipoDoc`
+- `subtotal`, `descuento`, `total` (checks >= 0)
+- `monto_pagado: number` -- lo setea trigger desde `proveedor_pagos` (NO escribir a mano)
+- `saldo: number` -- GENERATED `total - monto_pagado` (read-only)
+- `estado_pago: ProveedorCompraEstadoPago` -- lo setea trigger (NO escribir a mano)
+- `observacion`, `created_at`, `updated_at`
+
+**ProveedorCompraItem** (tabla `proveedor_compra_items`)
+- `id`, `compra_id`
+- `producto_id: string | null` -- NULL = item "libre" (texto + precio)
+- `descripcion: string | null` -- usado cuando `producto_id` es NULL
+- `cantidad: number` (check > 0), `precio_unitario: number` (check >= 0)
+- `subtotal: number` -- GENERATED `cantidad * precio_unitario` (read-only)
+- `fecha_vencimiento: string | null`, `almacen_destino_id: string | null`
+- `registrar_stock: boolean` (default true) -- si true + producto_id, la APP llama a `ajustar_stock` y crea lote (la logica NO esta en trigger, para evitar doble update)
+- Constraint: `producto_id is not null OR trim(descripcion) <> ''`
+
+**ProveedorPago** (tabla `proveedor_pagos`)
+- `id`, `compra_id`, `fecha_pago` (default current_date)
+- `monto: number` (check > 0), `metodo: ProveedorPagoMetodo`
+- `referencia: string | null`, `observacion: string | null`, `created_at`
+- INSERT/UPDATE/DELETE dispara `recalcular_pago_compra` -> actualiza `monto_pagado`/`estado_pago` de la cabecera
 
 ### Tablas de almacen y abastecimiento
 
@@ -154,15 +224,10 @@ export const supabaseConfigError: string | null
 - `id`, `producto_id`, `almacen_id`
 - `cantidad_base: number` -- cantidad en unidades base reservada
 - `usuario_id: uuid | null`, `pedido_id: uuid | null`, `sesion_id: text | null`
-- `expires_at: timestamptz` -- default now() + 30 min, se extiende a 7 dias al asociar pedido
+- `expires_at: timestamptz` -- default `now() + 30 min`, se extiende a 7 dias al asociar pedido
 - `created_at`, `updated_at`
 - Reservas activas: tienen `pedido_id` asociado o `expires_at > now()`
 - Trigger: se liberan automaticamente al cambiar pedido a `cancelado` o `en_preparacion`
-
-**vista_stock_reservado** (vista, no tabla)
-- `producto_id`, `almacen_id`, `total_reservado: numeric`
-- Suma de `cantidad_base` de reservas activas agrupada por producto+almacen
-- Usada por `lib/inventoryUtils.ts` para calcular stock disponible
 
 **ClienteAbono** (tabla `cliente_abonos`)
 - `id`, `cliente_id`, `fecha_pago: string`
@@ -171,31 +236,64 @@ export const supabaseConfigError: string | null
 - `observacion: string | null`, `registrado_por_id: string | null`
 - `created_at`, `updated_at`
 
+### Vistas (views, no tablas)
+
+| Vista | Columnas clave | Uso |
+|-------|----------------|-----|
+| `vista_stock_reservado` | `producto_id`, `almacen_id`, `total_reservado: numeric` | Suma `cantidad_base` de reservas activas por producto+almacen. La consume `lib/inventoryUtils.ts` para stock disponible |
+| `vista_lotes_vencimiento` | extiende `ProductoLote` + `nombre_producto`, `codigo_interno`, `unidad_base`, `almacen_nombre`, `estado_vencimiento`, `dias_restantes` | Lotes activos con `cantidad_actual > 0`. `estado_vencimiento` (`vencido`/`urgente <=7d`/`proximo <=30d`/`ok`) y `dias_restantes` YA calculados con `current_date`. Para pagina /vencimientos y widget dashboard |
+| `vista_proveedor_resumen` | `proveedor_id`, `proveedor_nombre`, `compras_total`, `compras_monto_total`, `pagos_total`, `deuda_total`, `compras_con_saldo`, `ultima_compra` | Resumen por proveedor (solo `activo = true`). `deuda_total = SUM(total - monto_pagado)` |
+| `vista_pagos_proveedor_mensual` | `mes` (`YYYY-MM`), `metodo`, `pagos_cantidad`, `monto_total` | Pagos a proveedores agrupados por mes + metodo |
+
 ## RPCs de Supabase
+
+Todos los RPC son `SECURITY DEFINER` (corren como owner). El grant es `to anon, authenticated`.
 
 | RPC | Parametros | Uso |
 |-----|-----------|-----|
 | `login_app` | `p_email, p_password` | Login -- devuelve `{id, email, rol, nombres, apellidos}` |
-| `ajustar_stock` | `p_producto_id, p_almacen_id, p_stock_contado, p_observacion, p_usuario_id` | Ajuste de stock por conteo |
+| `ajustar_stock` | `p_producto_id, p_almacen_id, p_stock_contado, p_observacion, p_usuario_id` | SET ABSOLUTO de `stock_actual` por conteo. NO toca presentaciones ni `unidades_sueltas` (ver Gotchas) |
+| `guardar_stock_desglosado` | `p_producto_id, p_almacen_id, p_presentaciones jsonb, p_unidades_sueltas, p_observacion, p_usuario_id` -> `numeric` | Reemplaza el desglose por presentacion + sueltas y recalcula `stock_actual = SUM(cantidad x factor) + sueltas`. Registra movimiento `ajuste` con la diferencia. Devuelve el nuevo total |
+| `descartar_lote` | `p_lote_id, p_motivo?` -> `void` | Marca lote `activo=false`, `cantidad_actual=0` y resta `cantidad_actual` del `stock_actual` del almacen. Atomico (`for update`) |
 | `transferir_stock` | (ver AlmacenTransferencias) | Transferencia entre almacenes |
-| `crear_app_usuario` | 11 params (email, password, rol, nombres, apellidos, telefono, pago_hora, horas_semana, gastos_semana, horario_laboral, activo) | Crear usuario |
+| `crear_app_usuario` | 11 params (email, password, rol, nombres, apellidos, telefono, pago_hora, horas_semana, gastos_semana, horario_laboral, admin_id) | Crear usuario |
 | `reservar_stock_carrito` | `p_producto_id, p_almacen_id, p_cantidad_base, p_usuario_id?, p_sesion_id?` | Reservar stock al agregar al carrito. Valida disponibilidad. Retorna uuid de reserva |
 | `actualizar_reserva_carrito` | `p_reserva_id, p_cantidad_base` | Cambiar cantidad reservada. Valida stock para incrementos |
 | `liberar_reserva` | `p_reserva_id` | Quitar reserva (al sacar del carrito) |
-| `asociar_reservas_a_pedido` | `p_reserva_ids uuid[], p_pedido_id` | Vincular reservas a pedido guardado. Extiende expiracion a 7 dias |
 | `liberar_reservas_carrito` | `p_usuario_id?, p_sesion_id?` | Vaciar carrito: borra reservas sin pedido del usuario/sesion. Retorna cantidad eliminada |
-| `limpiar_reservas_expiradas` | (sin params) | Cleanup de reservas sin pedido con expires_at < now(). Retorna cantidad eliminada |
+| `asociar_reservas_a_pedido` | `p_reserva_ids uuid[], p_pedido_id` | Vincular reservas a pedido guardado. Extiende expiracion a 7 dias |
+| `limpiar_reservas_expiradas` | (sin params) | Cleanup de reservas sin pedido con `expires_at < now()`. Retorna cantidad eliminada |
+
+### Firmas SQL (las nuevas)
+
+```sql
+guardar_stock_desglosado(
+  p_producto_id uuid,
+  p_almacen_id uuid,
+  p_presentaciones jsonb,   -- [{ id: pres_id, cantidad: 14 }, ...]
+  p_unidades_sueltas numeric default 0,
+  p_observacion text default null,
+  p_usuario_id uuid default null
+) returns numeric          -- nuevo stock_actual total
+-- Idempotente: borra el desglose previo y reinserta. stock_nuevo = SUM(cant x factor) + sueltas.
+-- Si stock_nuevo <> stock_anterior, inserta stock_movimientos llenando tipo Y tipo_movimiento.
+
+descartar_lote(p_lote_id uuid, p_motivo text default null) returns void
+```
 
 ## Triggers importantes
 
-| Trigger | Tabla | Efecto |
-|---------|-------|--------|
+| Trigger / funcion | Tabla | Efecto |
+|-------------------|-------|--------|
 | `normalizar_detalle_pedido_stock` | `detalle_pedido` | Auto-llena `producto_stock_id` y `cantidad_base` en INSERT/UPDATE |
 | `descontar_stock_pedido_en_preparacion` | `pedidos` | Al pasar a `en_preparacion`, descuenta stock y registra movimientos |
 | `liberar_reservas_pedido_trigger` | `pedidos` | Al pasar a `cancelado` o `en_preparacion`, borra reservas asociadas |
-| `proteger_pedido_entregado` | `pedidos` | Bloquea cambios a pedidos entregados excepto pago (monto_a_cuenta, estado_pago, metodo_pago, observaciones) |
+| `proteger_pedido_entregado` | `pedidos` | Bloquea UPDATE de pedidos entregados excepto pago (monto_a_cuenta, estado_pago, metodo_pago, observaciones) |
 | `no_borrar_pedido_entregado` | `pedidos` | Bloquea DELETE de pedidos entregados |
 | `proteger_detalle_pedido_entregado` | `detalle_pedido` | Bloquea UPDATE/DELETE de items si el pedido esta entregado |
+| `recalcular_pago_compra` | `proveedor_pagos` (after INS/UPD/DEL) | Recalcula `monto_pagado` y `estado_pago` de `proveedor_compras` |
+| `recalcular_estado_compra` | `proveedor_compras` (before INS/UPD de total, monto_pagado) | Setea `estado_pago` (pagado/parcial/pendiente) |
+| `no_asistencia_futura` | `personal_asistencias` (before INS/UPD) | Rechaza `fecha > current_date` |
 
 ## Storage buckets
 
@@ -221,6 +319,7 @@ export function signOut(): void  // borra localStorage y redirige a /login
 
 - localStorage key: `app_minimarket_user`
 - `signOut()` borra la sesion local y hace `window.location.href = "/login"`
+- ⚠️ Esto es autorizacion SOLO client-side. No protege la DB (ver Gotchas).
 
 ### inventoryUtils.ts -- Stock multi-almacen y presentaciones
 
@@ -256,6 +355,61 @@ export function getStockLevel(producto, almacenId, reservadoMap): "sin" | "bajo"
 export function resolveCasaTiendaIds(almacenes): { casaId: string | null, tiendaId: string | null }
 export function resolveStockId(productoId, basePorProducto: Map): string
 ```
+
+### loteUtils.ts -- Lotes y vencimientos
+
+```ts
+export function calcularEstadoVencimiento(fechaVencimiento, hoy?): LoteEstadoVencimiento  // vencido / urgente <=7d / proximo <=30d / ok
+export function parseDateOnly(value): Date          // 'YYYY-MM-DD' en hora LOCAL (evita off-by-one UTC)
+export function formatFechaCorta(value): string     // YYYY-MM-DD -> DD/MM/YYYY
+export function fechaHoyInput(): string             // hoy en YYYY-MM-DD (componentes locales)
+export function estadoVencimientoUI(estado): { ... }  // clases tailwind para chip/linea por estado
+export function labelOrigenLote(origen): string
+export function sumarLotesPorProductoAlmacen(...)
+```
+
+### imageUtils.ts -- Compresion de imagenes (cliente)
+
+```ts
+export async function compressImage(
+  file: File,
+  options?: { maxSizeBytes?, maxWidth?, maxHeight?, initialQuality? }
+): Promise<File>
+```
+
+- Redimensiona + re-encodea a JPEG bajando calidad hasta caber en `maxSizeBytes` (default 1MB; max 1920x1920, q 0.85->0.2)
+- Si el archivo ya cumple el tamano, lo retorna tal cual. Usar antes de subir a storage.
+
+### payrollUtils.ts -- Nomina con turnos
+
+```ts
+export function hoursBetween(inicio, fin): number   // 0 si fin<=inicio (no overnight)
+export function diaSemana(fechaIso): number          // 0=Dom..6=Sab (local)
+export function elegirTurnoParaAsistencia(...): PersonalTurno | null  // matchea turno por dia
+export function pagoPorDia(...): number               // horas_reales x tarifa_hora del turno (o pago_hora general)
+export type ResumenSemanaPago = { ... }
+export function calcularPagoSemanal(args): ResumenSemanaPago
+```
+
+### productoDelete.ts -- Borrado de productos
+
+```ts
+export type DeleteProductoResult = { ok: true } | { ok: false; reason: string }
+export async function deleteProducto(productoId, imagenUrl): Promise<DeleteProductoResult>
+export async function fetchProductosNoEliminables(): Promise<Set<string>>  // ids en uso (pedidos / base de otra presentacion)
+```
+
+- `deleteProducto` valida que no este en uso, borra relaciones en cascada y la imagen del bucket. Requiere los grants DELETE de `20260526210000` (productos, producto_almacen, presentaciones_compra, precios_mayor, producto_lotes, stock_reservas, stock_movimientos).
+
+### theme.ts -- Tokens de color
+
+```ts
+export const colors = { tienda, casa, stockOk, stockBajo, stockSin, vencido, vencimientoUrgente, vencimientoProximo, btnPrimary, btnSecondary, btnDanger, ... }
+export function colorsForAlmacen(nombre): { ... }   // emerald=Tienda, indigo=Casa
+export function stockChipClass(...): string
+```
+
+- Tienda = emerald, Casa = indigo. Estados de stock: ok=emerald, bajo=amber, sin=rose. Vencimiento: vencido=rose, urgente=orange, proximo=amber.
 
 ### pricing.ts -- Calculo de precios por mayor
 
@@ -434,6 +588,44 @@ function getCliente(relation: Pick<Cliente, "nombres"> | Pick<Cliente, "nombres"
 if (error.code === "23505") {
   // "Ya existe un X con ese Y"
 }
+```
+
+### Guardar stock por desglose de presentacion
+```ts
+// Reemplaza el desglose completo + sueltas y recalcula el total.
+const { data: nuevoTotal } = await supabase.rpc("guardar_stock_desglosado", {
+  p_producto_id: productoId,
+  p_almacen_id: almacenId,
+  p_presentaciones: [
+    { id: presCajaX40Id, cantidad: 14 },
+    { id: presCajaX100Id, cantidad: 7 },
+  ],
+  p_unidades_sueltas: 3,
+  p_observacion: "Conteo fisico",
+  p_usuario_id: userId,
+});
+// nuevoTotal = SUM(cantidad x unidades_por_presentacion) + sueltas.
+// NO usar ajustar_stock aqui: dejaria el desglose desincronizado.
+```
+
+### Lotes y vencimientos
+```ts
+// Listar lotes activos con estado ya calculado
+const { data } = await supabase.from("vista_lotes_vencimiento").select("*")
+  .order("fecha_vencimiento", { ascending: true });
+// cada fila trae estado_vencimiento y dias_restantes listos para UI
+
+// Descartar un lote (resta del stock del almacen)
+await supabase.rpc("descartar_lote", { p_lote_id: loteId, p_motivo: "Vencido" });
+```
+
+### Compras a proveedor (re-leer tras escribir)
+```ts
+// 1) Insertar pago. El trigger recalcula monto_pagado/estado_pago de la cabecera.
+await supabase.from("proveedor_pagos").insert({ compra_id, monto, metodo });
+// 2) Re-leer la compra para tener saldo/estado actualizados (NO calcular en cliente).
+const { data: compra } = await supabase.from("proveedor_compras")
+  .select("total, monto_pagado, saldo, estado_pago").eq("id", compraId).single();
 ```
 
 ### Reservas de stock (carrito)

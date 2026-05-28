@@ -39,6 +39,21 @@ pendiente -----> pago_enviado -----> pago_validado -----> en_preparacion -----> 
 
 **Nota:** estado_pago ya no es siempre "debe" al crear. Si pagoTipo="total" o monto_a_cuenta cubre el total, se crea como "pagado".
 
+### Pedido entregado = bloqueado (3 triggers DB)
+
+Migracion `20260525193000_lock_entregados_y_imagen_papel.sql` instala 3 triggers
+sobre un pedido en estado `entregado`:
+
+| Trigger | Tabla | Que bloquea |
+|---------|-------|-------------|
+| `proteger_pedido_entregado` | pedidos (BEFORE UPDATE) | Cambiar estado fuera de entregado, o cliente_id/subtotal/total/descuento/detalle_manual/tipo_entrega/fecha_pedido |
+| `no_borrar_pedido_entregado` | pedidos (BEFORE DELETE) | Cualquier DELETE de un pedido entregado |
+| `proteger_detalle_pedido_entregado` | detalle_pedido (BEFORE UPDATE/DELETE) | UPDATE/DELETE de items si el pedido padre esta entregado |
+
+Solo se permiten cambios en campos de pago para registrar abonos posteriores
+(entrega a credito): `monto_a_cuenta`, `estado_pago`, `metodo_pago`,
+`observaciones`, `updated_at`. Cualquier otro UPDATE lanza una excepcion.
+
 ## Librerias de soporte
 
 ### pricing.ts (calcularPrecioPorCantidad)
@@ -125,13 +140,13 @@ supabase.rpc("liberar_reservas_carrito", {
   p_usuario_id, p_sesion_id
 })
 
-// Al guardar pedido, asociar reservas:
+// Al guardar pedido, asociar reservas (extiende expires_at a +7 dias):
 supabase.rpc("asociar_reservas_a_pedido", {
   p_reserva_ids, p_pedido_id
 })
 ```
 
-El mapa de reservas se carga de `vista_stock_reservado` y se usa para mostrar stock disponible real.
+El mapa de reservas se carga de `vista_stock_reservado` (suma `cantidad_base` por producto+almacen de reservas con pedido o `expires_at > now()`) y se usa para mostrar stock disponible real. Un trigger `after update of estado` libera las reservas del pedido al pasar a `cancelado` o `en_preparacion`.
 
 ### Precios mayoristas (wholesale pricing)
 
@@ -151,6 +166,26 @@ getBaseStockByAlmacen(producto, id)  // Lee stock de producto_base si aplica
 toBaseQuantity(producto, cantidad)   // Convierte a unidades base
 toPresentationStock(producto, base)  // Convierte de base a presentacion
 stockIn(producto, almacenId)         // Shortcut: stock en presentacion por almacen
+```
+
+**Nota:** PedidoNuevoForm lee el stock total desde `producto_almacen.stock_actual`
+(del producto base) y NO consulta la tabla nueva `producto_almacen_presentacion`
+ni `unidades_sueltas` (mig. 20260527030000). Ese desglose por presentacion es de
+inventario/agregar-stock, no del flujo de venta.
+
+### Selector de presentacion de venta (vender por paquete/caja)
+
+```ts
+// buildPresentacionesVenta(producto_precios_mayor) -> opciones del carrito.
+// Filtra activo!=false y cantidad_minima>1, dedupe por cantidad_minima.
+type PresentacionVentaOpcion = { id; multiplicador; nombre };
+// El item del carrito guarda:
+//   cantidadInput  -> lo que tipea el cajero (ej. 2 cajas)
+//   presentacionMultiplicador -> factor de la escala (ej. 40)
+//   presentacionNombre -> descripcion del tier (o "Mayoreo x40")
+//   cantidad = cantidadInput * presentacionMultiplicador  (unidad del producto)
+// El precio mayorista se aplica solo porque la cantidad final cae en la escala
+// (calcularPrecioPorCantidad). Vender "por monto S/" resetea a unidad simple.
 ```
 
 ### Toggle pago tipo (total vs debe)
@@ -506,3 +541,11 @@ function getDebtByClient(pedidos) {
   // Map clienteId -> saldo total pendiente
 }
 ```
+
+## Gotchas / trampas
+
+- Un pedido `entregado` esta bloqueado por trigger: UPDATE/DELETE fallan salvo en campos de pago (monto_a_cuenta, estado_pago, metodo_pago, observaciones) para registrar abonos posteriores si fue a credito. No intentar editar items ni estado de un entregado: la query lanza excepcion.
+- Las reservas de stock expiran a los 30 min (`stock_reservas.expires_at`); `limpiar_reservas_expiradas()` las libera (tambien se llama oportunamente dentro de `reservar_stock_carrito`). Si no se asocian al pedido (`asociar_reservas_a_pedido`) al guardar, quedan colgadas hasta expirar. Al desmontar el form / cancelar / nueva venta se llama `liberar_reservas_carrito`.
+- No hay RLS: el gating de quien valida pagos / prepara / entrega es solo client-side por rol (localStorage `app_minimarket_user`). Las RPC/tablas estan abiertas a anon+authenticated. Nota de seguridad, no de UX.
+- El stock se descuenta por trigger al pasar a `en_preparacion` (no al crear el pedido). Si no hay stock, el trigger lanza "Stock insuficiente". `PreparacionModule` re-lee `stock_descontado`/`estado` antes del update (guard de carrera entre trabajadores).
+- `producto_almacen_presentacion`/`unidades_sueltas` (desglose por presentacion) NO se usan en el flujo de pedidos; el carrito calcula stock desde `producto_almacen.stock_actual` del producto base.

@@ -48,9 +48,13 @@ app/
 components/
   Layout.tsx           -- Layout principal, Sidebar en <Suspense> (66 lineas)
   Header.tsx           -- Header mobile-only (34 lineas)
-  Sidebar.tsx          -- Navegacion lateral w-72, bg-white (189 lineas)
+  Sidebar.tsx          -- Navegacion lateral w-72, bg-white (196 lineas)
   AdminOnly.tsx        -- Guard de acceso admin (44 lineas)
+  QuickProductoCreator.tsx -- Modal mini-form crear producto (275 lineas)
   ProductoSearch.tsx   -- Input de busqueda simple (27 lineas)
+  ui/
+    SearchableSelect.tsx -- Combobox autocomplete filtrable (214 lineas)
+    Toast.tsx          -- Banner/toast de feedback (118 lineas)
   ProductoTable.tsx    -- Tabla + cards responsive (396 lineas)
   ProductoForm.tsx     -- Formulario producto (1183 lineas)
   ProductoImportCsv.tsx -- Importador CSV (1036 lineas)
@@ -78,12 +82,14 @@ components/
 lib/
   supabaseClient.ts    -- Client Supabase (nullable)
   authRoles.ts         -- getStoredAppUser, signOut, isAdmin, isTrabajador
+  theme.ts             -- colors (tokens), colorsForAlmacen, stockChipClass
   dateUtils.ts         -- formatDate, formatDateTime, parseInputDate, formatTime
   whatsapp.ts          -- generarMensajePedido, generarLinkWhatsApp
   catalogDefaults.ts   -- Presentaciones y unidades iniciales
   inputUtils.ts        -- selectOnFocus (auto-select input text on focus)
   searchUtils.ts       -- normalizeForSearch, searchTokens, matchesSearch
   supabaseQueryUtils.ts -- fetchAllRows (paginated Supabase fetching)
+  imageUtils.ts        -- compressImage (comprime a JPEG <= 1MB antes de subir)
 ```
 
 ## Layout y navegacion
@@ -148,6 +154,109 @@ lib/
 | Tab inactivo | `text-slate-600 hover:bg-slate-100` |
 | Sidebar active | `bg-emerald-50 text-emerald-800` |
 | Sidebar inactive | `text-slate-600 hover:bg-slate-100 hover:text-slate-950` |
+
+## Tokens de color (lib/theme.ts)
+
+**Convencion: NO hardcodear colores en componentes nuevos.** Importa el objeto
+`colors` (o los helpers) y aplicalos como className. Asi un refresco de paleta
+es un solo cambio en `lib/theme.ts`.
+
+```tsx
+import { colors, colorsForAlmacen, stockChipClass } from "@/lib/theme";
+```
+
+El objeto `colors` (todas las claves son strings de clases Tailwind, `as const`):
+
+| Grupo | Clave | Para que |
+|-------|-------|----------|
+| Almacen Tienda (emerald) | `tienda.{chip,chipStrong,text,bg,bgStrong,border,borderStrong,accent}` | almacen de venta |
+| Almacen Casa (indigo) | `casa.{chip,chipStrong,text,bg,bgStrong,border,borderStrong,accent}` | almacen de reserva |
+| Stock nivel | `stockOk.{chip,text}` / `stockBajo.{chip,text,bg,border}` / `stockSin.{chip,text,bg,border}` | chips de stock |
+| Vencimiento | `vencido` / `vencimientoUrgente` (orange) / `vencimientoProximo` (amber) | chips de caducidad |
+| Botones | `btnPrimary` (emerald) / `btnSecondary` / `btnDanger` / `btnDangerSolid` / `btnAccent` (amber) | incluyen hover/active/disabled |
+| Feedback | `feedbackSuccess` / `feedbackError` (rose) / `feedbackWarning` / `feedbackInfo` (sky) | banners de mensaje |
+| Layout | `panelBg` / `panelBorder` / `pageBg` / `tableHeader` | fondos y headers |
+
+Helpers:
+- `colorsForAlmacen(nombre)` -> devuelve `colors.casa` si `nombre.toLowerCase() === "casa"`, si no `colors.tienda` (case-insensitive, tolera "Negocio" -> Tienda).
+- `stockChipClass(actual, minimo)` -> string de chip: `stockSin` si `actual <= 0`, `stockBajo` si `actual <= minimo`, si no `stockOk`.
+
+```tsx
+<span className={`rounded px-2 py-1 text-xs ${stockChipClass(stock, min)}`}>{stock}</span>
+<span className={colorsForAlmacen(alm.nombre).chip}>{alm.nombre}</span>
+```
+
+## SearchableSelect (components/ui/SearchableSelect.tsx)
+
+Combobox custom (input editable + dropdown filtrable) que reemplaza al `<select>`
+cuando hay muchas opciones. Usado en pickers de marca / categoria / subcategoria /
+presentacion / producto (p.ej. en QuickProductoCreator).
+
+```tsx
+import { SearchableSelect, type SearchableOption } from "@/components/ui/SearchableSelect";
+
+<SearchableSelect
+  value={marcaId}                                   // id seleccionado ("" = nada)
+  options={marcas.map((m) => ({ id: m.id, label: m.nombre }))}
+  onChange={(id) => setMarcaId(id)}                 // recibe el id (o "" al limpiar)
+  placeholder="Buscar..."
+/>
+```
+
+Props: `value: string`, `options: SearchableOption[]` (`{ id, label, sub? }`),
+`onChange: (id) => void`, `placeholder?`, `className?`, `disabled?`,
+`emptyText?` (default "Sin coincidencias"), `required?` (si true oculta la "✕" para limpiar).
+
+- Filtra `label` y `sub` con `query.trim().toLowerCase().includes(...)`.
+- Teclado: ArrowDown/ArrowUp navegan el highlight, Enter selecciona el resaltado, Escape cierra.
+- Click fuera o blur sin elegir mantiene el valor previo (no inventa seleccion).
+- `useId()` genera el id del `<ul role="listbox">` (a11y: `role="combobox"`, `aria-controls`, `aria-autocomplete="list"`).
+- Cuando NO esta enfocado y hay `value`, el input muestra el `label` de la opcion; al enfocar muestra el `query`.
+
+## Toast (components/ui/Toast.tsx)
+
+Componente de feedback estandar. No es un provider global ni un hook: es un
+componente controlado por el `message` que le pasa el padre (mismo patron que
+el `Message` local). Render dual: banner inline en desktop (`sm:flex`, mantiene
+el flow) + toast flotante fijo arriba en mobile (`fixed inset-x-3 top-3`).
+
+```tsx
+import { Toast, type ToastMessage } from "@/components/ui/Toast";
+
+const [msg, setMsg] = useState<ToastMessage | null>(null);
+// ...
+setMsg({ type: "success", text: "Guardado." });   // dispara y se auto-cierra
+<Toast message={msg} onDismiss={() => setMsg(null)} />
+```
+
+- `type`: `"success" | "error" | "warning" | "info"` (estilos via STYLES_INLINE/STYLES_FLOATING + ICONS).
+- Auto-dismiss: success/info/warning a los `autoDismissMs` (default 4000). `error` persiste hasta cerrar con la X. `autoDismissMs <= 0` desactiva.
+- a11y: `role="alert"` para error, `role="status"` para el resto.
+
+## QuickProductoCreator (components/QuickProductoCreator.tsx)
+
+Modal mini-form para crear un producto al vuelo cuando falta en medio de otro
+flujo (ej: armando una compra a proveedor) sin abandonar la pantalla. Pide solo
+lo minimo: nombre, categoria, subcategoria, marca, presentacion, unidad base,
+precio venta. Defaults fijos: `activo=true`, `stock_minimo=10`, `unidadBase="und"`.
+
+```tsx
+<QuickProductoCreator
+  open={showCreator}
+  onClose={() => setShowCreator(false)}
+  onCreated={(producto) => { /* el padre autoselecciona el producto creado */ }}
+  initialName={searchTerm}              // pre-rellena el nombre con lo ya tipeado
+  categorias={categorias}
+  subcategorias={subcategorias}
+  marcas={marcas}
+  presentaciones={presentaciones}
+/>
+```
+
+- Inserta directo en `productos` (`.insert(...).select("*").single()`) y llama `onCreated(data)`.
+- Reset de campos en `useEffect` al pasar `open` a true (re-aplica `initialName`).
+- Catalogos (categorias/subcategorias/marcas/presentaciones) los pasa el padre; los pickers son `SearchableSelect`. Subcategorias se filtran por `categoria_id`.
+- Overlay full-screen (`fixed inset-0 z-50`), sheet desde abajo en mobile, centrado en desktop.
 
 ## Patrones de componente
 
@@ -317,3 +426,14 @@ import { selectOnFocus } from "@/lib/inputUtils";
 11. **selectOnFocus** -- usar en inputs numericos para auto-seleccionar texto al focus
 12. **matchesSearch** -- usar para filtrado client-side con normalizacion y tokenizacion
 13. **fetchAllRows** -- usar para queries Supabase que pueden superar 1000 filas
+14. **colors (theme.ts)** -- no hardcodear colores en componentes nuevos, importar tokens
+
+## Gotchas / limitaciones conocidas
+
+Confirmadas en codigo. Documentadas para no tropezar:
+
+- ⚠️ **SearchableSelect NO es accent-insensitive.** Filtra con `label.toLowerCase().includes(q)` (no usa `normalizeForSearch`), asi que "azucar" NO matchea "Azucar"/"Azúcar". Si necesitas busqueda sin tildes, pre-filtra las `options` con `matchesSearch` de `lib/searchUtils.ts` antes de pasarlas.
+- ⚠️ **SearchableSelect — ArrowDown desde cerrado salta a index 1, no 0.** El mismo evento abre el dropdown (`highlight=0`) y luego hace `min(h+1, ...)`, dejando el highlight en la 2da opcion. Tambien: al enfocar un valor ya seleccionado, el input se ve vacio (`query=""`) hasta que tipeas o haces blur. Limitaciones de UX conocidas.
+- ⚠️ **Sidebar — el link activo usa `pathname.startsWith(path + "/")`** (para rutas sin `?tab=`), asi que `/pedidos` y `/pedidos/nuevo` se resaltan a la vez. Ademas hay un `setUser(...)` sincrono dentro de un `useEffect` (dependiente de `pathname`) que dispara un render extra (de ahi el `react-hooks/set-state-in-effect` y el render duplicado).
+- ⚠️ **Toast — el timer de auto-dismiss depende del texto del mensaje, no de un id.** El `useEffect` tiene deps `[message?.text, message?.type, autoDismissMs]`, asi que dos toasts identicos seguidos (mismo `text` y `type`) pueden NO reiniciar el timer. Para forzar reinicio, cambia el texto o el id del estado.
+- ⚠️ **Imagenes — usar `compressImage` de `lib/imageUtils.ts`** antes de subir (storage max 1MB). OJO: re-encodea a JPEG y dibuja con `drawImage` SIN rellenar fondo blanco, asi que un **PNG transparente queda con fondo negro** tras comprimir.

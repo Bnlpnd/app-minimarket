@@ -1,6 +1,6 @@
 # Sistema de inventario multi-almacen -- app-minimarket
 
-Usa esta referencia cuando trabajes con stock, almacenes, transferencias, ajustes, movimientos, agregar stock o abastecimiento.
+Usa esta referencia cuando trabajes con stock, almacenes, transferencias, ajustes, vencimientos, lotes, desglose por presentacion, movimientos, agregar stock o abastecimiento.
 
 ## Arquitectura de stock
 
@@ -219,6 +219,140 @@ supabase.rpc("transferir_stock", {
 - Validaciones: origen != destino, cantidad > 0, cantidad <= stock origen
 - Crea movimiento tipo `transferencia`
 
+### guardar_stock_desglosado
+```ts
+supabase.rpc("guardar_stock_desglosado", {
+  p_producto_id: string,    // usar getStockProductId() para resolver base
+  p_almacen_id: string,
+  p_presentaciones: Array<{ id: string; cantidad: number }>,  // jsonb
+  p_unidades_sueltas: number,
+  p_observacion: string,
+  p_usuario_id: string | null
+})
+```
+- **Idempotente**: borra TODO el desglose de (producto, almacen) y reinserta el nuevo.
+- Recalcula `stock_actual = SUM(cantidad x unidades_por_presentacion) + unidades_sueltas`.
+- Persiste sueltas en `producto_almacen.unidades_sueltas`.
+- Crea movimiento `ajuste` solo si `stock_nuevo <> stock_anterior` (llena `tipo` y `tipo_movimiento`).
+- Solo inserta filas con `cantidad > 0`. Retorna el nuevo `stock_actual`.
+
+### descartar_lote
+```ts
+supabase.rpc("descartar_lote", {
+  p_lote_id: string,
+  p_motivo: string | null
+})
+```
+- `for update` sobre el lote; resta del almacen: `stock_actual = greatest(0, stock_actual - cantidad_actual)`.
+- Marca lote `activo=false`, `cantidad_actual=0`, anexa nota con fecha/motivo.
+
+## Stock desglosado por presentacion
+
+Antes el desglose (Caja x40, Caja x100, sueltas) se CALCULABA partiendo el total -> mismo
+total mostraba desgloses distintos. Ahora se guarda la cantidad REAL por presentacion.
+
+### Tabla producto_almacen_presentacion
+```ts
+interface ProductoAlmacenPresentacion {
+  id: string;
+  producto_id: string;
+  almacen_id: string;
+  presentacion_compra_id: string;   // FK a producto_presentaciones_compra
+  cantidad: number;                  // numeric(12,2), check >= 0
+  updated_at: string;
+  // unique (producto_id, almacen_id, presentacion_compra_id)
+}
+```
+- Columna acompaniante: `producto_almacen.unidades_sueltas` (numeric(12,2), default 0).
+- `stock_actual = SUM(cantidad x unidades_por_presentacion) + unidades_sueltas`.
+
+### Componente AlmacenProductos.tsx (916 lineas) -- ruta /almacen/productos
+- Una tarjeta por producto; dentro una `AlmacenSection` por almacen.
+- Inputs ABSOLUTOS (no deltas) por presentacion + sueltas; lo que se tipea es lo que se guarda.
+- Solo lista presentaciones con `activo !== false` y `unidades_por_presentacion > 1`, ordenadas principal -> mayor factor.
+- Carga el desglose desde `producto_almacen_presentacion` indexado por `producto_id|almacen_id|presentacion_id`.
+- Barra fija inferior "Guardar todo": registry de secciones (`onRegister`/`onPendingChange`), guarda en lote las que tienen cambios; cada save es `guardar_stock_desglosado` silencioso.
+- Acciones por seccion: Transferir, Abastecer, Conteo fisico (link a /almacen/ajustes con `?producto=&almacen=`).
+
+### Modo legacy (solo para mostrar)
+Si NO hay filas en `producto_almacen_presentacion` para la tupla (`tieneDesgloseGuardado=false`):
+- Asigna a la presentacion principal (la primera) `floor(stock_actual / factor)` y el residuo a sueltas.
+- Es solo display; al guardar queda persistido tal cual lo tipee el usuario.
+
+## Lotes y vencimiento
+
+Camino B: lotes manuales. `producto_almacen.stock_actual` sigue siendo la fuente de verdad de
+"cuanto hay"; los lotes son metadata para alertas. Las ventas NO consumen lotes (sin FIFO).
+
+### Tabla producto_lotes
+```ts
+interface ProductoLote {
+  id: string;
+  producto_id: string;
+  almacen_id: string;               // on delete restrict
+  cantidad_inicial: number;         // numeric(12,3), check > 0
+  cantidad_actual: number;          // numeric(12,3), check >= 0
+  fecha_ingreso: string;            // default current_date
+  fecha_vencimiento: string | null;
+  origen: ProductoLoteOrigen;       // 'inicial'|'compra'|'transferencia'|'ajuste'
+  notas: string | null;
+  activo: boolean;
+}
+```
+
+### Vista vista_lotes_vencimiento
+- Filtra `activo = true AND cantidad_actual > 0`; join a productos + almacenes.
+- Trae calculados (server-side, con `current_date`):
+  - `estado_vencimiento`: vencido (< hoy) | urgente (<= 7d) | proximo (<= 30d) | ok | null (sin fecha)
+  - `dias_restantes` = `fecha_vencimiento - current_date`
+- Campos extra: `nombre_producto`, `codigo_interno`, `unidad_base`, `almacen_nombre`.
+
+### lib/loteUtils.ts
+```ts
+calcularEstadoVencimiento(fecha, hoy?)  // recalcula estado en cliente (al editar fecha)
+parseDateOnly(value)                    // 'YYYY-MM-DD' en hora LOCAL (evita bug -1 dia UTC)
+formatFechaCorta(value)                 // YYYY-MM-DD -> DD/MM/YYYY
+fechaHoyInput()                         // hoy en YYYY-MM-DD (componentes locales)
+estadoVencimientoUI(estado)             // { label, badge, row } clases tailwind
+labelOrigenLote(origen)                 // 'Stock inicial'|'Compra'|'Transferencia'|'Ajuste'
+sumarLotesPorProductoAlmacen(lotes)     // Map<"producto::almacen", suma cantidad_actual>
+```
+Estados/umbrales: **vencido** (<0 dias), **urgente** (<=7), **proximo** (<=30), **ok**.
+
+### Componente AlmacenVencimientos.tsx (453 lineas) -- ruta /almacen/vencimientos
+- Carga `vista_lotes_vencimiento` ordenada por fecha (nullsFirst:false), via fetchAllRows.
+- Chips resumen clickeables (vencidos / <=7d / <=30d) que togglean el filtro.
+- Filtros: busqueda, almacen, estado. Tabla desktop + cards mobile.
+- Editar fecha inline -> `producto_lotes.update({ fecha_vencimiento })`.
+- Descartar -> `descartar_lote` (prompt de motivo; resta del stock del almacen).
+
+## Gotchas / trampas verificadas
+
+Todas confirmadas en el codigo. Leer antes de tocar stock.
+
+- ⚠️ **CRITICO -- desglose se desincroniza:** `ajustar_stock`, las ventas
+  (`descontar_stock_pedido_en_preparacion`) y `descartar_lote` escriben
+  `producto_almacen.stock_actual` pero NO actualizan `producto_almacen_presentacion`
+  ni `unidades_sueltas`. Como `guardar_stock_desglosado` RECALCULA `stock_actual`
+  desde el desglose (que quedo viejo), al volver a guardar en AlmacenProductos se
+  puede **RE-INFLAR stock ya vendido**. Reconciliar el desglose contra `stock_actual`
+  (o `sumarLotesPorProductoAlmacen`) antes de confiar en el.
+- ⚠️ **`ajustar_stock` es SET ABSOLUTO (no incrementa).** El patron
+  `leer stock_actual + sumar en JS + ajustar_stock(actual + delta)`
+  (AlmacenAgregarStock, AlmacenDashboard, productos page) es un race "lost-update":
+  dos ingresos concurrentes o una venta intermedia pierden el delta. Idealmente
+  haria falta un RPC de incremento atomico.
+- ⚠️ **Truncado por tipo numerico:** `ajustar_stock` declara `numeric(10,2)` pero
+  las cantidades de compra y los lotes son `numeric(12,3)`. Cantidades fraccionarias
+  (ej. 1.250 kg) se **truncan a 2 decimales** al ajustar.
+- ⚠️ **Lotes sin FIFO:** las ventas NO bajan `cantidad_actual` del lote. El lote
+  sigue "lleno" aunque ya se haya vendido. `descartar_lote` usa
+  `greatest(0, stock_actual - cantidad_lote)`, lo que puede **ocultar
+  inconsistencias** (resta de mas si el lote no refleja lo vendido).
+- ⚠️ **Resolver siempre el producto base:** stock real = `producto_almacen.stock_actual`
+  del producto BASE -> usar `getStockProductId()` de inventoryUtils. Stock disponible
+  = `stock_actual - reservas` (`vista_stock_reservado`), via `getStockDisponible()`.
+
 ## Modulos de almacen
 
 ### AlmacenDashboard.tsx (631 lineas)
@@ -364,7 +498,7 @@ supabase.from("almacen_transferencias_solicitudes").select(`
 - Almacen: `942025999`
 - Duenio/abastecimiento: `943104987`
 
-### AlmacenAjustes.tsx (336 lineas)
+### AlmacenAjustes.tsx (371 lineas)
 
 **Proposito:** Ajuste de stock por conteo fisico.
 
@@ -395,7 +529,10 @@ const obs = [normalizeSpaces(motivo), normalizeSpaces(observacion)]
 2. Buscar producto (debounce 350ms, fetchAllRows, limite 20 resultados)
 3. Ver stock actual vs contado
 4. Ingresar motivo + observacion
-5. Ejecutar RPC `ajustar_stock` con `getStockProductId()`
+5. Ejecutar RPC `ajustar_stock` con `getStockProductId()` (SET absoluto al stock contado)
+
+**Nota:** ajusta SOLO `producto_almacen.stock_actual` (no crea lotes ni toca el desglose
+por presentacion). Ver gotchas: el desglose puede quedar desincronizado tras este ajuste.
 
 ### AlmacenMovimientos.tsx (207 lineas)
 
@@ -416,7 +553,7 @@ supabase.from("stock_movimientos").select(`
 - Limite: 200 resultados
 - Muestra `tipo_movimiento` o campo `tipo` legacy como fallback
 
-### AlmacenAgregarStock.tsx (590 lineas)
+### AlmacenAgregarStock.tsx (721 lineas)
 
 **Proposito:** Ingreso rapido de stock por presentacion de compra.
 
@@ -429,7 +566,10 @@ supabase.from("stock_movimientos").select(`
 **Seccion "Agregar cantidad":**
 - Selecciona producto, almacen, presentacion de compra
 - Calcula: `total = cantidadPresentaciones * unidadesPorPresentacion + unidadesSueltas`
-- Ejecuta `ajustar_stock` con `stock_actual + total` (ingreso aditivo)
+- Ejecuta `ajustar_stock` con `stock_actual + total` (ingreso aditivo; ver gotcha lost-update)
+- Campo `fecha_vencimiento` opcional: si se llena, ademas inserta en `producto_lotes`
+  con `origen: 'compra'` (sin fecha = ingreso comun sin lote, para no perecederos).
+  Si el insert del lote falla, el stock ya quedo ajustado (warning suave, no rollback).
 
 **Jerarquia para resolver unidades por presentacion:**
 1. Si el usuario eligio una presentacion de compra, usa `unidades_por_presentacion` de esa

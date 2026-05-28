@@ -1,11 +1,12 @@
 # Nomina y gestion de personal -- app-minimarket
 
-Usa esta referencia cuando trabajes con usuarios, asistencias, descuentos o pagos de personal.
+Usa esta referencia cuando trabajes con usuarios, asistencias, descuentos, pagos de personal, turnos o bonos.
 
 ## Acceso
 
-- Modulo admin: `PersonalModule.tsx` (1459 lineas), ruta `/personal`
-- Pagina self-service: `app/mis-datos/page.tsx` (525 lineas), ruta `/mis-datos`
+- Modulo admin: `PersonalModule.tsx` (1770 lineas), ruta `/personal`
+- Pagina self-service: `app/mis-datos/page.tsx` (914 lineas), ruta `/mis-datos`
+- Logica de pago: `lib/payrollUtils.ts` (tarifa por turno, bono semanal)
 - Sub-componentes: `components/personal/AttendanceWeekBlock.tsx` (348), `DiscountWeekBlock.tsx` (170), `PaymentHistoryBlock.tsx` (290)
 
 ## Estructura del modulo admin (PersonalModule)
@@ -42,10 +43,11 @@ interface AppUsuario {
   nombres: string;
   apellidos: string | null;
   telefono: string | null;
-  pago_hora: number;
+  pago_hora: number;          // tarifa hora general (dias sin turno + horas fuera de turno)
   horas_semana: number;
   gastos_semana: number;
   horario_laboral: string | null;
+  bono_asistencia_completa: number;  // bono semanal si cumple todos los turnos (default 0)
   activo: boolean;
 }
 ```
@@ -65,6 +67,7 @@ interface PersonalAsistencia {
   hora_salida: string | null;   // HH:MM
   productividad: 1 | 2 | 3;
   observacion: string | null;
+  turno_id: string | null;      // FK -> personal_turnos (ON DELETE SET NULL); NULL = sin turno
 }
 ```
 
@@ -101,6 +104,97 @@ interface PersonalPago {
   observacion: string | null;
 }
 ```
+
+## Turnos y tarifa por hora
+
+Sistema por trabajador: cada turno define dias + horario + monto fijo. La
+tarifa hora se calcula en runtime: `monto_pago / horas(inicio, fin)`. Premia
+entrar antes / quedarse mas y descuenta llegadas tarde.
+
+### PersonalTurno (tabla `personal_turnos`)
+```ts
+interface PersonalTurno {
+  id: string;
+  usuario_id: string;        // FK -> app_usuarios ON DELETE CASCADE
+  nombre: string;
+  dias_aplica: number[];     // convencion JS: 0=Dom, 1=Lun, ..., 6=Sab (smallint[])
+  hora_inicio: string;       // HH:MM (time)
+  hora_fin: string;          // HH:MM, CHECK hora_fin > hora_inicio
+  monto_pago: number;        // numeric(10,2) >= 0; tarifa = monto_pago / horas(inicio,fin)
+  activo: boolean;
+  created_at: string;
+  updated_at: string;        // mantenido por trigger set_updated_at
+}
+```
+
+- Indice: `(usuario_id, activo)`. CHECK `cardinality(dias_aplica) > 0`.
+- `app_usuarios.bono_asistencia_completa` (numeric, default 0): bono semanal.
+- `personal_asistencias.turno_id`: turno que cubrio esa ficha (NULL = sin turno).
+
+### Edicion de turnos (PersonalModule, admin)
+Al seleccionar usuario, carga sus turnos en `turnosForm`. `saveTurnos()` usa
+estrategia **borrar todo + reinsertar**:
+```ts
+await supabase.from("personal_turnos").delete().eq("usuario_id", selectedUser.id);
+if (validas.length > 0) {
+  await supabase.from("personal_turnos").insert(payload); // sin turno_id; usuario_id+nombre+dias+horas+monto
+}
+```
+Valida por fila: nombre + >=1 dia + `hora_fin > hora_inicio` + monto >= 0.
+
+## Calculo de pago (lib/payrollUtils.ts)
+
+Toda la matematica de pago por turno vive aqui. Importado por PersonalModule.
+
+### hoursBetween(start, end)
+```ts
+hoursBetween("08:00", "16:30") // 8.5
+```
+Horas decimales entre dos HH:MM. Retorna **0** si falta alguno o si `et <= st`
+(overnight no soportado).
+
+### diaSemana(fechaIso)
+`diaSemana("2026-05-28")` -> 0..6 (0=Dom, 1=Lun, ..., 6=Sab). 0 si invalido.
+
+### elegirTurnoParaAsistencia(asistencia, turnos)
+Devuelve **un solo** turno (o null) por prioridad:
+1. Si `asistencia.turno_id` apunta a un turno -> usarlo.
+2. Candidatos = turnos `activo` cuyo `dias_aplica` incluye `diaSemana(fecha)`.
+3. Si hay 0 -> null. Si hay 1 -> usarlo.
+4. Si hay varios -> los que "contienen" la ficha (`ingreso >= inicio - 30min`
+   AND `salida <= fin + 30min`); de esos, el de **mayor monto_pago**.
+5. Fallback: el de **mayor duracion** (probable "dia completo").
+
+### pagoPorDia(asistencia, turno, pagoHoraGeneral)
+Retorna `{ horas, tarifaHora, pago, turno }`.
+- Horas reales = `hoursBetween(ingreso, salida)`. Si <= 0 -> pago 0.
+- **Con turno:** las horas DENTRO del horario del turno pagan la tarifa del
+  turno (`monto_pago / horas_turno`); las horas FUERA (antes/despues) pagan
+  `pagoHoraGeneral`. Calcula la interseccion `[ingreso,salida] ∩ [inicio,fin]`.
+- **Sin turno:** todas las horas a `pagoHoraGeneral`.
+- Sin `pagoHoraGeneral`: 0.
+
+```
+Ejemplo: turno 8a-9a S/20 (tarifa S/20/h), pago_hora general S/3.
+Trabaja 6a-11a (5h reales):
+  dentro (8-9): 1h × 20 = S/20
+  fuera (6-8, 9-11): 4h × 3 = S/12
+  total: S/32
+```
+
+### calcularPagoSemanal({ asistencias, turnos, pagoHoraGeneral, bonoSemanaCompleta, fechasSemana })
+Retorna `{ diasTrabajados, horasTrabajadas, subtotalDias, bonoAplicado, total }`.
+- Por cada asistencia: `elegirTurnoParaAsistencia` + `pagoPorDia`; suma si pago > 0.
+- **Bono** (`bonoSemanaCompleta > 0` y hay turnos activos): se otorga solo si en
+  CADA dia con turno activo definido existe asistencia con `ingreso <= inicio`
+  Y `salida >= fin` de cada turno de ese dia. Cualquier dia/turno incumplido
+  cancela el bono.
+- `total = subtotalDias + bonoAplicado`.
+
+### getPaySummary (PersonalModule)
+Wrapper: si el trabajador tiene turnos definidos y hay `fechasSemana`, usa
+`calcularPagoSemanal`; sino fallback historico `horas × pago_hora` (o
+`horas_semana` si no hay asistencias). Siempre `amount = max(0, total - descuentos)`.
 
 ## Registro de usuario
 
@@ -305,6 +399,8 @@ Seccion "Hoy" con dos botones grandes:
 - Solo puede marcar salida si ya tiene ingreso y no tiene salida previa
 - Valida que salida > ingreso con `validateHorarioLaboral`
 - Mensaje: "Tu admin es quien puede editar o corregir registros anteriores."
+- **Upsert por `(usuario_id, fecha)`**: una sola ficha por dia; preserva el otro campo (ingreso o salida) y los demas.
+- **Defensa en BD:** trigger `no_asistencia_futura` (BEFORE INSERT/UPDATE) lanza excepcion si `fecha > current_date`. El cliente tambien valida.
 
 ```ts
 // marcarIngreso: upsert preservando datos existentes
@@ -338,6 +434,30 @@ Lista de pagos semanales con rango de semana, horas/descuentos, monto pagado y e
 - `Panel({ title, subtitle, children })`: card wrapper con titulo
 - `Metric({ label, value })`: metrica individual con label uppercase
 - `TabButton({ active, onClick, children })`: boton de tab estilizado
+
+## Gotchas / trampas verificadas
+
+Confirmadas en codigo. Leer antes de tocar pago/turnos/bonos.
+
+- ⚠️ **Dia con MULTIPLES turnos = SUBPAGO.** `pagoPorDia` aplica la tarifa de UN
+  solo turno (`elegirTurnoParaAsistencia` devuelve uno). Las horas del segundo
+  turno caen a `pagoHoraGeneral`. Si un trabajador tiene 2 turnos el mismo dia
+  con una sola ficha de asistencia (ej. Andy/Vanessa), revisar el pago a mano.
+- ⚠️ **Bono mal otorgado.** El loop del bono matchea con
+  `a.turno_id === turno.id || a.turno_id === null`. Como `personal_asistencias`
+  es unique `(usuario_id, fecha)`, una sola ficha con `turno_id = null` puede
+  "satisfacer" varios turnos del mismo dia y otorgar el bono indebidamente.
+- ⚠️ **Dia en progreso paga 0.** `hoursBetween` retorna 0 si falta
+  `hora_ingreso` u `hora_salida`, o si es overnight. Un dia con solo ingreso
+  marcado paga 0 y rompe el bono. No es bug, pero no avisa.
+- ⚠️ **Drift de centavos.** El dinero se suma como float y solo se redondea al
+  mostrar (`.toFixed(2)`); muchas filas pueden acumular descuadre de centavos.
+- ⚠️ **Seguridad (sin enforcement server-side).** `/mis-datos` confia en
+  `getStoredAppUser().id` (localStorage) para el `usuario_id`, y TODAS las
+  tablas `personal_*` tienen grant a `anon`/`authenticated` **sin RLS**. Un
+  trabajador podria escribir el `usuario_id` de otro. No hay validacion en BD.
+- Semana = **lunes a domingo** (`getWeekRange`). Pago = `max(0, ...)`.
+  Asistencia: upsert por `usuario_id+fecha`. Pago: upsert por `usuario_id+semana_inicio`.
 
 ## Dashboard del trabajador (app/dashboard/page.tsx)
 
