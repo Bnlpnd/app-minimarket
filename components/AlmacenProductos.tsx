@@ -79,7 +79,9 @@ type DesgloseRow = {
  * global "Guardar" pueda saber si tiene cambios y dispararlos. */
 type SectionApi = {
   hasChanges: () => boolean;
-  save: () => Promise<boolean>;
+  save: () => Promise<{ ok: boolean; error?: string }>;
+  /** Identificador legible para mensajes de error: "Soda dia / Casa". */
+  label: string;
 };
 
 const inputClassName =
@@ -299,26 +301,41 @@ export function AlmacenProductos() {
     }
     setIsSavingAll(true);
     let ok = 0;
-    let fail = 0;
+    const fallidos: Array<{ label: string; error: string }> = [];
     // Snapshot las keys con cambios al inicio
     const keys = [...pendingKeys];
     for (const key of keys) {
       const api = sectionsRef.current.get(key);
       if (!api) continue;
-      const success = await api.save();
-      if (success) ok++;
-      else fail++;
+      const result = await api.save();
+      if (result.ok) {
+        ok++;
+      } else {
+        fallidos.push({
+          label: api.label,
+          error: result.error ?? "Error desconocido",
+        });
+      }
     }
     setIsSavingAll(false);
-    if (fail === 0) {
+    if (fallidos.length === 0) {
       setMessage({
         type: "success",
         text: `Se guardaron ${ok} ajuste${ok === 1 ? "" : "s"} de stock.`,
       });
     } else {
+      // Log a console TODOS los errores con detalle
+      console.error("[guardarTodo] Fallidos:", fallidos);
+      // Mostrar al usuario el primero (o los primeros) en el toast
+      const detalle = fallidos
+        .slice(0, 3)
+        .map((f) => `${f.label}: ${f.error}`)
+        .join(" | ");
+      const masTexto =
+        fallidos.length > 3 ? ` (+${fallidos.length - 3} mas)` : "";
       setMessage({
         type: "error",
-        text: `${ok} guardado(s), ${fail} fallaron. Revisa los marcados en rojo.`,
+        text: `${ok} guardado(s), ${fallidos.length} fallaron. ${detalle}${masTexto}`,
       });
     }
     await loadProductos();
@@ -667,34 +684,42 @@ function AlmacenSection({
     onPendingChange(sectionKey, hayCambios);
   }, [hayCambios, sectionKey, onPendingChange]);
 
-  async function guardar(silencioso = false): Promise<boolean> {
-    if (!supabase) return false;
+  async function guardar(
+    silencioso = false,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!supabase) return { ok: false, error: "Sin conexion a Supabase" };
     if (!hayCambios) {
       if (!silencioso) {
         onMessage({ type: "warning", text: "No hay cambios para guardar." });
       }
-      return false;
+      return { ok: false, error: "Sin cambios" };
     }
     // Validar todas las cantidades >= 0
     const presPayload: Array<{ id: string; cantidad: number }> = [];
     for (const pres of presentacionesActivas) {
       const n = Number(cantidades[pres.id] ?? 0);
       if (!Number.isFinite(n) || n < 0) {
-        onMessage({
-          type: "error",
-          text: `Cantidad invalida en ${producto.nombre_producto} (${almacen.nombre} - ${pres.nombre_presentacion}): ${cantidades[pres.id]}`,
-        });
-        return false;
+        const err = `Cantidad invalida en ${pres.nombre_presentacion}: ${cantidades[pres.id]}`;
+        if (!silencioso) {
+          onMessage({
+            type: "error",
+            text: `${producto.nombre_producto} (${almacen.nombre} - ${pres.nombre_presentacion}): ${err}`,
+          });
+        }
+        return { ok: false, error: err };
       }
       presPayload.push({ id: pres.id, cantidad: n });
     }
     const nSueltas = Number(sueltasInput ?? 0);
     if (!Number.isFinite(nSueltas) || nSueltas < 0) {
-      onMessage({
-        type: "error",
-        text: `${producto.nombre_producto} (${almacen.nombre}): unidades sueltas invalidas.`,
-      });
-      return false;
+      const err = "unidades sueltas invalidas";
+      if (!silencioso) {
+        onMessage({
+          type: "error",
+          text: `${producto.nombre_producto} (${almacen.nombre}): ${err}`,
+        });
+      }
+      return { ok: false, error: err };
     }
 
     setIsSaving(true);
@@ -713,11 +738,23 @@ function AlmacenSection({
     });
     setIsSaving(false);
     if (error) {
-      onMessage({
-        type: "error",
-        text: `${producto.nombre_producto} (${almacen.nombre}): ${error.message}`,
+      // Log a console para debug detallado
+      console.error("[guardar_stock_desglosado]", {
+        producto: producto.nombre_producto,
+        almacen: almacen.nombre,
+        stockProductoId,
+        almacenId: almacen.id,
+        payload: presPayload,
+        sueltas: nSueltas,
+        error,
       });
-      return false;
+      if (!silencioso) {
+        onMessage({
+          type: "error",
+          text: `${producto.nombre_producto} (${almacen.nombre}): ${error.message}`,
+        });
+      }
+      return { ok: false, error: error.message };
     }
     if (!silencioso) {
       onMessage({
@@ -726,7 +763,7 @@ function AlmacenSection({
       });
       onSaved();
     }
-    return true;
+    return { ok: true };
   }
 
   // Registrar API de esta seccion al padre. Usamos refs para que las
@@ -744,10 +781,11 @@ function AlmacenSection({
     onRegister(sectionKey, {
       hasChanges: () => hayCambiosRef.current,
       save: () => guardarRef.current(true), // silencioso: el padre da el resumen
+      label: `${producto.nombre_producto} (${almacen.nombre})`,
     });
     return () => onRegister(sectionKey, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sectionKey]);
+  }, [sectionKey, producto.nombre_producto, almacen.nombre]);
 
   return (
     <div className="grid gap-3 p-4 md:grid-cols-[140px_minmax(0,1fr)_auto] md:items-start">
