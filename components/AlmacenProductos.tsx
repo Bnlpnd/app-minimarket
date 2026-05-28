@@ -18,7 +18,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { matchesSearch } from "@/lib/searchUtils";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { selectOnFocus } from "@/lib/inputUtils";
@@ -75,6 +75,13 @@ type DesgloseRow = {
   cantidad: number;
 };
 
+/** API que cada AlmacenSection expone al padre para que el boton
+ * global "Guardar" pueda saber si tiene cambios y dispararlos. */
+type SectionApi = {
+  hasChanges: () => boolean;
+  save: () => Promise<boolean>;
+};
+
 const inputClassName =
   "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
@@ -88,6 +95,13 @@ export function AlmacenProductos() {
   const [productos, setProductos] = useState<ProductoConStock[]>([]);
   // Desglose por (producto_id, almacen_id, presentacion_id) -> cantidad
   const [desgloseMap, setDesgloseMap] = useState<Map<string, number>>(new Map());
+  // Registry: cada AlmacenSection registra al montar su API (save())
+  // y notifica con setPendingForSection cuando cambia su flag de
+  // cambios pendientes. Asi el botón global sabe cuántas hay sin
+  // tener que leer refs durante render.
+  const sectionsRef = useRef<Map<string, SectionApi>>(new Map());
+  const [pendingKeys, setPendingKeys] = useState<Set<string>>(new Set());
+  const [isSavingAll, setIsSavingAll] = useState(false);
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([]);
@@ -243,8 +257,75 @@ export function AlmacenProductos() {
     });
   }, [productos, search, stockFilter]);
 
+  // Registry callbacks memoizados (no causan re-monteo en hijos).
+  const registerSection = useMemo(
+    () => (key: string, api: SectionApi | null) => {
+      if (api) {
+        sectionsRef.current.set(key, api);
+      } else {
+        sectionsRef.current.delete(key);
+        setPendingKeys((prev) => {
+          if (!prev.has(key)) return prev;
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+    },
+    [],
+  );
+
+  // Cada seccion notifica si tiene o no cambios pendientes.
+  const notifyPending = useMemo(
+    () => (key: string, hasChanges: boolean) => {
+      setPendingKeys((prev) => {
+        const had = prev.has(key);
+        if (had === hasChanges) return prev;
+        const next = new Set(prev);
+        if (hasChanges) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const pendingCount = pendingKeys.size;
+
+  async function guardarTodo() {
+    if (pendingCount === 0) {
+      setMessage({ type: "warning", text: "No hay cambios para guardar." });
+      return;
+    }
+    setIsSavingAll(true);
+    let ok = 0;
+    let fail = 0;
+    // Snapshot las keys con cambios al inicio
+    const keys = [...pendingKeys];
+    for (const key of keys) {
+      const api = sectionsRef.current.get(key);
+      if (!api) continue;
+      const success = await api.save();
+      if (success) ok++;
+      else fail++;
+    }
+    setIsSavingAll(false);
+    if (fail === 0) {
+      setMessage({
+        type: "success",
+        text: `Se guardaron ${ok} ajuste${ok === 1 ? "" : "s"} de stock.`,
+      });
+    } else {
+      setMessage({
+        type: "error",
+        text: `${ok} guardado(s), ${fail} fallaron. Revisa los marcados en rojo.`,
+      });
+    }
+    await loadProductos();
+  }
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-24">
       <Toast message={message} onDismiss={() => setMessage(null)} />
 
       <section className={`rounded-lg border ${colors.panelBorder} ${colors.panelBg} p-4 shadow-sm`}>
@@ -309,10 +390,37 @@ export function AlmacenProductos() {
               desgloseMap={desgloseMap}
               onMessage={setMessage}
               onSaved={() => void loadProductos()}
+              onRegister={registerSection}
+              onPendingChange={notifyPending}
             />
           ))
         )}
       </section>
+
+      {/* Barra fija inferior: aparece cuando hay AL MENOS un almacen con
+          cambios pendientes en alguna tarjeta. Guarda todo de una. */}
+      {pendingCount > 0 ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-emerald-200 bg-white/95 p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur">
+          <div className="mx-auto flex max-w-[1600px] flex-col gap-2 px-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+            <p className="text-sm font-medium text-slate-700 sm:mr-auto">
+              <span className={`mr-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-xs font-bold ${colors.btnPrimary}`}>
+                {pendingCount}
+              </span>
+              {pendingCount === 1
+                ? "cambio pendiente"
+                : "cambios pendientes en distintos almacenes"}
+            </p>
+            <button
+              type="button"
+              disabled={isSavingAll}
+              onClick={() => void guardarTodo()}
+              className={`h-11 rounded-md px-6 text-sm font-semibold ${colors.btnPrimary}`}
+            >
+              {isSavingAll ? "Guardando..." : "Guardar todo"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -328,12 +436,16 @@ function ProductoCard({
   desgloseMap,
   onMessage,
   onSaved,
+  onRegister,
+  onPendingChange,
 }: {
   producto: ProductoConStock;
   almacenes: Almacen[];
   desgloseMap: Map<string, number>;
   onMessage: (m: ToastMessage) => void;
   onSaved: () => void;
+  onRegister: (key: string, api: SectionApi | null) => void;
+  onPendingChange: (key: string, hasChanges: boolean) => void;
 }) {
   const unidadBase = (producto.unidad_base ?? "und").trim() || "und";
   const stockProductoId = getStockProductId(producto);
@@ -393,6 +505,8 @@ function ProductoCard({
             desgloseMap={desgloseMap}
             onMessage={onMessage}
             onSaved={onSaved}
+            onRegister={onRegister}
+            onPendingChange={onPendingChange}
           />
         ))}
       </div>
@@ -409,6 +523,8 @@ function AlmacenSection({
   desgloseMap,
   onMessage,
   onSaved,
+  onRegister,
+  onPendingChange,
 }: {
   almacen: Almacen;
   producto: ProductoConStock;
@@ -418,6 +534,8 @@ function AlmacenSection({
   desgloseMap: Map<string, number>;
   onMessage: (m: ToastMessage) => void;
   onSaved: () => void;
+  onRegister: (key: string, api: SectionApi | null) => void;
+  onPendingChange: (key: string, hasChanges: boolean) => void;
 }) {
   const stockBase = getBaseStockByAlmacen(producto, almacen.id);
   const minimo = Number(producto.stock_minimo ?? 10);
@@ -500,7 +618,9 @@ function AlmacenSection({
   // Valores ABSOLUTOS editables (no deltas). Arrancan con lo guardado.
   const [cantidades, setCantidades] = useState<Record<string, string>>({});
   const [sueltasInput, setSueltasInput] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+  // isSaving local: lo dejamos por si lo necesitamos en el futuro, pero
+  // el feedback visual ahora lo controla el boton "Guardar todo" global.
+  const [, setIsSaving] = useState(false);
 
   // Reset cuando cambia el desglose desde el padre (despues de guardar/recargar)
   useEffect(() => {
@@ -538,42 +658,22 @@ function AlmacenSection({
     return false;
   }, [cantidades, sueltasInput, desgloseGuardado, sueltasGuardadas, presentacionesActivas]);
 
-  /**
-   * Distribuye un total de unidades base entre las presentaciones,
-   * usando la presentacion principal (la primera) para llenar lo mas
-   * posible y poner el residuo en sueltas. Si solo hay una sin
-   * presentaciones, todo va a sueltas.
-   *
-   * Util cuando el usuario sabe el total contado pero no quiere
-   * pensar la distribucion. Despues puede ajustar manualmente.
-   */
-  function distribuirTotal(totalDeseado: number) {
-    if (!Number.isFinite(totalDeseado) || totalDeseado < 0) return;
-    const init: Record<string, string> = {};
-    if (presentacionesActivas.length === 0) {
-      setSueltasInput(String(totalDeseado));
-      return;
-    }
-    const principal = presentacionesActivas[0];
-    const factor = Number(principal.unidades_por_presentacion);
-    let asignadas = 0;
-    let restoSueltas = totalDeseado;
-    if (factor > 0) {
-      asignadas = Math.floor(totalDeseado / factor);
-      restoSueltas = totalDeseado - asignadas * factor;
-    }
-    for (const pres of presentacionesActivas) {
-      init[pres.id] = pres.id === principal.id ? String(asignadas) : "0";
-    }
-    setCantidades(init);
-    setSueltasInput(String(restoSueltas));
-  }
+  // sectionKey debe estar disponible antes del useEffect que lo usa
+  const sectionKey = `${stockProductoId}|${almacen.id}`;
 
-  async function guardar() {
-    if (!supabase) return;
+  // Notificar al padre cuando cambia el estado de "hay cambios" para
+  // que el contador del boton "Guardar todo" se actualice.
+  useEffect(() => {
+    onPendingChange(sectionKey, hayCambios);
+  }, [hayCambios, sectionKey, onPendingChange]);
+
+  async function guardar(silencioso = false): Promise<boolean> {
+    if (!supabase) return false;
     if (!hayCambios) {
-      onMessage({ type: "warning", text: "No hay cambios para guardar." });
-      return;
+      if (!silencioso) {
+        onMessage({ type: "warning", text: "No hay cambios para guardar." });
+      }
+      return false;
     }
     // Validar todas las cantidades >= 0
     const presPayload: Array<{ id: string; cantidad: number }> = [];
@@ -582,16 +682,19 @@ function AlmacenSection({
       if (!Number.isFinite(n) || n < 0) {
         onMessage({
           type: "error",
-          text: `Cantidad invalida en ${pres.nombre_presentacion}: ${cantidades[pres.id]}`,
+          text: `Cantidad invalida en ${producto.nombre_producto} (${almacen.nombre} - ${pres.nombre_presentacion}): ${cantidades[pres.id]}`,
         });
-        return;
+        return false;
       }
       presPayload.push({ id: pres.id, cantidad: n });
     }
     const nSueltas = Number(sueltasInput ?? 0);
     if (!Number.isFinite(nSueltas) || nSueltas < 0) {
-      onMessage({ type: "error", text: "Unidades sueltas invalidas." });
-      return;
+      onMessage({
+        type: "error",
+        text: `${producto.nombre_producto} (${almacen.nombre}): unidades sueltas invalidas.`,
+      });
+      return false;
     }
 
     setIsSaving(true);
@@ -610,15 +713,41 @@ function AlmacenSection({
     });
     setIsSaving(false);
     if (error) {
-      onMessage({ type: "error", text: `No se pudo guardar: ${error.message}` });
-      return;
+      onMessage({
+        type: "error",
+        text: `${producto.nombre_producto} (${almacen.nombre}): ${error.message}`,
+      });
+      return false;
     }
-    onMessage({
-      type: "success",
-      text: `${almacen.nombre}: ${stockBase} → ${totalProyectado} ${unidadBase}`,
-    });
-    onSaved();
+    if (!silencioso) {
+      onMessage({
+        type: "success",
+        text: `${almacen.nombre}: ${stockBase} → ${totalProyectado} ${unidadBase}`,
+      });
+      onSaved();
+    }
+    return true;
   }
+
+  // Registrar API de esta seccion al padre. Usamos refs para que las
+  // funciones siempre apunten a la version mas reciente sin re-registrar.
+  const hayCambiosRef = useRef(hayCambios);
+  const guardarRef = useRef(guardar);
+  // Sincronizar refs en effect para no escribir durante render.
+  useEffect(() => {
+    hayCambiosRef.current = hayCambios;
+  }, [hayCambios]);
+  useEffect(() => {
+    guardarRef.current = guardar;
+  });
+  useEffect(() => {
+    onRegister(sectionKey, {
+      hasChanges: () => hayCambiosRef.current,
+      save: () => guardarRef.current(true), // silencioso: el padre da el resumen
+    });
+    return () => onRegister(sectionKey, null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionKey]);
 
   return (
     <div className="grid gap-3 p-4 md:grid-cols-[140px_minmax(0,1fr)_auto] md:items-start">
@@ -720,57 +849,6 @@ function AlmacenSection({
             }`}
           />
         </div>
-        {/* Atajo: setear el TOTAL en unidades base y se distribuye
-            automaticamente entre presentaciones (principal + sueltas).
-            Util para no estar pensando "cuantas cajas + cuantas sueltas"
-            cuando ya sabes el total contado. */}
-        {presentacionesActivas.length > 0 ? (
-          <div className="grid items-center gap-2 rounded-md border border-dashed border-slate-300 bg-white px-3 py-1.5 text-sm sm:grid-cols-[1fr_auto_110px]">
-            <span className="text-slate-700">
-              Total <span className="text-xs text-slate-400">({unidadBase})</span>
-            </span>
-            <span className="text-xs text-slate-400">distribuir automatico</span>
-            <input
-              type="number"
-              min="0"
-              step="1"
-              placeholder={`Ej. ${stockBase || 100}`}
-              onFocus={selectOnFocus}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const n = Number((e.target as HTMLInputElement).value);
-                  if (Number.isFinite(n) && n >= 0) {
-                    distribuirTotal(n);
-                    (e.target as HTMLInputElement).value = "";
-                  }
-                }
-              }}
-              onBlur={(e) => {
-                const raw = e.target.value.trim();
-                if (raw === "") return;
-                const n = Number(raw);
-                if (Number.isFinite(n) && n >= 0) {
-                  distribuirTotal(n);
-                  e.target.value = "";
-                }
-              }}
-              title={`Setear total contado. Distribuye en ${presentacionesActivas[0]?.nombre_presentacion ?? "principal"} + sueltas.`}
-              className="h-8 w-full rounded border border-slate-300 px-2 text-right text-sm"
-            />
-          </div>
-        ) : null}
-        {hayCambios ? (
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => void guardar()}
-            className={`mt-1 h-9 w-full rounded-md text-xs font-semibold ${colors.btnPrimary}`}
-          >
-            {isSaving
-              ? "Guardando..."
-              : `Guardar (total ${formatNum(totalProyectado)} ${unidadBase})`}
-          </button>
-        ) : null}
       </div>
 
       {/* Acciones (derecha) */}
