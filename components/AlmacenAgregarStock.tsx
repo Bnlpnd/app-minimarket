@@ -453,7 +453,15 @@ export function AlmacenAgregarStock() {
       <Toast message={message} onDismiss={() => setMessage(null)} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-950">Agregar cantidad</h2>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-base font-semibold text-slate-950">Agregar cantidad</h2>
+          <Link
+            href="/productos/nuevo"
+            className="inline-flex h-10 w-fit items-center justify-center rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            + Agregar nuevo producto
+          </Link>
+        </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-600 md:hidden">Producto</span>
