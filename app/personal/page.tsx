@@ -1,3 +1,5 @@
+// Pagina de Personal. Renderiza el modulo de gestion de trabajadores.
+// (force-dynamic porque el modulo usa estado de sesion en cliente.)
 import { Layout } from "@/components/Layout";
 import { PersonalModule } from "@/components/PersonalModule";
 
