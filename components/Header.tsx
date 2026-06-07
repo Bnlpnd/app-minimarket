@@ -1,5 +1,6 @@
 "use client";
 
+import { Menu } from "lucide-react";
 import { BrandIso } from "@/components/ui/BrandMark";
 
 type HeaderProps = {
@@ -22,11 +23,7 @@ export function Header({ title, onMenuClick }: HeaderProps) {
           aria-label="Abrir menu"
           className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
         >
-          <span className="flex flex-col gap-1">
-            <span className="block h-0.5 w-5 rounded bg-current" />
-            <span className="block h-0.5 w-5 rounded bg-current" />
-            <span className="block h-0.5 w-5 rounded bg-current" />
-          </span>
+          <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
       </div>
     </header>

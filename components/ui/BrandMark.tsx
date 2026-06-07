@@ -1,72 +1,142 @@
 /**
  * Identidad de marca — Santa Ana minimarket.
  *
- * Isotipo: casa con olas y halo dorado sobre fondo azul noche, segun el
- * manual de marca. Se usa solo el isotipo en mobile y el isotipo + nombre
- * (Playfair Display) en desktop.
+ * Isotipo recreado en vector (SVG) a partir del manual de marca: casa-bolsa
+ * con olas (toldo de mercado), halo dorado y monograma "SA" en serif.
  *
- *   <BrandMark />            -> isotipo + nombre
- *   <BrandMark compact />    -> solo isotipo (mobile / colapsado)
+ * Variantes (`tone`):
+ *   - "color"  : casa azul, olas y SA en blanco, halo dorado. Para fondos claros.
+ *   - "onDark" : recuadro azul noche, casa blanca, olas y SA azul, halo dorado.
+ *                Es la version "app icon".
+ *   - "mono"   : un solo color (currentColor) para impresiones / sellos.
+ *
+ * Uso:
+ *   <BrandMark />                 -> isotipo + nombre (lockup horizontal)
+ *   <BrandMark compact />         -> solo isotipo
+ *   <BrandIso size={40} />        -> solo isotipo
+ *   <BrandIso tone="onDark" />    -> app icon
  */
+
+const AZUL = "#143a73"; // Azul Santa Ana
+const NOCHE = "#0c234b"; // Azul Noche
+const DORADO = "#d7a33a"; // Dorado Halo
+const BLANCO = "#ffffff";
+
+type Tone = "color" | "onDark" | "mono";
+
+type IsoProps = {
+  /** Tamano del isotipo en px. Default 40. */
+  size?: number;
+  tone?: Tone;
+  className?: string;
+};
+
+function palette(tone: Tone) {
+  if (tone === "onDark") {
+    return { bg: NOCHE, casa: BLANCO, trazos: AZUL, halo: DORADO };
+  }
+  if (tone === "mono") {
+    return { bg: "transparent", casa: "currentColor", trazos: BLANCO, halo: "currentColor" };
+  }
+  return { bg: "transparent", casa: AZUL, trazos: BLANCO, halo: DORADO };
+}
+
+export function BrandIso({ size = 40, tone = "color", className }: IsoProps) {
+  const c = palette(tone);
+  const serif = { fontFamily: "var(--font-playfair), Georgia, serif" } as const;
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 120 120"
+      role="img"
+      aria-label="Santa Ana minimarket"
+      className={`shrink-0 ${className ?? ""}`}
+    >
+      {/* Fondo (solo en app icon) */}
+      {tone === "onDark" ? <rect width="120" height="120" rx="26" fill={c.bg} /> : null}
+
+      {/* Halo dorado detras del techo */}
+      <g transform="rotate(-7 60 13)">
+        <ellipse
+          cx="60"
+          cy="13"
+          rx="25"
+          ry="7.5"
+          fill="none"
+          stroke={c.halo}
+          strokeWidth="4"
+        />
+      </g>
+
+      {/* Casa-bolsa */}
+      <path
+        d="M60 20 L94 48 L94 92 Q94 106 80 106 L40 106 Q26 106 26 92 L26 48 Z"
+        fill={c.casa}
+      />
+
+      {/* Olas / toldo */}
+      <path
+        d="M26 56 q5.67 -7.5 11.33 0 t11.33 0 t11.33 0 t11.33 0 t11.33 0 t11.33 0"
+        fill="none"
+        stroke={c.trazos}
+        strokeWidth="3.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      {/* Monograma SA */}
+      <text
+        x="49"
+        y="99"
+        textAnchor="middle"
+        style={serif}
+        fontSize="62"
+        fontWeight={600}
+        fill={c.trazos}
+      >
+        S
+      </text>
+      <text
+        x="76"
+        y="103"
+        textAnchor="middle"
+        style={serif}
+        fontSize="42"
+        fontWeight={600}
+        fill={c.trazos}
+      >
+        A
+      </text>
+    </svg>
+  );
+}
 
 type BrandMarkProps = {
   /** Si true, muestra solo el isotipo (sin el nombre). */
   compact?: boolean;
   /** Tamano del isotipo en px. Default 40. */
   size?: number;
+  tone?: Tone;
   className?: string;
 };
 
-export function BrandIso({ size = 40 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      role="img"
-      aria-label="Santa Ana minimarket"
-      className="shrink-0"
-    >
-      {/* Fondo azul noche con esquinas redondeadas */}
-      <rect width="48" height="48" rx="12" fill="#0c234b" />
-      {/* Halo dorado sobre la casa */}
-      <path
-        d="M14 17 a10 8 0 0 1 20 0"
-        fill="none"
-        stroke="#d7a33a"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-      />
-      {/* Techo de la casa */}
-      <path d="M24 14.5 L33.5 23 L14.5 23 Z" fill="#ffffff" />
-      {/* Cuerpo de la casa */}
-      <rect x="18" y="23" width="12" height="9.5" fill="#ffffff" />
-      {/* Puerta */}
-      <rect x="22.4" y="26.5" width="3.2" height="6" rx="0.4" fill="#0c234b" />
-      {/* Olas doradas */}
-      <path
-        d="M12.5 37.5 q3 -2.6 6 0 t6 0 t6 0 t6 0"
-        fill="none"
-        stroke="#d7a33a"
-        strokeWidth="2.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-export function BrandMark({ compact = false, size = 40, className }: BrandMarkProps) {
+export function BrandMark({ compact = false, size = 40, tone = "color", className }: BrandMarkProps) {
   return (
     <span className={`flex items-center gap-3 ${className ?? ""}`}>
-      <BrandIso size={size} />
+      <BrandIso size={size} tone={tone} />
       {compact ? null : (
         <span className="flex flex-col leading-none">
-          <span className="font-display text-lg font-semibold tracking-tight text-santa-800">
+          <span className="font-display text-xl font-semibold tracking-tight text-santa-800">
             Santa Ana
           </span>
-          <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-halo-600">
-            minimarket
+          <span className="mt-1 flex items-center gap-1.5">
+            <span aria-hidden="true" className="h-px w-3 bg-halo-500" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-santa-700">
+              Minimarket
+            </span>
+            <span aria-hidden="true" className="h-px w-3 bg-halo-500" />
           </span>
         </span>
       )}

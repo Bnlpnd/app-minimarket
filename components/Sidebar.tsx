@@ -3,16 +3,36 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import {
+  HelpCircle,
+  LayoutDashboard,
+  LogOut,
+  Package,
+  ShoppingCart,
+  Truck,
+  UserCog,
+  Users,
+  Warehouse,
+  type LucideIcon,
+} from "lucide-react";
 import { getStoredAppUser, signOut } from "@/lib/authRoles";
 import { BrandMark } from "@/components/ui/BrandMark";
 
-export const navigationItems = [
+type NavGroup = {
+  label: string;
+  icon: LucideIcon;
+  items: { href: string; label: string }[];
+};
+
+export const navigationItems: NavGroup[] = [
   {
     label: "Dashboard",
+    icon: LayoutDashboard,
     items: [{ href: "/dashboard", label: "Resumen" }],
   },
   {
     label: "Productos",
+    icon: Package,
     items: [
       { href: "/productos/nuevo", label: "Nuevo producto" },
       { href: "/productos", label: "Listado" },
@@ -22,6 +42,7 @@ export const navigationItems = [
   },
   {
     label: "Ventas",
+    icon: ShoppingCart,
     items: [
       { href: "/pedidos/nuevo", label: "Nueva venta" },
       { href: "/pedidos", label: "Lista pedidos" },
@@ -30,6 +51,7 @@ export const navigationItems = [
   },
   {
     label: "Almacenes",
+    icon: Warehouse,
     items: [
       { href: "/almacen/agregar-stock", label: "Agregar stock" },
       { href: "/almacen/ajustes", label: "Corregir / Ajustar stock" },
@@ -41,10 +63,12 @@ export const navigationItems = [
   },
   {
     label: "Clientes",
+    icon: Users,
     items: [{ href: "/clientes", label: "Clientes" }],
   },
   {
     label: "Proveedores",
+    icon: Truck,
     items: [
       { href: "/proveedores?tab=listado", label: "Listado proveedores" },
       { href: "/proveedores?tab=compras", label: "Compras y pagos" },
@@ -52,6 +76,7 @@ export const navigationItems = [
   },
   {
     label: "Personal",
+    icon: UserCog,
     items: [
       { href: "/personal?tab=listado", label: "Listado personal" },
       { href: "/personal?tab=pago", label: "Pago semanal" },
@@ -113,7 +138,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           })
           .map((group) => (
           <div key={group.label}>
-            <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="flex items-center gap-2 px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <group.icon className="h-3.5 w-3.5 text-halo-600" aria-hidden="true" />
               {group.label}
             </p>
             <div className="mt-2 space-y-1">
@@ -148,7 +174,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           onClick={onNavigate}
           className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-santa-50 hover:text-santa-800"
         >
-          <span aria-hidden="true">?</span>
+          <HelpCircle className="h-4 w-4" aria-hidden="true" />
           <span>Ayuda</span>
           <span className="ml-auto text-[10px] text-slate-400">Manual</span>
         </a>
@@ -168,7 +194,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           onClick={handleSignOut}
           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
         >
-          <span aria-hidden="true">⤶</span>
+          <LogOut className="h-4 w-4" aria-hidden="true" />
           <span>Cerrar sesion</span>
         </button>
       </div>
