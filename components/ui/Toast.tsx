@@ -34,14 +34,14 @@ type Props = {
 };
 
 const STYLES_INLINE: Record<ToastMessage["type"], string> = {
-  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  success: "border-santa-200 bg-santa-50 text-santa-800",
   error: "border-rose-200 bg-rose-50 text-rose-800",
   warning: "border-amber-200 bg-amber-50 text-amber-800",
   info: "border-sky-200 bg-sky-50 text-sky-800",
 };
 
 const STYLES_FLOATING: Record<ToastMessage["type"], string> = {
-  success: "bg-emerald-600 text-white border-emerald-700",
+  success: "bg-santa-600 text-white border-santa-700",
   error: "bg-rose-600 text-white border-rose-700",
   warning: "bg-amber-500 text-white border-amber-600",
   info: "bg-sky-600 text-white border-sky-700",

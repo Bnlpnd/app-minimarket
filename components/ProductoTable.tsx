@@ -77,7 +77,7 @@ function margenClass(margen: number | null): string {
   if (margen < 0) return "text-red-700 font-semibold";
   if (margen < 10) return "text-orange-600 font-semibold";
   if (margen < 25) return "text-amber-700";
-  return "text-emerald-700 font-semibold";
+  return "text-santa-700 font-semibold";
 }
 
 function ProductImage({ producto }: { producto: ProductoConRelaciones }) {
@@ -173,7 +173,7 @@ export function ProductoTable({
                           {producto.presentacion || "Sin presentacion"}
                         </p>
                         {producto.producto_base_id ? (
-                          <p className="mt-1 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                          <p className="mt-1 inline-flex items-center rounded-full bg-santa-50 px-2 py-0.5 text-[10px] font-medium text-santa-700">
                             = {formatStock(Number(producto.unidades_equivalentes ?? 1))} de &quot;{producto.producto_base?.nombre_producto ?? "base"}&quot;
                           </p>
                         ) : null}
@@ -246,7 +246,7 @@ export function ProductoTable({
                     <span
                       className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${
                         producto.activo
-                          ? "bg-emerald-50 text-emerald-700"
+                          ? "bg-santa-50 text-santa-700"
                           : "bg-slate-100 text-slate-600"
                       }`}
                     >
@@ -298,7 +298,7 @@ export function ProductoTable({
                 <span
                   className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ${
                     producto.activo
-                      ? "bg-emerald-50 text-emerald-700"
+                      ? "bg-santa-50 text-santa-700"
                       : "bg-slate-100 text-slate-600"
                   }`}
                 >

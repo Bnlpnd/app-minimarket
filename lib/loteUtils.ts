@@ -73,7 +73,7 @@ export function estadoVencimientoUI(estado: LoteEstadoVencimiento) {
     case "ok":
       return {
         label: "OK",
-        badge: "bg-emerald-100 text-emerald-700 border-emerald-200",
+        badge: "bg-santa-100 text-santa-700 border-santa-200",
         row: "",
       };
     default:

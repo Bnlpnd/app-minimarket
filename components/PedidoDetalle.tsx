@@ -358,7 +358,7 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
           href={whatsappLink}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex h-10 w-fit items-center rounded-md bg-emerald-700 px-4 text-sm font-medium text-white hover:bg-emerald-800"
+          className="inline-flex h-10 w-fit items-center rounded-md bg-santa-700 px-4 text-sm font-medium text-white hover:bg-santa-800"
         >
           Enviar resumen por WhatsApp
         </a>
@@ -368,7 +368,7 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
         <div
           className={`rounded-lg border p-4 text-sm ${
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-santa-200 bg-santa-50 text-santa-700"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
@@ -524,7 +524,7 @@ export function PedidoDetalle({ pedidoId }: { pedidoId: string }) {
                 type="button"
                 onClick={() => void validarPago()}
                 disabled={isUpdating || !pago || pago.estado === "validado"}
-                className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="h-10 rounded-md bg-santa-700 px-4 text-sm font-medium text-white hover:bg-santa-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 Validar pago
               </button>

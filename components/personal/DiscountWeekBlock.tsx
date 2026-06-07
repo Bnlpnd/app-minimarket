@@ -28,7 +28,7 @@ type Props = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function toInputDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -118,7 +118,7 @@ export function DiscountWeekBlock({
                 key={d.date}
                 type="button"
                 onClick={() => { onChangeSelectedDate(d.date); onDiscountChange("fecha", d.date); }}
-                className={`flex h-12 w-12 flex-col items-center justify-center rounded-full text-xs font-bold ${isSelected ? "bg-emerald-600 text-white" : hasDiscount ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-white text-slate-600 border border-slate-300"}`}
+                className={`flex h-12 w-12 flex-col items-center justify-center rounded-full text-xs font-bold ${isSelected ? "bg-santa-600 text-white" : hasDiscount ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-white text-slate-600 border border-slate-300"}`}
               >
                 {d.label}
               </button>
@@ -138,7 +138,7 @@ export function DiscountWeekBlock({
             <span className="text-xs font-medium text-slate-700">Monto</span>
             <input type="number" min="0" step="0.01" value={discountForm.monto} onChange={(e) => onDiscountChange("monto", e.target.value)} className={inputClassName} />
           </label>
-          <button type="submit" disabled={isSaving} className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+          <button type="submit" disabled={isSaving} className="h-11 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
             {isSaving ? "Guardando..." : editingDiscountId ? "Actualizar" : "Guardar"}
           </button>
         </form>

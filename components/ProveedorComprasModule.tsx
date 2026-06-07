@@ -63,7 +63,7 @@ type ItemForm = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function newItemKey() {
   return `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -103,7 +103,7 @@ const ESTADO_LABEL: Record<ProveedorCompraEstadoPago, string> = {
 };
 
 const ESTADO_BADGE: Record<ProveedorCompraEstadoPago, string> = {
-  pagado: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  pagado: "bg-santa-100 text-santa-700 border-santa-200",
   parcial: "bg-amber-100 text-amber-700 border-amber-200",
   pendiente: "bg-red-100 text-red-700 border-red-200",
 };
@@ -592,7 +592,7 @@ export function ProveedorComprasModule() {
               setShowForm(true);
             }
           }}
-          className="flex h-full items-center justify-center rounded-lg bg-emerald-700 px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
+          className="flex h-full items-center justify-center rounded-lg bg-santa-700 px-4 py-4 text-sm font-semibold text-white shadow-sm hover:bg-santa-800"
         >
           {showForm ? "Cerrar form" : "+ Nueva compra"}
         </button>
@@ -667,7 +667,7 @@ export function ProveedorComprasModule() {
                   <button
                     type="button"
                     onClick={() => setFormTotal(itemsTotal.toFixed(2))}
-                    className="ml-1 text-emerald-700 underline"
+                    className="ml-1 text-santa-700 underline"
                   >
                     usar
                   </button>
@@ -776,7 +776,7 @@ export function ProveedorComprasModule() {
               type="button"
               disabled={isSaving}
               onClick={() => void saveCompra()}
-              className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+              className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
             >
               {isSaving ? "Guardando..." : "Guardar compra"}
             </button>
@@ -955,7 +955,7 @@ function KpiCard({
     tone === "amber"
       ? "border-amber-200 bg-amber-50 text-amber-800"
       : tone === "emerald"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+        ? "border-santa-200 bg-santa-50 text-santa-800"
         : "border-slate-200 bg-white text-slate-800";
   return (
     <article className={`rounded-lg border p-4 shadow-sm ${cls}`}>
@@ -1023,7 +1023,7 @@ function ItemRow({
             <button
               type="button"
               onClick={() => onQuickCreate(item.descripcion)}
-              className="h-11 shrink-0 rounded-md border border-emerald-300 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+              className="h-11 shrink-0 rounded-md border border-santa-300 bg-santa-50 px-2 text-xs font-semibold text-santa-700 hover:bg-santa-100"
               title="Crear producto nuevo en el catalogo"
             >
               + Nuevo
@@ -1298,8 +1298,8 @@ function CompraRow({
 
           {/* Nuevo abono */}
           {compra.estado_pago !== "pagado" ? (
-            <div className="rounded-md border border-emerald-200 bg-emerald-50/50 p-3">
-              <h4 className="text-sm font-semibold text-emerald-900">
+            <div className="rounded-md border border-santa-200 bg-santa-50/50 p-3">
+              <h4 className="text-sm font-semibold text-santa-900">
                 Registrar abono
               </h4>
               <div className="mt-2 grid gap-2 md:grid-cols-4">
@@ -1342,7 +1342,7 @@ function CompraRow({
                 type="button"
                 disabled={isSaving}
                 onClick={onAbonoSave}
-                className="mt-2 h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+                className="mt-2 h-10 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
               >
                 {isSaving ? "Guardando..." : "Registrar abono"}
               </button>

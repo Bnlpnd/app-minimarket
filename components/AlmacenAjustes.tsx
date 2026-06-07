@@ -30,7 +30,7 @@ type Message = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function normalizeSpaces(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -344,7 +344,7 @@ export function AlmacenAjustes() {
             type="button"
             onClick={() => void guardarAjuste()}
             disabled={isSaving}
-            className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+            className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
           >
             {isSaving ? "Guardando..." : "Guardar ajuste"}
           </button>

@@ -880,7 +880,7 @@ function ProductoNuevoContent() {
             <div
               className={`hidden rounded-lg border p-4 text-sm sm:block ${
                 message.type === "success"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  ? "border-santa-200 bg-santa-50 text-santa-700"
                   : "border-red-200 bg-red-50 text-red-700"
               }`}
             >
@@ -892,7 +892,7 @@ function ProductoNuevoContent() {
               aria-live="polite"
               className={`fixed inset-x-3 top-3 z-50 rounded-lg border p-3 text-sm shadow-lg sm:hidden ${
                 message.type === "success"
-                  ? "border-emerald-300 bg-emerald-600 text-white"
+                  ? "border-santa-300 bg-santa-600 text-white"
                   : "border-red-300 bg-red-600 text-white"
               }`}
             >

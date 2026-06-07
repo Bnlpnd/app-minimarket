@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { BrandMark } from "@/components/ui/BrandMark";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -52,12 +53,12 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-12 text-slate-900">
-      <section className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-medium uppercase tracking-wide text-emerald-700">
-          Minimarket Santa Ana
-        </p>
-        <h1 className="mt-3 text-2xl font-semibold">Ingreso al sistema</h1>
+    <main className="flex min-h-screen items-center justify-center bg-crema px-6 py-12 text-slate-900">
+      <section className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <BrandMark size={44} />
+        <h1 className="font-display mt-5 text-2xl font-semibold text-santa-900">
+          Ingreso al sistema
+        </h1>
         <p className="mt-2 text-sm text-slate-600">
           Usa tu correo y clave asignados por el administrador.
         </p>
@@ -71,7 +72,7 @@ export default function LoginPage() {
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
               required
-              className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
             />
           </label>
 
@@ -83,7 +84,7 @@ export default function LoginPage() {
               onChange={(event) => setPassword(event.target.value)}
               autoComplete="current-password"
               required
-              className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
             />
           </label>
 
@@ -96,7 +97,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="inline-flex h-11 w-full items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+            className="inline-flex h-11 w-full items-center justify-center rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
           >
             {isLoading ? "Ingresando..." : "Entrar"}
           </button>

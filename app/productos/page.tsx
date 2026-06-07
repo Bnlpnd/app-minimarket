@@ -44,7 +44,7 @@ type QuickKey =
 
 const PAGE_SIZE = 50;
 const inputClassName =
-  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function buildQuickValues(productos: ProductoConRelaciones[]) {
   // El listado NO edita stock — solo metadata del producto (precio,
@@ -455,7 +455,7 @@ export default function ProductosPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <Link
             href="/productos/nuevo"
-            className="inline-flex h-11 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800"
+            className="inline-flex h-11 items-center justify-center rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800"
           >
             Nuevo producto
           </Link>
@@ -471,7 +471,7 @@ export default function ProductosPage() {
           <div
             className={`rounded-lg border p-4 text-sm ${
               message.type === "success"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                ? "border-santa-200 bg-santa-50 text-santa-700"
                 : "border-red-200 bg-red-50 text-red-700"
             }`}
           >
@@ -524,15 +524,15 @@ export default function ProductosPage() {
           </div>
           <div className="mt-3 flex flex-wrap gap-4">
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={showStockTienda} onChange={(event) => setShowStockTienda(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+              <input type="checkbox" checked={showStockTienda} onChange={(event) => setShowStockTienda(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-santa-600" />
               Con stock Tienda
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={showStockCasa} onChange={(event) => setShowStockCasa(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+              <input type="checkbox" checked={showStockCasa} onChange={(event) => setShowStockCasa(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-santa-600" />
               Con stock Casa
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={showStockBajo} onChange={(event) => setShowStockBajo(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+              <input type="checkbox" checked={showStockBajo} onChange={(event) => setShowStockBajo(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-santa-600" />
               Stock bajo
             </label>
           </div>

@@ -25,7 +25,7 @@ type Message = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 const ownerWhatsapp = "943104987";
 const abastecimientoUrl = "https://app-minimarket.vercel.app/almacen/abastecimiento";
 
@@ -180,7 +180,7 @@ export function AlmacenAbastecimiento() {
   return (
     <div className="space-y-5">
       {message ? (
-        <div className={`rounded-lg border p-4 text-sm ${message.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+        <div className={`rounded-lg border p-4 text-sm ${message.type === "success" ? "border-santa-200 bg-santa-50 text-santa-700" : "border-red-200 bg-red-50 text-red-700"}`}>
           {message.text}
         </div>
       ) : null}
@@ -217,7 +217,7 @@ export function AlmacenAbastecimiento() {
           <article key={pedido.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase text-emerald-700">Abastecimiento #{pedido.id.slice(0, 8)}</p>
+                <p className="text-xs font-semibold uppercase text-santa-700">Abastecimiento #{pedido.id.slice(0, 8)}</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-950">{pedido.proveedores?.nombre ?? "Proveedor por definir"}</h2>
                 <p className="mt-1 text-sm text-slate-500">
                   {formatDateTime(pedido.created_at)} | {pedido.proveedores?.telefono ?? "Sin telefono"}

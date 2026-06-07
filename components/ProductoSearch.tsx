@@ -20,7 +20,7 @@ export function ProductoSearch({ value, onChange }: ProductoSearchProps) {
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder="Codigo, nombre, marca o categoria"
-        className="mt-2 h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+        className="mt-2 h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none transition focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
       />
     </div>
   );

@@ -89,7 +89,7 @@ export function AlmacenMovimientos() {
         <select
           value={tipo}
           onChange={(event) => setTipo(event.target.value)}
-          className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 sm:w-72"
+          className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100 sm:w-72"
         >
           <option value="">Todos los movimientos</option>
           <option value="ingreso">Ingreso</option>

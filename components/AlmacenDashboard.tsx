@@ -51,7 +51,7 @@ type Message = {
 };
 
 const inputClassName =
-  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function formatMoney(value: number | null) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
@@ -350,7 +350,7 @@ export function AlmacenDashboard() {
         <div
           className={`rounded-lg border p-4 text-sm ${
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-santa-200 bg-santa-50 text-santa-700"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >

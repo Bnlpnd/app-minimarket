@@ -40,7 +40,7 @@ const emptyForm: FormValues = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function normalizeSpaces(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -269,7 +269,7 @@ export function ProveedoresModule() {
               value={form.observacion}
               onChange={(event) => updateForm("observacion", event.target.value)}
               rows={3}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
             />
           </Field>
           <label className="flex items-center gap-2 self-end text-sm text-slate-700">
@@ -277,7 +277,7 @@ export function ProveedoresModule() {
               type="checkbox"
               checked={form.activo}
               onChange={(event) => updateForm("activo", event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+              className="h-4 w-4 rounded border-slate-300 text-santa-700"
             />
             Activo
           </label>
@@ -294,7 +294,7 @@ export function ProveedoresModule() {
             <button
               type="submit"
               disabled={isSaving}
-              className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+              className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
             >
               {isSaving ? "Guardando..." : editingId ? "Guardar cambios" : "Agregar proveedor"}
             </button>

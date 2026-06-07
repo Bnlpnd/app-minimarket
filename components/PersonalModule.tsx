@@ -108,7 +108,7 @@ const emptyDiscountForm: DiscountForm = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function normalizeSpaces(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -934,7 +934,7 @@ export function PersonalModule() {
             <button
               type="button"
               onClick={() => setShowRegisterForm((current) => !current)}
-              className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800"
+              className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800"
             >
               {showRegisterForm ? "Cerrar" : "Registrar usuario"}
             </button>
@@ -1028,7 +1028,7 @@ export function PersonalModule() {
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+                  className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
                 >
                   {isSaving ? "Registrando..." : "Registrar usuario"}
                 </button>
@@ -1405,7 +1405,7 @@ export function PersonalModule() {
                                 onClick={() => toggleDiaTurno(index, dia)}
                                 className={`h-8 w-10 rounded-md border text-xs font-semibold ${
                                   activo
-                                    ? "border-emerald-700 bg-emerald-100 text-emerald-800"
+                                    ? "border-santa-700 bg-santa-100 text-santa-800"
                                     : "border-slate-300 bg-white text-slate-500"
                                 }`}
                               >
@@ -1431,7 +1431,7 @@ export function PersonalModule() {
                       type="button"
                       onClick={() => void saveTurnos()}
                       disabled={isSavingTurnos}
-                      className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+                      className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
                     >
                       {isSavingTurnos ? "Guardando..." : "Guardar turnos"}
                     </button>
@@ -1746,7 +1746,7 @@ function StatusPill({ active }: { active: boolean }) {
   return (
     <span
       className={`rounded-md px-2 py-1 text-xs font-medium ${
-        active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+        active ? "bg-santa-50 text-santa-700" : "bg-slate-100 text-slate-600"
       }`}
     >
       {active ? "Activo" : "Inactivo"}

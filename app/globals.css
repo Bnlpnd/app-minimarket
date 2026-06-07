@@ -1,15 +1,50 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #172033;
+  --background: #f5f1e8; /* Crema Mercado suave para fondo de pagina */
+  --foreground: #1f2430; /* Carbon */
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-playfair), Georgia, serif;
   --font-mono: var(--font-geist-mono);
+}
+
+/*
+  Paleta de marca Santa Ana minimarket.
+  - santa-*  : azul institucional (#143A73 Azul Santa Ana / #0C234B Azul Noche)
+  - halo-*   : dorado del halo (#D7A33A)
+  - crema    : fondo calido del mercado (#F5F1E8)
+  El sistema usaba "emerald" como color primario; se migro a "santa".
+*/
+@theme {
+  --color-santa-50: #eef4fb;
+  --color-santa-100: #d8e4f4;
+  --color-santa-200: #b6cdea;
+  --color-santa-300: #88aada;
+  --color-santa-400: #5380bf;
+  --color-santa-500: #2f5da1;
+  --color-santa-600: #143a73; /* Azul Santa Ana (primario) */
+  --color-santa-700: #102f5d;
+  --color-santa-800: #0c234b; /* Azul Noche */
+  --color-santa-900: #081832;
+  --color-santa-950: #050f20;
+
+  --color-halo-50: #fbf6e9;
+  --color-halo-100: #f6ebc8;
+  --color-halo-200: #eed694;
+  --color-halo-300: #e5be5e;
+  --color-halo-400: #ddae47;
+  --color-halo-500: #d7a33a; /* Dorado Halo */
+  --color-halo-600: #b9892b;
+  --color-halo-700: #946b23;
+  --color-halo-800: #785622;
+  --color-halo-900: #65481f;
+
+  --color-crema: #f5f1e8;
 }
 
 body {
@@ -17,6 +52,12 @@ body {
   color: var(--foreground);
   overflow-x: hidden;
   text-rendering: optimizeLegibility;
+  font-family: var(--font-sans);
+}
+
+/* Titulos de marca: Playfair Display. Aplicar con la clase font-display. */
+.font-display {
+  font-family: var(--font-display);
 }
 
 * {

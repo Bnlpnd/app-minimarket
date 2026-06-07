@@ -541,7 +541,7 @@ export default function MisDatosPage() {
                             onClick={() => setTurnoElegido(t.id)}
                             className={`rounded-md border px-3 py-2 text-xs font-semibold ${
                               turnoElegido === t.id
-                                ? "border-emerald-700 bg-emerald-700 text-white"
+                                ? "border-santa-700 bg-santa-700 text-white"
                                 : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                             }`}
                           >
@@ -564,7 +564,7 @@ export default function MisDatosPage() {
                       type="button"
                       onClick={() => void marcarIngreso()}
                       disabled={isMarking !== null || Boolean(asistenciaHoy?.hora_ingreso)}
-                      className="h-12 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      className="h-12 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       {isMarking === "ingreso"
                         ? "Registrando..."
@@ -592,7 +592,7 @@ export default function MisDatosPage() {
                   {actionMessage ? (
                     <p
                       className={`mt-3 text-xs ${
-                        actionMessage.type === "success" ? "text-emerald-700" : "text-red-700"
+                        actionMessage.type === "success" ? "text-santa-700" : "text-red-700"
                       }`}
                     >
                       {actionMessage.text}
@@ -771,7 +771,7 @@ export default function MisDatosPage() {
                     {descMessage ? (
                       <p
                         className={`text-xs ${
-                          descMessage.type === "success" ? "text-emerald-700" : "text-red-700"
+                          descMessage.type === "success" ? "text-santa-700" : "text-red-700"
                         }`}
                       >
                         {descMessage.text}

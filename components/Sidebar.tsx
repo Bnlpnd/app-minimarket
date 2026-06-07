@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getStoredAppUser, signOut } from "@/lib/authRoles";
+import { BrandMark } from "@/components/ui/BrandMark";
 
 export const navigationItems = [
   {
@@ -94,14 +95,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   return (
     <aside className="flex h-full w-72 flex-col border-r border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-5 py-5">
-        <Link
-          href="/dashboard"
-          onClick={onNavigate}
-          className="block text-lg font-semibold tracking-tight text-slate-950"
-        >
-          Minimarket Santa Ana
+        <Link href="/dashboard" onClick={onNavigate} className="block">
+          <BrandMark />
         </Link>
-        <p className="mt-1 text-sm text-slate-500">Panel administrativo</p>
+        <p className="mt-2 text-xs text-slate-500">Panel administrativo</p>
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
@@ -130,7 +127,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                     onClick={onNavigate}
                     className={`flex min-h-10 items-center rounded-md px-3 text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-emerald-50 text-emerald-800"
+                        ? "bg-santa-50 text-santa-800"
                         : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                     }`}
                   >
@@ -149,7 +146,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={onNavigate}
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-800"
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-santa-50 hover:text-santa-800"
         >
           <span aria-hidden="true">?</span>
           <span>Ayuda</span>

@@ -266,7 +266,7 @@ export function PaymentHistoryBlock({
             {isSaving ? "Guardando..." : registeredPayment ? "Actualizar pago" : "Registrar pago"}
           </button>
           {registeredPayment ? (
-            <p className="mt-2 text-sm text-emerald-700">
+            <p className="mt-2 text-sm text-santa-700">
               Pago registrado: S/ {numberValue(registeredPayment.monto_pagado).toFixed(2)}.
             </p>
           ) : null}
@@ -277,13 +277,13 @@ export function PaymentHistoryBlock({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-950">Historico</h3>
           <div className="flex gap-1 rounded-md border border-slate-200 p-1 text-xs">
-            <button type="button" onClick={() => onChangeFilter("dia")} className={`rounded px-3 py-1 ${paymentFilter === "dia" ? "bg-emerald-600 text-white" : "text-slate-700"}`}>
+            <button type="button" onClick={() => onChangeFilter("dia")} className={`rounded px-3 py-1 ${paymentFilter === "dia" ? "bg-santa-600 text-white" : "text-slate-700"}`}>
               Dia
             </button>
-            <button type="button" onClick={() => onChangeFilter("semana")} className={`rounded px-3 py-1 ${paymentFilter === "semana" ? "bg-emerald-600 text-white" : "text-slate-700"}`}>
+            <button type="button" onClick={() => onChangeFilter("semana")} className={`rounded px-3 py-1 ${paymentFilter === "semana" ? "bg-santa-600 text-white" : "text-slate-700"}`}>
               Semana
             </button>
-            <button type="button" onClick={() => onChangeFilter("mes")} className={`rounded px-3 py-1 ${paymentFilter === "mes" ? "bg-emerald-600 text-white" : "text-slate-700"}`}>
+            <button type="button" onClick={() => onChangeFilter("mes")} className={`rounded px-3 py-1 ${paymentFilter === "mes" ? "bg-santa-600 text-white" : "text-slate-700"}`}>
               Mes
             </button>
           </div>

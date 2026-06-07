@@ -1,5 +1,7 @@
 "use client";
 
+import { BrandIso } from "@/components/ui/BrandMark";
+
 type HeaderProps = {
   title: string;
   onMenuClick: () => void;
@@ -9,10 +11,8 @@ export function Header({ title, onMenuClick }: HeaderProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white md:hidden">
       <div className="flex h-16 items-center justify-between px-4">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
-            Minimarket Santa Ana
-          </p>
+        <div className="flex items-center gap-2.5">
+          <BrandIso size={36} />
           <h1 className="text-base font-semibold text-slate-950">{title}</h1>
         </div>
 

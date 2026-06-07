@@ -426,7 +426,7 @@ export function PreparacionModule() {
         <div
           className={`rounded-lg border p-4 text-sm ${
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-santa-200 bg-santa-50 text-santa-700"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
@@ -455,7 +455,7 @@ export function PreparacionModule() {
                   onClick={() => void loadDetalle(pedido)}
                   className={`w-full rounded-md border p-3 text-left text-sm hover:bg-slate-50 ${
                     selectedPedido?.id === pedido.id
-                      ? "border-emerald-500 bg-emerald-50"
+                      ? "border-santa-500 bg-santa-50"
                       : "border-slate-200"
                   }`}
                 >
@@ -468,7 +468,7 @@ export function PreparacionModule() {
                   <span className="mt-2 inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-medium capitalize text-slate-700">
                     {formatEstado(pedido.estado)}
                   </span>
-                  <span className={`ml-1 mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${pedido.estado_pago === "pagado" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                  <span className={`ml-1 mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${pedido.estado_pago === "pagado" ? "bg-santa-50 text-santa-700" : "bg-amber-50 text-amber-800"}`}>
                     {pedido.estado_pago === "pagado" ? "Pagado" : "Debe"}
                   </span>
                 </button>
@@ -503,7 +503,7 @@ export function PreparacionModule() {
                       ) : null}
                     </p>
                     <p className="mt-1">
-                      <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${selectedPedido.estado_pago === "pagado" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                      <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${selectedPedido.estado_pago === "pagado" ? "bg-santa-50 text-santa-700" : "bg-amber-50 text-amber-800"}`}>
                         Pago: {selectedPedido.estado_pago === "pagado" ? "Pagado" : "Debe"}
                       </span>
                       {selectedPedido.observaciones ? (
@@ -542,7 +542,7 @@ export function PreparacionModule() {
                     type="button"
                     onClick={() => void marcarListo()}
                     disabled={isUpdating || selectedPedido.estado === "listo_para_recoger"}
-                    className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    className="h-10 rounded-md bg-santa-700 px-4 text-sm font-medium text-white hover:bg-santa-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     Marcar listo
                   </button>
@@ -616,7 +616,7 @@ export function PreparacionModule() {
                                 onChange={(event) =>
                                   void updateChecklist(detalle, event.target.checked)
                                 }
-                                className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+                                className="h-4 w-4 rounded border-slate-300 text-santa-700"
                               />
                             </td>
                             <td className="px-4 py-3">

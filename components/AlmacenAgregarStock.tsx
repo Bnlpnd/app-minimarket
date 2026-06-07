@@ -48,7 +48,7 @@ type Message = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function formatStock(value: number | null | undefined) {
   return Number(value ?? 0).toFixed(2).replace(/\.00$/, "");
@@ -457,7 +457,7 @@ export function AlmacenAgregarStock() {
           <h2 className="text-base font-semibold text-slate-950">Agregar cantidad</h2>
           <Link
             href="/productos/nuevo"
-            className="inline-flex h-10 w-fit items-center justify-center rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"
+            className="inline-flex h-10 w-fit items-center justify-center rounded-md bg-santa-600 px-4 text-sm font-semibold text-white hover:bg-santa-700"
           >
             + Agregar nuevo producto
           </Link>
@@ -493,7 +493,7 @@ export function AlmacenAgregarStock() {
                       isSelected
                         ? isCasa
                           ? "bg-blue-600 text-white shadow"
-                          : "bg-emerald-600 text-white shadow"
+                          : "bg-santa-600 text-white shadow"
                         : "text-slate-600 hover:bg-slate-100"
                     }`}
                   >
@@ -537,7 +537,7 @@ export function AlmacenAgregarStock() {
               title="Fecha vencimiento (opcional)"
             />
           </label>
-          <button type="button" disabled={isSaving} onClick={() => void agregarCantidad()} className="h-12 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300 md:h-11">
+          <button type="button" disabled={isSaving} onClick={() => void agregarCantidad()} className="h-12 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300 md:h-11">
             Agregar stock
           </button>
         </div>
@@ -552,7 +552,7 @@ export function AlmacenAgregarStock() {
               className={`mt-3 rounded-md border p-3 text-sm ${
                 isCasa
                   ? "border-blue-200 bg-blue-50 text-blue-900"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-santa-200 bg-santa-50 text-santa-900"
               }`}
             >
               <strong>Se sumara a {almacenNombre}:</strong>{" "}
@@ -571,7 +571,7 @@ export function AlmacenAgregarStock() {
           </p>
         )}
         {productoIngreso?.producto_base_id && productoIngreso.producto_base ? (
-          <p className="mt-2 text-sm text-emerald-700">
+          <p className="mt-2 text-sm text-santa-700">
             Stock se suma al producto base &quot;{productoIngreso.producto_base.nombre_producto ?? "(base)"}&quot;.
           </p>
         ) : null}
@@ -639,7 +639,7 @@ export function AlmacenAgregarStock() {
                     <td className="px-4 py-3 text-slate-600">{producto.presentacion ?? "Sin presentacion"}</td>
                     <td className="px-4 py-3 text-slate-600">
                       {producto.producto_base_id && producto.producto_base ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        <span className="inline-flex items-center rounded-full bg-santa-50 px-2 py-0.5 text-xs font-medium text-santa-700">
                           1 = {formatStock(units)} de &quot;{producto.producto_base.nombre_producto ?? "base"}&quot;
                         </span>
                       ) : (
@@ -686,7 +686,7 @@ export function AlmacenAgregarStock() {
                 <p className="font-semibold text-slate-950">{producto.nombre_producto}</p>
                 <p className="mt-1 text-sm text-slate-500">{producto.presentacion ?? "Sin presentacion"} | {almacenes.find((almacen) => almacen.id === almacenId)?.nombre ?? "Almacen"}</p>
                 {producto.producto_base_id && producto.producto_base ? (
-                  <p className="mt-1 text-xs text-emerald-700">
+                  <p className="mt-1 text-xs text-santa-700">
                     1 presentacion = {formatStock(units)} unidades base de &quot;{producto.producto_base.nombre_producto ?? "base"}&quot;
                   </p>
                 ) : null}

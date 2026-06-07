@@ -113,7 +113,7 @@ const emptyClienteForm: ClienteForm = {
 const allowedCaptureTypes = ["image/jpeg", "image/png", "image/webp"];
 const maxCaptureSize = 1024 * 1024;
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 const whatsappNegocio =
   process.env.NEXT_PUBLIC_WHATSAPP_NEGOCIO ?? "942025999";
 
@@ -1360,7 +1360,7 @@ export function PedidoNuevoForm() {
         <div
           className={`rounded-lg border p-4 text-sm ${
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-santa-200 bg-santa-50 text-santa-700"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
@@ -1577,7 +1577,7 @@ export function PedidoNuevoForm() {
                 }}
                 className={`rounded-md border p-3 text-left text-sm ${
                   selectedCliente?.id === cliente.id
-                    ? "border-emerald-500 bg-emerald-50"
+                    ? "border-santa-500 bg-santa-50"
                     : "border-slate-200 hover:bg-slate-50"
                 }`}
               >
@@ -1665,7 +1665,7 @@ export function PedidoNuevoForm() {
           ) : null}
 
           <Field label="Observaciones">
-            <textarea value={notaCliente} onChange={(event) => setNotaCliente(event.target.value)} rows={3} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100" />
+            <textarea value={notaCliente} onChange={(event) => setNotaCliente(event.target.value)} rows={3} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100" />
           </Field>
           <StepActions step={step} canNext onBack={() => setStep(2)} onNext={() => { setStep(4); setMaxStepVisited((current) => Math.max(current, 4)); }} onCancel={handleCancelarPedido} />
         </Panel>
@@ -1794,7 +1794,7 @@ export function PedidoNuevoForm() {
               <div className="rounded-lg border border-slate-200 p-4">
                 <p className="text-sm font-semibold text-slate-950">Estado del pago</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <button type="button" onClick={() => { setPagoTipo("total"); setMontoACuenta(""); }} className={`h-11 rounded-md border px-3 text-sm font-semibold ${pagoTipo === "total" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-300 text-slate-700"}`}>
+                  <button type="button" onClick={() => { setPagoTipo("total"); setMontoACuenta(""); }} className={`h-11 rounded-md border px-3 text-sm font-semibold ${pagoTipo === "total" ? "border-santa-600 bg-santa-50 text-santa-800" : "border-slate-300 text-slate-700"}`}>
                     Pagado total
                   </button>
                   <button type="button" onClick={() => setPagoTipo("debe")} className={`h-11 rounded-md border px-3 text-sm font-semibold ${pagoTipo === "debe" ? "border-amber-500 bg-amber-50 text-amber-800" : "border-slate-300 text-slate-700"}`}>
@@ -1825,27 +1825,27 @@ export function PedidoNuevoForm() {
                 <button type="button" onClick={() => void savePedido(false)} disabled={isSavingPedido} className="h-11 rounded-md bg-slate-900 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
                   {isSavingPedido ? "Guardando..." : "Guardar pedido"}
                 </button>
-                <button type="button" onClick={() => void savePedido(true)} disabled={isSavingPedido} className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
+                <button type="button" onClick={() => void savePedido(true)} disabled={isSavingPedido} className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white disabled:bg-slate-300">
                   Guardar y enviar WhatsApp
                 </button>
               </div>
             </>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+              <div className="rounded-lg border border-santa-200 bg-santa-50 p-4 text-sm text-santa-800">
                 Pedido <strong>#{createdPedidoId.slice(0,8)}</strong> guardado. Estado: <strong>{createdPedidoEstado ?? "pendiente"}</strong> | Pago: <strong>{createdPedidoEstadoPago === "pagado" ? "Pagado" : "Debe"}</strong>
               </div>
 
               <div className="grid gap-3 md:grid-cols-3">
                 {createdPedidoEstadoPago === "debe" ? (
-                  <button type="button" onClick={() => void confirmarPagoCreado()} disabled={isUpdatingPedido} className="h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+                  <button type="button" onClick={() => void confirmarPagoCreado()} disabled={isUpdatingPedido} className="h-11 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
                     {isUpdatingPedido ? "..." : "Confirmar pago"}
                   </button>
                 ) : null}
                 <button type="button" onClick={() => void enviarAPreparacion()} disabled={isUpdatingPedido || createdPedidoEstado === "en_preparacion" || createdPedidoEstado === "listo_para_recoger" || createdPedidoEstado === "entregado"} className="h-11 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
                   {createdPedidoEstado === "en_preparacion" || createdPedidoEstado === "listo_para_recoger" ? "Ya en preparacion" : "Enviar a preparacion"}
                 </button>
-                <button type="button" onClick={resetForNewSale} className="h-11 rounded-md border border-emerald-300 bg-white px-4 text-sm font-semibold text-emerald-700">
+                <button type="button" onClick={resetForNewSale} className="h-11 rounded-md border border-santa-300 bg-white px-4 text-sm font-semibold text-santa-700">
                   Nueva venta
                 </button>
               </div>
@@ -2103,7 +2103,7 @@ function Cart({
                       className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
                         isCasa
                           ? "bg-blue-100 text-blue-700"
-                          : "bg-emerald-100 text-emerald-700"
+                          : "bg-santa-100 text-santa-700"
                       }`}
                       title={`Cambiar a ${otroAlmacen.nombre}`}
                     >
@@ -2114,7 +2114,7 @@ function Cart({
                       className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
                         isCasa
                           ? "bg-blue-100 text-blue-700"
-                          : "bg-emerald-100 text-emerald-700"
+                          : "bg-santa-100 text-santa-700"
                       }`}
                     >
                       {labelAlmacen}

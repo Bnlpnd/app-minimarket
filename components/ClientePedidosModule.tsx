@@ -46,7 +46,7 @@ type Message = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024;
@@ -534,7 +534,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
         </div>
         <Link
           href={`/pedidos/nuevo?cliente=${clienteId}`}
-          className="inline-flex h-11 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800"
+          className="inline-flex h-11 items-center justify-center rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800"
         >
           Nueva venta
         </Link>
@@ -544,7 +544,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
         <div
           className={`rounded-lg border p-4 text-sm ${
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-santa-200 bg-santa-50 text-santa-700"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
@@ -567,7 +567,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                   type="checkbox"
                   checked={debeOnly}
                   onChange={(event) => setDebeOnly(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+                  className="h-4 w-4 rounded border-slate-300 text-santa-700"
                 />
                 Debe
               </label>
@@ -596,7 +596,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                   <article
                     key={pedido.id}
                     className={`rounded-lg border bg-white p-4 shadow-sm ${
-                      isSelected ? "border-emerald-500 ring-2 ring-emerald-100" : "border-slate-200"
+                      isSelected ? "border-santa-500 ring-2 ring-santa-100" : "border-slate-200"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -616,7 +616,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                       <span
                         className={`rounded-md px-2 py-1 text-xs font-semibold ${
                           pedido.estado_pago === "pagado"
-                            ? "bg-emerald-50 text-emerald-700"
+                            ? "bg-santa-50 text-santa-700"
                             : "bg-amber-50 text-amber-700"
                         }`}
                       >
@@ -665,7 +665,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                           onClick={() => toggleSelected(pedido.id)}
                           className={`h-9 rounded-md px-3 text-xs font-medium ${
                             isSelected
-                              ? "bg-emerald-700 text-white hover:bg-emerald-800"
+                              ? "bg-santa-700 text-white hover:bg-santa-800"
                               : "border border-slate-300 text-slate-700 hover:bg-slate-50"
                           }`}
                         >
@@ -710,7 +710,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                     setManualForm((current) => ({ ...current, detalle_manual: event.target.value }))
                   }
                   rows={3}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
                 />
               </Field>
               <Field label="Foto del pedido en papel (opcional)">
@@ -718,7 +718,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
                   onChange={(event) => handleManualImagenChange(event.target.files?.[0] ?? null)}
-                  className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-emerald-800 file:cursor-pointer"
+                  className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-santa-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-santa-800 file:cursor-pointer"
                 />
                 {manualImagenPreview ? (
                   <div className="mt-2 flex items-center gap-2">
@@ -840,7 +840,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                           <span>
                             {formatDate(alloc.fechaPedido)}{" "}
                             {alloc.nuevoEstadoPago === "pagado" ? (
-                              <span className="text-emerald-700">(pagada)</span>
+                              <span className="text-santa-700">(pagada)</span>
                             ) : (
                               <span className="text-amber-700">(a cuenta)</span>
                             )}
@@ -866,7 +866,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                   allocationPreview.allocations.length === 0 ||
                   allocationPreview.sobrante > 0
                 }
-                className="h-11 w-full rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+                className="h-11 w-full rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
               >
                 {isSavingPago ? "Guardando..." : "Registrar pago"}
               </button>
@@ -900,7 +900,7 @@ export function ClientePedidosModule({ clienteId }: { clienteId: string }) {
                         Registrado: {formatDateTime(abono.created_at)}
                       </p>
                     </div>
-                    <span className="text-sm font-semibold text-emerald-700">
+                    <span className="text-sm font-semibold text-santa-700">
                       {formatMoney(Number(abono.monto_total))}
                     </span>
                   </li>

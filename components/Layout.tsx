@@ -16,7 +16,7 @@ export function Layout({ title, description, children, wide = false }: LayoutPro
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-crema text-slate-900">
       <div className="hidden md:fixed md:inset-y-0 md:left-0 md:block">
         <Suspense fallback={null}>
           <Sidebar />
@@ -49,10 +49,10 @@ export function Layout({ title, description, children, wide = false }: LayoutPro
             }`}
           >
             <div className="hidden md:block">
-              <p className="text-sm font-medium uppercase tracking-wide text-emerald-700">
-                Minimarket Santa Ana
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-halo-600">
+                Santa Ana minimarket
               </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+              <h1 className="font-display mt-2 text-3xl font-semibold tracking-tight text-santa-900">
                 {title}
               </h1>
             </div>

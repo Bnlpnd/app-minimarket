@@ -42,7 +42,7 @@ const tabs: Array<{ value: CatalogType; label: string }> = [
 ];
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function normalizeSpaces(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -350,7 +350,7 @@ export default function ProductosMantenimientoPage() {
           <div
             className={`rounded-lg border p-4 text-sm ${
               message.type === "success"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                ? "border-santa-200 bg-santa-50 text-santa-700"
                 : "border-red-200 bg-red-50 text-red-700"
             }`}
           >
@@ -417,7 +417,7 @@ export default function ProductosMantenimientoPage() {
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="h-11 flex-1 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+                  className="h-11 flex-1 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
                 >
                   {isSaving ? "Guardando..." : "Guardar"}
                 </button>
@@ -508,7 +508,7 @@ export default function ProductosMantenimientoPage() {
                     <span
                       className={`mt-2 inline-flex rounded-md px-2 py-1 text-xs font-medium ${
                         item.activo
-                          ? "bg-emerald-50 text-emerald-700"
+                          ? "bg-santa-50 text-santa-700"
                           : "bg-slate-100 text-slate-600"
                       }`}
                     >

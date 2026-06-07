@@ -43,7 +43,7 @@ const emptyClienteForm: ClienteFormValues = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function normalizeSpaces(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -264,7 +264,7 @@ export function ClienteModule() {
         <div
           className={`rounded-lg border p-4 text-sm ${
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-santa-200 bg-santa-50 text-santa-700"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
@@ -333,7 +333,7 @@ export function ClienteModule() {
                 onChange={(event) =>
                   setClienteForm((current) => ({ ...current, activo: event.target.checked }))
                 }
-                className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+                className="h-4 w-4 rounded border-slate-300 text-santa-700"
               />
               Cliente activo
             </label>
@@ -352,7 +352,7 @@ export function ClienteModule() {
             <button
               type="submit"
               disabled={isSavingCliente}
-              className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:bg-slate-300"
+              className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:bg-slate-300"
             >
               {isSavingCliente ? "Guardando..." : "Guardar cliente"}
             </button>
@@ -384,7 +384,7 @@ export function ClienteModule() {
                 type="checkbox"
                 checked={showDebtOnly}
                 onChange={(event) => setShowDebtOnly(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+                className="h-4 w-4 rounded border-slate-300 text-santa-700"
               />
               Deuda
             </label>

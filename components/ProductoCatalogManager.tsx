@@ -109,7 +109,7 @@ export function ProductoCatalogManager({
             value={categoriaNombre}
             onChange={(event) => setCategoriaNombre(event.target.value)}
             placeholder="Ej. Abarrotes"
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           />
           <SubmitButton disabled={isSaving}>Crear categoria</SubmitButton>
         </CatalogForm>
@@ -118,7 +118,7 @@ export function ProductoCatalogManager({
           <select
             value={subcategoriaCategoriaId}
             onChange={(event) => setSubcategoriaCategoriaId(event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           >
             <option value="">Categoria</option>
             {categorias.map((categoria) => (
@@ -132,7 +132,7 @@ export function ProductoCatalogManager({
             value={subcategoriaNombre}
             onChange={(event) => setSubcategoriaNombre(event.target.value)}
             placeholder="Ej. Arroz"
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           />
           <SubmitButton disabled={isSaving}>Crear subcategoria</SubmitButton>
         </CatalogForm>
@@ -143,7 +143,7 @@ export function ProductoCatalogManager({
             value={marcaNombre}
             onChange={(event) => setMarcaNombre(event.target.value)}
             placeholder="Ej. Costeno"
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           />
           <SubmitButton disabled={isSaving}>Crear marca</SubmitButton>
         </CatalogForm>
@@ -157,7 +157,7 @@ export function ProductoCatalogManager({
           <select
             value={editCategoriaId}
             onChange={(event) => handleSelectEditCategoria(event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           >
             <option value="">Seleccionar categoria</option>
             {categorias.map((categoria) => (
@@ -171,7 +171,7 @@ export function ProductoCatalogManager({
             value={editCategoriaNombre}
             onChange={(event) => setEditCategoriaNombre(event.target.value)}
             placeholder="Nuevo nombre"
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           />
           <SubmitButton disabled={isSaving}>Guardar categoria</SubmitButton>
         </CatalogForm>
@@ -183,7 +183,7 @@ export function ProductoCatalogManager({
           <select
             value={editSubcategoriaId}
             onChange={(event) => handleSelectEditSubcategoria(event.target.value)}
-            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           >
             <option value="">Seleccionar subcategoria</option>
             {subcategoriasPorCategoria.flatMap(({ categoria, subcategorias }) =>
@@ -199,7 +199,7 @@ export function ProductoCatalogManager({
             value={editSubcategoriaNombre}
             onChange={(event) => setEditSubcategoriaNombre(event.target.value)}
             placeholder="Nuevo nombre"
-            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           />
           <SubmitButton disabled={isSaving}>Guardar subcategoria</SubmitButton>
         </CatalogForm>

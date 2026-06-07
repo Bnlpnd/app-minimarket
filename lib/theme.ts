@@ -1,10 +1,11 @@
 /**
- * Paleta de colores del sistema — Minimarket Santa Ana
+ * Paleta de colores del sistema — Santa Ana minimarket
  *
- * Filosofia: tienda de abarrotes joven y cercana, pero seria.
- * Verde fresco (emerald) como color principal, indigo cariñoso para
- * la dimension "Casa", amarillo/naranja para warnings y acciones
- * llamativas, rose/red para errores y peligro.
+ * Filosofia: tienda de abarrotes cercana, ordenada y confiable.
+ * Sigue el manual de marca: azul Santa Ana (santa-*) como color
+ * principal, dorado Halo (halo-*) como acento. El almacen "Tienda"
+ * usa el azul institucional y "Casa" el dorado para distinguirlos.
+ * Amarillo/naranja para warnings, rose/red para errores y peligro.
  *
  * No uses colores hard-coded en tus componentes. Importa estos tokens
  * y aplicalos como className. Asi cuando refresquemos la paleta es un
@@ -21,34 +22,34 @@
 // ===== Colores semanticos =====
 
 export const colors = {
-  // Almacen Tienda (verde fresco — el lugar donde se vende)
+  // Almacen Tienda (azul Santa Ana — el lugar donde se vende)
   tienda: {
-    chip: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    chipStrong: "bg-emerald-600 text-white",
-    text: "text-emerald-700",
-    bg: "bg-emerald-50",
-    bgStrong: "bg-emerald-600",
-    border: "border-emerald-200",
-    borderStrong: "border-emerald-400",
-    accent: "text-emerald-600",
+    chip: "bg-santa-100 text-santa-800 border-santa-200",
+    chipStrong: "bg-santa-600 text-white",
+    text: "text-santa-700",
+    bg: "bg-santa-50",
+    bgStrong: "bg-santa-600",
+    border: "border-santa-200",
+    borderStrong: "border-santa-400",
+    accent: "text-santa-600",
   },
 
-  // Almacen Casa (indigo carinoso — el lugar de reserva)
+  // Almacen Casa (dorado Halo — el lugar de reserva)
   casa: {
-    chip: "bg-indigo-100 text-indigo-800 border-indigo-200",
-    chipStrong: "bg-indigo-600 text-white",
-    text: "text-indigo-700",
-    bg: "bg-indigo-50",
-    bgStrong: "bg-indigo-600",
-    border: "border-indigo-200",
-    borderStrong: "border-indigo-400",
-    accent: "text-indigo-600",
+    chip: "bg-halo-100 text-halo-800 border-halo-200",
+    chipStrong: "bg-halo-700 text-white",
+    text: "text-halo-700",
+    bg: "bg-halo-50",
+    bgStrong: "bg-halo-600",
+    border: "border-halo-200",
+    borderStrong: "border-halo-400",
+    accent: "text-halo-600",
   },
 
   // Stock niveles
   stockOk: {
-    chip: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    text: "text-emerald-700",
+    chip: "bg-santa-100 text-santa-800 border-santa-200",
+    text: "text-santa-700",
   },
   stockBajo: {
     chip: "bg-amber-100 text-amber-800 border-amber-200",

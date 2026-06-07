@@ -844,7 +844,7 @@ function WorkerDashboard() {
                 : isPagoEnviado
                   ? "bg-orange-100 text-orange-800"
                   : isListo
-                    ? "bg-emerald-100 text-emerald-800"
+                    ? "bg-santa-100 text-santa-800"
                     : isEnPrep
                       ? "bg-blue-100 text-blue-800"
                       : "bg-slate-100 text-slate-700";
@@ -993,7 +993,7 @@ function WorkerDashboard() {
                   className="flex items-center justify-between py-2 text-sm"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-800">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-santa-100 text-xs font-semibold text-santa-800">
                       {i + 1}
                     </span>
                     <p className="font-medium text-slate-950">{p.nombre_producto}</p>
@@ -1149,7 +1149,7 @@ function ActionLink({
       href={href}
       className={`inline-flex h-11 items-center justify-center rounded-md px-5 text-sm font-semibold ${
         primary
-          ? "bg-emerald-700 text-white hover:bg-emerald-800"
+          ? "bg-santa-700 text-white hover:bg-santa-800"
           : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
       }`}
     >

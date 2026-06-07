@@ -84,7 +84,7 @@ const almacenWhatsapp = "942025999";
 const abastecimientoWhatsapp = "943104987";
 const abastecimientoUrl = "https://app-minimarket.vercel.app/almacen/abastecimiento";
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 function formatStock(value: number | null | undefined) {
   return Number(value ?? 0).toFixed(2).replace(/\.00$/, "");
@@ -557,7 +557,7 @@ export function AlmacenTransferencias() {
   return (
     <div className="space-y-5">
       {message ? (
-        <div className={`rounded-lg border p-4 text-sm ${message.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+        <div className={`rounded-lg border p-4 text-sm ${message.type === "success" ? "border-santa-200 bg-santa-50 text-santa-700" : "border-red-200 bg-red-50 text-red-700"}`}>
           {message.text}
         </div>
       ) : null}
@@ -644,7 +644,7 @@ export function AlmacenTransferencias() {
                         title="Fecha vencimiento (opcional) para registrar lote en destino"
                       />
                     </label>
-                    <button type="button" disabled={isSaving} onClick={() => void confirmarTransferencia(solicitud)} className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+                    <button type="button" disabled={isSaving} onClick={() => void confirmarTransferencia(solicitud)} className="h-10 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
                       Confirmar envio recibido
                     </button>
                   </div>
@@ -750,7 +750,7 @@ function CartPanel({ title, items, type, onChange, onRemove, onSave, isSaving, b
         ))}
         {items.length === 0 ? <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Agrega productos desde las columnas superiores.</p> : null}
       </div>
-      <button type="button" disabled={isSaving || items.length === 0} onClick={onSave} className="mt-4 h-11 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
+      <button type="button" disabled={isSaving || items.length === 0} onClick={onSave} className="mt-4 h-11 rounded-md bg-santa-700 px-4 text-sm font-semibold text-white disabled:bg-slate-300">
         {button}
       </button>
     </section>

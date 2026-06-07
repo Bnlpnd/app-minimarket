@@ -58,7 +58,7 @@ function TabLink({
       href={href}
       className={`relative -mb-px inline-flex h-10 items-center border-b-2 px-4 text-sm font-medium ${
         active
-          ? "border-emerald-600 text-emerald-700"
+          ? "border-santa-600 text-santa-700"
           : "border-transparent text-slate-600 hover:text-slate-900"
       }`}
     >

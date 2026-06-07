@@ -449,7 +449,7 @@ async function downloadPlantilla(
 ) {
   const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Minimarket Santa Ana";
+  wb.creator = "Santa Ana minimarket";
   wb.created = new Date();
 
   // ===== Hoja 1: Productos =====
@@ -1330,7 +1330,7 @@ export function ProductoImportCsv({
                   initialPresentaciones,
                 )
               }
-              className="inline-flex h-10 items-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800"
+              className="inline-flex h-10 items-center rounded-md bg-santa-700 px-4 text-sm font-semibold text-white hover:bg-santa-800"
             >
               Descargar plantilla
             </button>
@@ -1347,7 +1347,7 @@ export function ProductoImportCsv({
         </div>
 
         {/* Aviso destacado */}
-        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+        <div className="mt-4 rounded-md border border-santa-200 bg-santa-50 p-3 text-sm text-santa-800">
           <strong>Tip:</strong> la plantilla XLSX trae 6 pestañas: en{" "}
           <strong>Productos</strong> cargas tus datos, y en{" "}
           <strong>Categorias</strong>, <strong>Subcategorias</strong>,{" "}
@@ -1364,7 +1364,7 @@ export function ProductoImportCsv({
         <button
           type="button"
           onClick={() => setShowColumns((s) => !s)}
-          className="mt-4 text-sm font-medium text-emerald-700 hover:underline"
+          className="mt-4 text-sm font-medium text-santa-700 hover:underline"
         >
           {showColumns ? "Ocultar" : "Ver"} columnas soportadas ({HEADER_DEFS.length})
         </button>
@@ -1426,7 +1426,7 @@ export function ProductoImportCsv({
         </div>
 
         {isProcessing ? (
-          <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          <div className="mt-4 rounded-md border border-santa-200 bg-santa-50 p-3 text-sm text-santa-800">
             Importando fila {processedRows} de {rows.length}. Este proceso puede
             tardar varios minutos si el archivo tiene muchos productos.
           </div>
@@ -1447,7 +1447,7 @@ export function ProductoImportCsv({
               type="button"
               onClick={handleImport}
               disabled={!canImport}
-              className="h-10 rounded-md bg-emerald-700 px-4 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="h-10 rounded-md bg-santa-700 px-4 text-sm font-medium text-white hover:bg-santa-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               title={!canImport && invalidRows > 0 ? "Hay filas con errores" : ""}
             >
               {isProcessing ? "Importando..." : "Guardar productos"}
@@ -1562,7 +1562,7 @@ export function ProductoImportCsv({
                         {hasErr ? (
                           <span className="text-red-700">{row.errors.join("; ")}</span>
                         ) : (
-                          <span className="text-emerald-700">OK</span>
+                          <span className="text-santa-700">OK</span>
                         )}
                       </td>
                     </tr>

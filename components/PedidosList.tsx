@@ -206,7 +206,7 @@ export function PedidosList() {
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
         <Link
           href="/pedidos/nuevo"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-medium text-white hover:bg-emerald-800"
+          className="inline-flex h-10 items-center justify-center rounded-md bg-santa-700 px-4 text-sm font-medium text-white hover:bg-santa-800"
         >
           Nuevo pedido
         </Link>
@@ -216,7 +216,7 @@ export function PedidosList() {
         <div
           className={`rounded-lg border p-4 text-sm ${
             message.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              ? "border-santa-200 bg-santa-50 text-santa-700"
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
@@ -229,7 +229,7 @@ export function PedidosList() {
           <select
             value={estado}
             onChange={(event) => setEstado(event.target.value as PedidoEstado | "")}
-            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           >
             {pedidoEstados.map((item) => (
               <option key={item.label} value={item.value}>
@@ -241,7 +241,7 @@ export function PedidosList() {
             type="date"
             value={fechaRecojo}
             onChange={(event) => setFechaRecojo(event.target.value)}
-            className="h-10 rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           />
           <input
             type="search"
@@ -249,7 +249,7 @@ export function PedidosList() {
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Buscar por cliente, WhatsApp o pedido"
             aria-label="Buscar por cliente, WhatsApp o codigo de pedido"
-            className="h-10 rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
           />
         </div>
       </section>
@@ -355,7 +355,7 @@ export function PedidosList() {
                                   value={rechazoObservacion}
                                   onChange={(event) => setRechazoObservacion(event.target.value)}
                                   placeholder="Motivo del rechazo"
-                                  className="h-9 w-40 rounded-md border border-slate-300 px-2 text-xs outline-none focus:border-emerald-600"
+                                  className="h-9 w-40 rounded-md border border-slate-300 px-2 text-xs outline-none focus:border-santa-600"
                                 />
                                 <button
                                   type="button"
@@ -379,7 +379,7 @@ export function PedidosList() {
                                   type="button"
                                   disabled={actionLoading === pedido.id}
                                   onClick={() => void validarPago(pedido.id)}
-                                  className="h-9 rounded-md bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-800 disabled:bg-slate-300"
+                                  className="h-9 rounded-md bg-santa-700 px-3 text-xs font-medium text-white hover:bg-santa-800 disabled:bg-slate-300"
                                 >
                                   {actionLoading === pedido.id ? "..." : "Pago OK"}
                                 </button>

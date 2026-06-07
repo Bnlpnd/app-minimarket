@@ -25,7 +25,7 @@ type Filtro = "todos" | "vencidos" | "urgentes" | "proximos";
 type Message = { type: "success" | "error"; text: string };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 export function AlmacenVencimientos() {
   const [lotes, setLotes] = useState<VistaLoteVencimiento[]>([]);

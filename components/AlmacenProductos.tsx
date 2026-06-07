@@ -85,7 +85,7 @@ type SectionApi = {
 };
 
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 type Message = ToastMessage;
 
@@ -417,7 +417,7 @@ export function AlmacenProductos() {
       {/* Barra fija inferior: aparece cuando hay AL MENOS un almacen con
           cambios pendientes en alguna tarjeta. Guarda todo de una. */}
       {pendingCount > 0 ? (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-emerald-200 bg-white/95 p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur">
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-santa-200 bg-white/95 p-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur">
           <div className="mx-auto flex max-w-[1600px] flex-col gap-2 px-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
             <p className="text-sm font-medium text-slate-700 sm:mr-auto">
               <span className={`mr-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-xs font-bold ${colors.btnPrimary}`}>
@@ -801,7 +801,7 @@ function AlmacenSection({
           <span className="text-sm font-medium text-slate-500">{unidadBase}</span>
         </p>
         {hayCambios ? (
-          <p className="text-sm font-semibold text-emerald-700">
+          <p className="text-sm font-semibold text-santa-700">
             → {formatNum(totalProyectado)} {unidadBase}
             <span className="ml-1 text-xs">
               ({totalProyectado - stockBase >= 0 ? "+" : ""}
@@ -857,7 +857,7 @@ function AlmacenSection({
                   title={`Cantidad real de ${pres.nombre_presentacion} (no se mezcla con otras)`}
                   className={`h-8 w-full rounded border px-2 text-right text-sm font-semibold ${
                     cambio
-                      ? "border-emerald-400 bg-emerald-50 text-emerald-900"
+                      ? "border-santa-400 bg-santa-50 text-santa-900"
                       : "border-slate-300"
                   }`}
                 />
@@ -882,7 +882,7 @@ function AlmacenSection({
             title={`Unidades sueltas en ${unidadBase} (fuera de presentaciones)`}
             className={`h-8 w-full rounded border px-2 text-right text-sm font-semibold ${
               Number(sueltasInput ?? 0) !== sueltasGuardadas
-                ? "border-emerald-400 bg-emerald-50 text-emerald-900"
+                ? "border-santa-400 bg-santa-50 text-santa-900"
                 : "border-slate-300"
             }`}
           />

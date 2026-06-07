@@ -125,7 +125,7 @@ type ProductoFormProps = {
 const allowedImageTypes = ["image/jpeg", "image/png", "image/webp"];
 const maxImageSize = 1024 * 1024;
 const inputClassName =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 const emptyValues: ProductoFormValues = {
   codigo_interno: "",
@@ -803,7 +803,7 @@ export function ProductoForm({
                         e.preventDefault();
                         onSelectExisting?.(p.id);
                       }}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-emerald-50"
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-santa-50"
                     >
                       {p.imagen_url ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
@@ -1022,7 +1022,7 @@ export function ProductoForm({
                   }
                   const equivalente = num * factor;
                   return (
-                    <p className="mt-1 text-xs text-emerald-700">
+                    <p className="mt-1 text-xs text-santa-700">
                       = {equivalente.toFixed(2).replace(/\.00$/, "")} {values.unidad_base || "unidades"} ({num} {label})
                     </p>
                   );
@@ -1282,7 +1282,7 @@ export function ProductoForm({
                   name="presentacion_principal"
                   checked={pres.es_principal}
                   onChange={() => setPresentacionPrincipal(index)}
-                  className="h-4 w-4 text-emerald-700"
+                  className="h-4 w-4 text-santa-700"
                 />
                 Principal
               </label>
@@ -1346,7 +1346,7 @@ export function ProductoForm({
           </label>
         </div>
         {values.producto_base_id ? (
-          <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+          <p className="mt-3 rounded-md border border-santa-200 bg-santa-50 p-3 text-xs text-santa-800">
             Al registrar o vender 1 unidad de este producto se afectaran{" "}
             <strong>{Number(values.unidades_equivalentes || 1)}</strong> unidades del producto base seleccionado.
           </p>
@@ -1395,7 +1395,7 @@ export function ProductoForm({
           type="checkbox"
           checked={values.activo}
           onChange={(event) => updateValue("activo", event.target.checked)}
-          className="h-4 w-4 rounded border-slate-300 text-emerald-700"
+          className="h-4 w-4 rounded border-slate-300 text-santa-700"
         />
         Producto activo
       </label>
@@ -1417,7 +1417,7 @@ export function ProductoForm({
         <button
           type="submit"
           disabled={isSaving || isUploadingImage || !hasCatalogOptions}
-          className="h-11 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="h-11 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {isSaving || isUploadingImage
             ? "Guardando..."
@@ -1443,7 +1443,7 @@ export function ProductoForm({
         <button
           type="submit"
           disabled={isSaving || isUploadingImage || !hasCatalogOptions}
-          className="h-12 flex-1 rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="h-12 flex-1 rounded-md bg-santa-700 px-5 text-sm font-semibold text-white hover:bg-santa-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {isSaving || isUploadingImage
             ? "Guardando..."

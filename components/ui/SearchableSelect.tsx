@@ -40,7 +40,7 @@ type Props = {
 };
 
 const baseClass =
-  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100";
 
 export function SearchableSelect({
   value,
@@ -193,7 +193,7 @@ export function SearchableSelect({
                   onMouseEnter={() => setHighlight(index)}
                   className={`cursor-pointer px-3 py-2 text-sm ${
                     isHigh
-                      ? "bg-emerald-50 text-emerald-900"
+                      ? "bg-santa-50 text-santa-900"
                       : isSel
                         ? "bg-slate-50 font-medium text-slate-900"
                         : "text-slate-700"
