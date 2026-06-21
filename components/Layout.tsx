@@ -1,8 +1,10 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Header } from "@/components/Header";
 import { Sidebar } from "@/components/Sidebar";
+import { getStoredAppUser, isStaffRole } from "@/lib/authRoles";
 
 type LayoutProps = {
   title: string;
@@ -14,6 +16,31 @@ type LayoutProps = {
 
 export function Layout({ title, description, children, wide = false }: LayoutProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const router = useRouter();
+  // Solo admin/trabajador acceden al panel. Clientes -> su cuenta;
+  // anonimos -> login. Evita exponer pestañas internas en la tienda.
+  const [authorized, setAuthorized] = useState(false);
+
+  useEffect(() => {
+    const user = getStoredAppUser();
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+    if (!isStaffRole(user.rol)) {
+      router.replace("/mi-cuenta");
+      return;
+    }
+    setAuthorized(true);
+  }, [router]);
+
+  if (!authorized) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-crema text-sm text-slate-500">
+        Verificando acceso...
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-crema text-slate-900">

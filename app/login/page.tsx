@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
+import { isStaffRole, setStoredAppUser } from "@/lib/authRoles";
 import { BrandMark } from "@/components/ui/BrandMark";
 
 export default function LoginPage() {
@@ -39,17 +41,14 @@ export default function LoginPage() {
       return;
     }
 
-    window.localStorage.setItem(
-      "app_minimarket_user",
-      JSON.stringify({
-        id: user.id,
-        email: user.email,
-        rol: user.rol,
-        nombres: user.nombres,
-        apellidos: user.apellidos,
-      }),
-    );
-    router.push("/dashboard");
+    setStoredAppUser({
+      id: user.id,
+      email: user.email,
+      rol: user.rol,
+      nombres: user.nombres,
+      apellidos: user.apellidos,
+    });
+    router.push(isStaffRole(user.rol) ? "/dashboard" : "/mi-cuenta");
   }
 
   return (
@@ -102,6 +101,13 @@ export default function LoginPage() {
             {isLoading ? "Ingresando..." : "Entrar"}
           </button>
         </form>
+
+        <p className="mt-5 text-center text-xs text-slate-400">
+          ¿Eres cliente?{" "}
+          <Link href="/" className="font-semibold text-santa-700 hover:underline">
+            Ir a la tienda
+          </Link>
+        </p>
       </section>
     </main>
   );

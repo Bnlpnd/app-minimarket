@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { Storefront } from "@/components/store/Storefront";
 
 export default function Home() {
-  redirect("/login");
+  return <Storefront />;
 }
