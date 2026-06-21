@@ -121,7 +121,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     <aside className="flex h-full w-72 flex-col border-r border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-5 py-5">
         <Link href="/dashboard" onClick={onNavigate} className="block">
-          <BrandMark />
+          <BrandMark variant="horizontal" className="h-12 w-auto" />
         </Link>
         <p className="mt-2 text-xs text-slate-500">Panel administrativo</p>
       </div>
