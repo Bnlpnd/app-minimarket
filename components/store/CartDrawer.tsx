@@ -2,15 +2,17 @@
 
 /**
  * Carrito deslizable de la tienda. Permite ajustar cantidades, ver el total
- * y confirmar el pedido. Confirmar crea un pedido real (estado pendiente)
- * ligado al cliente; tambien ofrece enviar el resumen por WhatsApp.
+ * y confirmar el pedido. "Confirmar" usa requireAuth: si no hay sesion, abre
+ * el login automaticamente y, al iniciar sesion, crea el pedido sin perder el
+ * carrito. El pedido se crea en el servidor (precios del catalogo). Tambien
+ * ofrece enviar el resumen por WhatsApp (sin necesidad de sesion).
  */
 
 import { useState } from "react";
 import Link from "next/link";
 import { Minus, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { useCart } from "@/lib/cart";
-import { getStoredAppUser } from "@/lib/authRoles";
+import { useStoreSession } from "@/components/store/storeSessionContext";
 import { supabase } from "@/lib/supabaseClient";
 import { generarLinkWhatsApp } from "@/lib/whatsapp";
 
@@ -21,14 +23,9 @@ function money(value: number) {
   return `S/ ${Number(value ?? 0).toFixed(2)}`;
 }
 
-type Props = {
-  open: boolean;
-  onClose: () => void;
-  onRequestLogin: () => void;
-};
-
-export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
+export function CartDrawer() {
   const { items, total, count, setQty, removeItem, clear } = useCart();
+  const { cartOpen, closeCart, requireAuth, openLogin } = useStoreSession();
   const [nota, setNota] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,13 +52,9 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  async function handleConfirmar() {
+  // Crea el pedido (ya con sesion garantizada por requireAuth).
+  async function createOrder() {
     setError(null);
-    const session = getStoredAppUser();
-    if (!session) {
-      onRequestLogin();
-      return;
-    }
     if (!supabase) {
       setError("Sin conexion a Supabase.");
       return;
@@ -69,8 +62,6 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
     if (items.length === 0) return;
 
     setSubmitting(true);
-    // El pedido se crea en el servidor con precios del catalogo y la
-    // identidad del cliente tomada del JWT (no se confia en el navegador).
     const { data, error: rpcErr } = await supabase.rpc("crear_pedido_self", {
       p_items: items.map((i) => ({ producto_id: i.productoId, cantidad: i.cantidad })),
       p_nota: nota.trim() || null,
@@ -78,8 +69,9 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
     setSubmitting(false);
 
     if (rpcErr || !data) {
-      if (/autenticad|sesion|sesión|jwt|login/i.test(rpcErr?.message ?? "")) {
-        onRequestLogin();
+      // Sesion vencida o invalida: reabrir login.
+      if (/autenticad|sesion|sesión|jwt|login|permission/i.test(rpcErr?.message ?? "")) {
+        openLogin();
         return;
       }
       setError(`No se pudo crear el pedido: ${rpcErr?.message ?? "sin respuesta"}`);
@@ -91,7 +83,16 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
     setDonePedidoId(data as unknown as string);
   }
 
-  if (!open) return null;
+  function handleConfirmar() {
+    setError(null);
+    if (items.length === 0) return;
+    // Si no hay sesion, requireAuth abre el login y reanuda createOrder al entrar.
+    requireAuth(() => {
+      void createOrder();
+    });
+  }
+
+  if (!cartOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[55]" role="dialog" aria-modal="true">
@@ -99,7 +100,7 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
         type="button"
         aria-label="Cerrar carrito"
         className="absolute inset-0 bg-slate-950/50"
-        onClick={onClose}
+        onClick={closeCart}
       />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
         <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -109,7 +110,7 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeCart}
             aria-label="Cerrar"
             className="text-slate-400 hover:text-slate-700"
           >
@@ -137,7 +138,7 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
             </button>
             <Link
               href="/mi-cuenta"
-              onClick={onClose}
+              onClick={closeCart}
               className="h-11 w-full rounded-md border border-slate-300 px-4 text-sm font-semibold leading-[44px] text-slate-700 hover:bg-slate-50"
             >
               Ver mis pedidos
@@ -146,7 +147,7 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
               type="button"
               onClick={() => {
                 setDonePedidoId(null);
-                onClose();
+                closeCart();
               }}
               className="text-sm font-medium text-santa-700 hover:underline"
             >
@@ -159,7 +160,7 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
             <p className="text-sm">Tu carrito está vacío.</p>
             <button
               type="button"
-              onClick={onClose}
+              onClick={closeCart}
               className="text-sm font-semibold text-santa-700 hover:underline"
             >
               Ver productos
@@ -259,7 +260,7 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
               </div>
               <button
                 type="button"
-                onClick={() => void handleConfirmar()}
+                onClick={handleConfirmar}
                 disabled={submitting}
                 className="h-11 w-full rounded-md bg-santa-800 text-sm font-semibold text-white hover:bg-santa-900 disabled:bg-slate-300"
               >

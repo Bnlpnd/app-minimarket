@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { StoreHeader } from "@/components/store/StoreHeader";
+import { useStoreSession } from "@/components/store/storeSessionContext";
 import { getStoredAppUser, setStoredAppUser, type StoredAppUser } from "@/lib/authRoles";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 import { formatDate } from "@/lib/dateUtils";
@@ -43,6 +44,7 @@ const ESTADO_BADGE: Record<string, string> = {
 };
 
 export default function MiCuentaPage() {
+  const { user: ctxUser, openLogin } = useStoreSession();
   const [session, setSession] = useState<StoredAppUser | null | "loading">("loading");
   const [pedidos, setPedidos] = useState<PedidoCliente[]>([]);
   const [abonos, setAbonos] = useState<ClienteAbono[]>([]);
@@ -51,10 +53,14 @@ export default function MiCuentaPage() {
 
   useEffect(() => {
     async function init() {
+      setLoading(true);
+      setError(null);
       const stored = getStoredAppUser();
       setSession(stored);
       if (!stored) {
         setLoading(false);
+        // Mismo flujo que el checkout: abrir login automaticamente.
+        openLogin();
         return;
       }
       if (supabaseConfigError || !supabase) {
@@ -104,7 +110,9 @@ export default function MiCuentaPage() {
       setLoading(false);
     }
     void init();
-  }, []);
+    // Re-cargar cuando cambia la sesion (p.ej. tras iniciar sesion en el modal).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctxUser]);
 
   const deudaTotal = useMemo(
     () =>

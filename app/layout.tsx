@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/lib/cart";
+import { StoreSessionProvider } from "@/components/store/StoreSessionProvider";
 
 // Inter: tipografia de interfaz y textos (manual de marca Santa Ana).
 const inter = Inter({
@@ -38,7 +39,9 @@ export default function RootLayout({
       className={`${inter.variable} ${playfair.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <CartProvider>{children}</CartProvider>
+        <CartProvider>
+          <StoreSessionProvider>{children}</StoreSessionProvider>
+        </CartProvider>
       </body>
     </html>
   );
