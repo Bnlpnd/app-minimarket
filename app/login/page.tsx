@@ -41,6 +41,9 @@ export default function LoginPage() {
       return;
     }
 
+    // El staff opera con la anon key; limpiar cualquier sesion de Supabase
+    // Auth para que sus consultas no caigan en las politicas de cliente.
+    await supabase.auth.signOut().catch(() => {});
     setStoredAppUser({
       id: user.id,
       email: user.email,

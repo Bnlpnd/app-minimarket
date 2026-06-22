@@ -10,7 +10,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Minus, Plus, ShoppingCart, Trash2, X } from "lucide-react";
 import { useCart } from "@/lib/cart";
-import { getStoredAppUser, setStoredAppUser } from "@/lib/authRoles";
+import { getStoredAppUser } from "@/lib/authRoles";
 import { supabase } from "@/lib/supabaseClient";
 import { generarLinkWhatsApp } from "@/lib/whatsapp";
 
@@ -69,68 +69,26 @@ export function CartDrawer({ open, onClose, onRequestLogin }: Props) {
     if (items.length === 0) return;
 
     setSubmitting(true);
-
-    // Asegurar que la cuenta este vinculada a un cliente (por correo).
-    let clienteId = session.cliente_id ?? null;
-    if (!clienteId) {
-      const { data, error: linkErr } = await supabase.rpc("cliente_login_google", {
-        p_email: session.email,
-        p_nombres: session.nombres ?? "",
-      });
-      const linked = data?.[0] as { cliente_id: string } | undefined;
-      if (linkErr || !linked?.cliente_id) {
-        setSubmitting(false);
-        setError("No se pudo vincular tu cuenta a un cliente. Intenta de nuevo.");
-        return;
-      }
-      clienteId = linked.cliente_id;
-      setStoredAppUser({ ...session, cliente_id: clienteId });
-    }
-
-    const { data: pedido, error: pedidoErr } = await supabase
-      .from("pedidos")
-      .insert({
-        cliente_id: clienteId,
-        estado: "pendiente",
-        subtotal: total,
-        total,
-        tipo_entrega: "recoger_despues",
-        estado_pago: "debe",
-        monto_a_cuenta: 0,
-        nota_cliente: nota.trim() || null,
-        detalle_manual: items
-          .map((i) => `${i.cantidad} x ${i.nombre}`)
-          .join("; "),
-      })
-      .select("id")
-      .single();
-
-    if (pedidoErr || !pedido) {
-      setSubmitting(false);
-      setError(`No se pudo crear el pedido: ${pedidoErr?.message ?? "sin respuesta"}`);
-      return;
-    }
-
-    const pedidoId = pedido.id as string;
-    const detalle = items.map((i) => ({
-      pedido_id: pedidoId,
-      producto_id: i.productoId,
-      cantidad: i.cantidad,
-      cantidad_base: i.cantidad,
-      precio_unitario: i.precio,
-      preparado: false,
-    }));
-    const { error: detErr } = await supabase.from("detalle_pedido").insert(detalle);
+    // El pedido se crea en el servidor con precios del catalogo y la
+    // identidad del cliente tomada del JWT (no se confia en el navegador).
+    const { data, error: rpcErr } = await supabase.rpc("crear_pedido_self", {
+      p_items: items.map((i) => ({ producto_id: i.productoId, cantidad: i.cantidad })),
+      p_nota: nota.trim() || null,
+    });
     setSubmitting(false);
 
-    if (detErr) {
-      setError(`El pedido se creo pero fallo el detalle: ${detErr.message}`);
+    if (rpcErr || !data) {
+      if (/autenticad|sesion|sesión|jwt|login/i.test(rpcErr?.message ?? "")) {
+        onRequestLogin();
+        return;
+      }
+      setError(`No se pudo crear el pedido: ${rpcErr?.message ?? "sin respuesta"}`);
       return;
     }
 
     clear();
     setNota("");
-    setDonePedidoId(pedidoId);
+    setDonePedidoId(data as unknown as string);
   }
 
   if (!open) return null;

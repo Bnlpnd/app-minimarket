@@ -4,8 +4,8 @@
 
 /**
  * Callback de Google (Supabase Auth). Tras autenticar, obtiene el correo,
- * busca/crea el cliente vinculado (RPC cliente_login_google), guarda la
- * sesion local y regresa a la tienda.
+ * busca/crea el cliente vinculado (RPC cliente_sync_self, identidad del JWT),
+ * guarda la sesion local y regresa a la tienda.
  */
 
 import { useEffect, useState } from "react";
@@ -46,15 +46,8 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      const nombres =
-        (user.user_metadata?.full_name as string) ||
-        (user.user_metadata?.name as string) ||
-        "";
-
-      const { data, error: rpcErr } = await supabase.rpc("cliente_login_google", {
-        p_email: user.email,
-        p_nombres: nombres,
-      });
+      // Identidad tomada del JWT verificado (no se confia en parametros).
+      const { data, error: rpcErr } = await supabase.rpc("cliente_sync_self", {});
       const profile = data?.[0] as
         | {
             id: string;

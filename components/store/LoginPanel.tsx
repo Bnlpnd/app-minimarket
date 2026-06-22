@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * Modal de inicio de sesion para la tienda. Soporta:
- *  - Correo + clave (RPC login_app, usuarios staff y clientes con clave).
- *  - Continuar con Google (Supabase Auth, solo clientes). Requiere que el
- *    proveedor Google este activado en Supabase; mientras no lo este,
- *    Supabase responde con error y se muestra un aviso.
+ * Modal de cuenta para la tienda. Soporta:
+ *  - Clientes: registro e inicio de sesion con correo/clave via Supabase Auth
+ *    (asi quedan con identidad verificada y aplican las politicas RLS), o con
+ *    Google.
+ *  - Staff (admin/trabajador): si el correo/clave no es de un cliente de
+ *    Supabase Auth, se intenta el login propio (RPC login_app) y se redirige
+ *    al panel.
  */
 
 import { useState } from "react";
@@ -20,17 +22,52 @@ type Props = {
   onLoggedIn: (user: StoredAppUser) => void;
 };
 
+type Mode = "login" | "register";
+
 export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
   const router = useRouter();
+  const [mode, setMode] = useState<Mode>("login");
+  const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   if (!open) return null;
 
-  async function handleEmailLogin(e: React.FormEvent) {
+  async function syncClientAndFinish() {
+    if (!supabase) return;
+    const { data, error } = await supabase.rpc("cliente_sync_self", {});
+    const p = data?.[0] as
+      | {
+          id: string;
+          email: string;
+          rol: string;
+          nombres: string | null;
+          apellidos: string | null;
+          cliente_id: string | null;
+        }
+      | undefined;
+    if (error || !p) {
+      setMessage("No se pudo cargar tu cuenta. Intenta de nuevo.");
+      return;
+    }
+    const stored: StoredAppUser = {
+      id: p.id,
+      email: p.email,
+      rol: p.rol,
+      nombres: p.nombres,
+      apellidos: p.apellidos,
+      cliente_id: p.cliente_id,
+    };
+    setStoredAppUser(stored);
+    onLoggedIn(stored);
+    onClose();
+  }
+
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (!supabase) {
       setMessage(supabaseConfigError ?? "Sin conexion a Supabase.");
@@ -38,36 +75,97 @@ export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
     }
     setLoading(true);
     setMessage(null);
+    setInfo(null);
+
+    // 1) Cliente (Supabase Auth)
+    const { data: signIn, error: signErr } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (!signErr && signIn.session) {
+      await syncClientAndFinish();
+      setLoading(false);
+      return;
+    }
+    if (signErr && /confirm/i.test(signErr.message)) {
+      setLoading(false);
+      setMessage("Tu correo no está confirmado. Revisa tu bandeja para activarlo.");
+      return;
+    }
+
+    // 2) Staff (login propio)
     const { data, error } = await supabase.rpc("login_app", {
       p_email: email.trim(),
       p_password: password,
     });
-    setLoading(false);
-
     const user = data?.[0] as
       | { id: string; email: string; rol: string; nombres: string | null; apellidos: string | null }
       | undefined;
-    if (error || !user) {
-      setMessage(
-        error ? `No se pudo iniciar sesion: ${error.message}` : "Correo o clave incorrectos.",
-      );
+    setLoading(false);
+
+    if (!error && user) {
+      // Asegurar que el staff opere como anon (sin sesion Supabase Auth).
+      await supabase.auth.signOut().catch(() => {});
+      setStoredAppUser({
+        id: user.id,
+        email: user.email,
+        rol: user.rol,
+        nombres: user.nombres,
+        apellidos: user.apellidos,
+      });
+      if (isStaffRole(user.rol)) {
+        router.push("/dashboard");
+        return;
+      }
+      onLoggedIn({
+        id: user.id,
+        email: user.email,
+        rol: user.rol,
+        nombres: user.nombres,
+        apellidos: user.apellidos,
+      });
+      onClose();
       return;
     }
 
-    const stored: StoredAppUser = {
-      id: user.id,
-      email: user.email,
-      rol: user.rol,
-      nombres: user.nombres,
-      apellidos: user.apellidos,
-    };
-    setStoredAppUser(stored);
-    if (isStaffRole(user.rol)) {
-      router.push("/dashboard");
+    setMessage("Correo o clave incorrectos.");
+  }
+
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
+    if (!supabase) {
+      setMessage(supabaseConfigError ?? "Sin conexion a Supabase.");
       return;
     }
-    onLoggedIn(stored);
-    onClose();
+    if (password.length < 8) {
+      setMessage("La clave debe tener al menos 8 caracteres.");
+      return;
+    }
+    setLoading(true);
+    setMessage(null);
+    setInfo(null);
+
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { full_name: nombre.trim() },
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) {
+      setLoading(false);
+      setMessage(`No se pudo registrar: ${error.message}`);
+      return;
+    }
+    if (data.session) {
+      await syncClientAndFinish();
+      setLoading(false);
+      return;
+    }
+    setLoading(false);
+    setInfo("¡Listo! Te enviamos un correo para confirmar tu cuenta. Actívalo y luego inicia sesión.");
+    setMode("login");
   }
 
   async function handleGoogle() {
@@ -84,11 +182,12 @@ export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
     if (error) {
       setGoogleLoading(false);
       setMessage(
-        "Google aun no esta disponible. Activa el proveedor Google en Supabase para habilitarlo.",
+        "Google aún no está disponible. Activa el proveedor Google en Supabase para habilitarlo.",
       );
     }
-    // Si no hay error, el navegador redirige a Google.
   }
+
+  const isRegister = mode === "register";
 
   return (
     <div
@@ -114,10 +213,12 @@ export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
         </div>
 
         <h2 className="font-display mt-4 text-2xl font-semibold text-santa-900">
-          Iniciar sesion
+          {isRegister ? "Crear cuenta" : "Iniciar sesión"}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          Accede para ver tus pedidos, deudas y pagos.
+          {isRegister
+            ? "Regístrate para comprar y seguir tus pedidos."
+            : "Accede para ver tus pedidos, deudas y pagos."}
         </p>
 
         {message ? (
@@ -125,8 +226,25 @@ export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
             {message}
           </p>
         ) : null}
+        {info ? (
+          <p className="mt-4 rounded-md border border-santa-200 bg-santa-50 p-3 text-xs text-santa-800">
+            {info}
+          </p>
+        ) : null}
 
-        <form onSubmit={handleEmailLogin} className="mt-5 space-y-3">
+        <form onSubmit={isRegister ? handleRegister : handleLogin} className="mt-5 space-y-3">
+          {isRegister ? (
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">Nombre</span>
+              <input
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                autoComplete="name"
+                required
+                className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-slate-50 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
+              />
+            </label>
+          ) : null}
           <label className="block">
             <span className="text-xs font-medium text-slate-600">Correo</span>
             <input
@@ -144,7 +262,7 @@ export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
+              autoComplete={isRegister ? "new-password" : "current-password"}
               required
               className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-slate-50 px-3 text-sm outline-none focus:border-santa-600 focus:ring-2 focus:ring-santa-100"
             />
@@ -154,7 +272,11 @@ export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
             disabled={loading}
             className="h-11 w-full rounded-md bg-santa-800 text-sm font-semibold text-white hover:bg-santa-900 disabled:bg-slate-300"
           >
-            {loading ? "Ingresando..." : "Iniciar sesion"}
+            {loading
+              ? "Procesando..."
+              : isRegister
+                ? "Crear cuenta"
+                : "Iniciar sesión"}
           </button>
         </form>
 
@@ -174,8 +296,19 @@ export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
           {googleLoading ? "Conectando..." : "Continuar con Google"}
         </button>
 
-        <p className="mt-4 text-center text-xs text-slate-400">
-          Los clientes nuevos se registran automaticamente al entrar con Google.
+        <p className="mt-4 text-center text-xs text-slate-500">
+          {isRegister ? "¿Ya tienes cuenta? " : "¿Eres cliente nuevo? "}
+          <button
+            type="button"
+            onClick={() => {
+              setMode(isRegister ? "login" : "register");
+              setMessage(null);
+              setInfo(null);
+            }}
+            className="font-semibold text-santa-700 hover:underline"
+          >
+            {isRegister ? "Inicia sesión" : "Crea tu cuenta"}
+          </button>
         </p>
       </div>
     </div>

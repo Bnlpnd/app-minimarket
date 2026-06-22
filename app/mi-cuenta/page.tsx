@@ -63,13 +63,10 @@ export default function MiCuentaPage() {
         return;
       }
 
-      // Asegurar vinculo a cliente (por correo) si falta.
+      // Asegurar vinculo a cliente (identidad tomada del JWT) si falta.
       let clienteId = stored.cliente_id ?? null;
       if (!clienteId) {
-        const { data } = await supabase.rpc("cliente_login_google", {
-          p_email: stored.email,
-          p_nombres: stored.nombres ?? "",
-        });
+        const { data } = await supabase.rpc("cliente_sync_self", {});
         const linked = data?.[0] as { cliente_id: string } | undefined;
         clienteId = linked?.cliente_id ?? null;
         if (clienteId) {
