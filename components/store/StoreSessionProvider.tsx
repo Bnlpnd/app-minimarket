@@ -19,6 +19,7 @@ const RESUME_KEY = "sa_resume_cart";
 export function StoreSessionProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<StoredAppUser | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [loginNotice, setLoginNotice] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const pending = useRef<(() => void) | null>(null);
 
@@ -35,6 +36,28 @@ export function StoreSessionProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
+  // Si Google/Supabase rebota con error (en la query o el hash de la URL),
+  // mostrar el modal de cuenta con el mensaje y el form de registro listo.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const explicit = q.get("authError");
+    const desc = q.get("error_description") || h.get("error_description");
+    const code = q.get("error") || h.get("error");
+    if (!explicit && !desc && !code) return;
+
+    const msg = explicit
+      ? decodeURIComponent(explicit)
+      : `No pudimos iniciar sesión con Google${
+          desc ? `: ${decodeURIComponent(desc).replace(/\+/g, " ")}` : ""
+        }. Crea tu cuenta con tu correo o intenta de nuevo.`;
+    setLoginNotice(msg);
+    setLoginOpen(true);
+    // Limpiar la URL para que el mensaje no reaparezca al recargar.
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
   const requireAuth = useCallback((action: () => void) => {
     if (getStoredAppUser()) {
       action();
@@ -49,13 +72,17 @@ export function StoreSessionProvider({ children }: { children: React.ReactNode }
     setLoginOpen(true);
   }, []);
 
-  const openLogin = useCallback(() => setLoginOpen(true), []);
+  const openLogin = useCallback(() => {
+    setLoginNotice(null);
+    setLoginOpen(true);
+  }, []);
   const openCart = useCallback(() => setCartOpen(true), []);
   const closeCart = useCallback(() => setCartOpen(false), []);
   const logout = useCallback(() => signOut("/"), []);
 
   const closeLogin = useCallback(() => {
     setLoginOpen(false);
+    setLoginNotice(null);
     pending.current = null;
     try {
       window.sessionStorage.removeItem(RESUME_KEY);
@@ -67,6 +94,7 @@ export function StoreSessionProvider({ children }: { children: React.ReactNode }
   const onLoggedIn = useCallback((u: StoredAppUser) => {
     setUser(u);
     setLoginOpen(false);
+    setLoginNotice(null);
     try {
       window.sessionStorage.removeItem(RESUME_KEY);
     } catch {
@@ -85,7 +113,14 @@ export function StoreSessionProvider({ children }: { children: React.ReactNode }
       value={{ user, setUser, requireAuth, openLogin, openCart, closeCart, cartOpen, logout }}
     >
       {children}
-      <LoginPanel open={loginOpen} onClose={closeLogin} onLoggedIn={onLoggedIn} />
+      <LoginPanel
+        key={loginNotice ? "login-error" : "login"}
+        open={loginOpen}
+        onClose={closeLogin}
+        onLoggedIn={onLoggedIn}
+        notice={loginNotice}
+        initialMode={loginNotice ? "register" : "login"}
+      />
       <CartDrawer />
     </StoreSessionContext.Provider>
   );

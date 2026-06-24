@@ -20,19 +20,29 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onLoggedIn: (user: StoredAppUser) => void;
+  /** Mensaje inicial (p.ej. error al volver de Google). */
+  notice?: string | null;
+  /** Modo inicial del formulario. */
+  initialMode?: Mode;
 };
 
 type Mode = "login" | "register";
 
-export function LoginPanel({ open, onClose, onLoggedIn }: Props) {
+export function LoginPanel({
+  open,
+  onClose,
+  onLoggedIn,
+  notice = null,
+  initialMode = "login",
+}: Props) {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("login");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [nombre, setNombre] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(notice);
   const [info, setInfo] = useState<string | null>(null);
 
   if (!open) return null;

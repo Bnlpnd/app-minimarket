@@ -25,11 +25,25 @@ export default function AuthCallbackPage() {
         return;
       }
 
+      // Si Google/Supabase devolvio un error en la URL, llevarlo a la tienda
+      // para mostrar el mensaje y el formulario de crear cuenta.
+      const q = new URLSearchParams(window.location.search);
+      const h = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const oauthErr = q.get("error_description") || h.get("error_description") || q.get("error") || h.get("error");
+      if (oauthErr) {
+        router.replace(
+          `/?authError=${encodeURIComponent(
+            `No pudimos iniciar sesión con Google: ${decodeURIComponent(oauthErr).replace(/\+/g, " ")}. Crea tu cuenta con tu correo o intenta de nuevo.`,
+          )}`,
+        );
+        return;
+      }
+
       // Asegurar sesion: el cliente auto-detecta el token de la URL; si no,
       // intercambiamos el code (PKCE) manualmente.
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
-        const code = new URLSearchParams(window.location.search).get("code");
+        const code = q.get("code");
         if (code) {
           try {
             await supabase.auth.exchangeCodeForSession(code);
@@ -42,7 +56,11 @@ export default function AuthCallbackPage() {
       const { data: userData } = await supabase.auth.getUser();
       const user = userData.user;
       if (!user?.email) {
-        setError("No se pudo obtener tu correo de Google. Intenta de nuevo.");
+        router.replace(
+          `/?authError=${encodeURIComponent(
+            "No se pudo completar el inicio con Google. Crea tu cuenta con tu correo o intenta de nuevo.",
+          )}`,
+        );
         return;
       }
 
